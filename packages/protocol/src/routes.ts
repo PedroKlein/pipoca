@@ -1079,6 +1079,13 @@ export const routes = {
       },
     },
   },
+  // Starts a Session that failed to start again.
+  "sessions.retry": {
+    method: "POST",
+    path: "/api/sessions/:id/retry",
+    auth: "person",
+    response: session,
+  },
   // Removes a workspace the runner kept, even when it would lose work.
   "sessions.workspace.remove": {
     method: "DELETE",

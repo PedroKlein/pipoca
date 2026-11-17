@@ -15,6 +15,7 @@ const rejections = {
   offline: [409, "The Session's runner is offline."],
   archived: [409, "The Session is archived."],
   not_kept: [409, "The Session has no kept workspace to remove."],
+  not_failed: [409, "Only a Session that failed to start is retried."],
   unknown_environment: [400, "There is no such Environment."],
   unreachable_host: [
     409,

@@ -23,7 +23,12 @@ import { usePluginHeaders } from "./plugin-parts";
 import { PresenceLine, usePresence, useTyping } from "./presence";
 import { SessionActions } from "./session-actions";
 import { sessionChannel } from "./session-channel";
-import { PagesNotice, PiViewNotice, UiActionNotice } from "./session-notices";
+import {
+  PagesNotice,
+  PiViewNotice,
+  StartFailedNotice,
+  UiActionNotice,
+} from "./session-notices";
 import { AccessDialog, steers, talks } from "./team-access";
 import { TerminalScreen, TerminalView } from "./terminal/terminal-view";
 import type { View } from "./view-switch";
@@ -244,6 +249,7 @@ export function SessionView({
                     },
                   })}
               />
+              {session && !archived && <StartFailedNotice session={session} />}
               {!archived && (
                 <PagesNotice
                   sessionId={sessionId}

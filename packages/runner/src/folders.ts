@@ -84,7 +84,11 @@ export async function profileFolders(options: {
                 ...gitCredentials(gitLogins, process.env),
               }).catch((error: unknown) => {
                 throw new Error(
-                  unconnectedHint(String(error), source, gitLogins),
+                  installHint(
+                    error instanceof Error ? error.message : String(error),
+                    source,
+                    gitLogins,
+                  ),
                 );
               }),
           ),
@@ -165,7 +169,7 @@ async function claimProfiles(dir: string, server: string): Promise<boolean> {
 
 // Pi reads a git package as git:host/path, an https or ssh URL, or
 // git@host:path.
-function unconnectedHint(
+function installHint(
   error: string,
   source: string,
   logins: readonly GitLogin[],
@@ -175,7 +179,24 @@ function unconnectedHint(
       source,
     )?.[1];
 
-  return host === undefined || logins.some((login) => login.host === host)
-    ? error
-    : `${error}. If the repository is private, connect ${host} in Settings, or for team work have an admin choose a bot for it in Git hosts`;
+  if (host === undefined) {
+    return error;
+  }
+
+  const hints = [
+    ...(logins.some((login) => login.host === host)
+      ? []
+      : [
+          `If the repository is private, connect ${host} in Settings, or for team work have an admin choose a bot for it in Git hosts.`,
+        ]),
+    // git says this when the host refused or never answered, before any login
+    // was asked for, such as a host that only lets in its company's network.
+    ...(error.includes("unable to access")
+      ? [
+          `If this machine can't reach ${host}, start the Session on an Environment whose machine can.`,
+        ]
+      : []),
+  ];
+
+  return [error, ...hints].join("\n\n");
 }

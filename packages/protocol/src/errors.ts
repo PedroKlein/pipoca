@@ -39,6 +39,7 @@ export const errorCodes = [
   "offline",
   "archived",
   "not_kept",
+  "not_failed",
   "unknown_environment",
   "unreachable_host",
   "environment_exists",

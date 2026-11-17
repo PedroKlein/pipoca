@@ -3840,6 +3840,73 @@ test("archives a session, shows it only with archived sessions and unarchives it
   expect(await page.locator("#prompt").isVisible()).toBe(true);
 }, 30_000);
 
+test("shows why a session didn't start in full and starts it again on Retry", async () => {
+  const kit = join(root, "retry-kit");
+
+  const post = async <T>(path: string, body: unknown): Promise<T> =>
+    (await (
+      await fetch(new URL(path, server.url), {
+        method: "POST",
+        headers: { "content-type": "application/json", cookie },
+        body: JSON.stringify(body),
+      })
+    ).json()) as T;
+
+  const profile = await post<Profile>("/api/profiles", {
+    name: "Late kit",
+    packages: [kit],
+  });
+
+  const environments = (await (
+    await fetch(new URL("/api/environments", server.url), {
+      headers: { cookie },
+    })
+  ).json()) as Environment[];
+
+  const session = await post<Session>("/api/sessions", {
+    environment: environments.find((each) => each.online)?.id,
+    profile: profile.id,
+    workspace: { kind: "folder", path: root },
+  });
+
+  await page.goto(`${server.url.href}#${session.id}`);
+
+  const notice = page.getByRole("alert").filter({
+    hasText: "This Session couldn't start",
+  });
+
+  await notice.getByLabel("Start error").waitFor();
+
+  expect(await notice.getByLabel("Start error").textContent()).toStartWith(
+    `package ${kit} failed to install: `,
+  );
+
+  expect(await page.locator("#status").textContent()).toBe("failed");
+
+  const box = await notice.boundingBox();
+
+  expect((box?.x ?? 0) + (box?.width ?? Infinity)).toBeLessThanOrEqual(
+    page.viewportSize()?.width ?? 0,
+  );
+
+  await mkdir(join(kit, "extensions"), { recursive: true });
+
+  await writeFile(
+    join(kit, "package.json"),
+    JSON.stringify({ name: "kit", pi: { extensions: ["./extensions"] } }),
+  );
+
+  await writeFile(
+    join(kit, "extensions", "kit.ts"),
+    "export default () => {};",
+  );
+
+  await notice.getByRole("button", { name: "Retry" }).click();
+  await page.locator("#status", { hasText: "idle" }).waitFor();
+
+  expect(await notice.count()).toBe(0);
+}, 30_000);
+
 test("forks a session from a picked message and opens it with that message to edit", async () => {
   faux.setResponses([
     fauxAssistantMessage([fauxText("first answer")]),
