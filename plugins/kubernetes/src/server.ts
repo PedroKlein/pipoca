@@ -566,6 +566,7 @@ async function startPod(
     imagePullPolicy,
     server: serverUrl,
     variables,
+    imageId,
   }: Pods,
   environment: Environment,
   settings: KubernetesSettings,
@@ -585,7 +586,7 @@ async function startPod(
         name,
         environmentId: environment.id,
         image: environment.image ?? image,
-        binaryImage: image,
+        binaryImage: pinned(image, await imageId()),
         binaryPullPolicy: imagePullPolicy,
         server: serverUrl,
         variables,
@@ -626,8 +627,9 @@ function failureOf(
     : `its agent never reached the server at ${serverUrl}`;
 }
 
-// The digests the nodes ran decide. Until both are known, as for a pod
-// still pending or a server outside a pod, the names in the specs do.
+// The digests the nodes ran decide, or a pod's pinned digest until its node
+// ran it. Until both are known, as for a server outside a pod, the names in
+// the specs do.
 function sameBinary(
   pod: RunnerPod,
   image: string,
@@ -637,7 +639,7 @@ function sameBinary(
     return true;
   }
 
-  const ran = digestOf(pod.binaryImageId);
+  const ran = digestOf(pod.binaryImageId) ?? digestOf(pod.binaryImage);
   const runs = digestOf(imageId);
   if (ran !== undefined && runs !== undefined) {
     return ran === runs;
@@ -649,6 +651,28 @@ function sameBinary(
   return named !== undefined && names !== undefined
     ? named === names
     : pod.binaryImage === image;
+}
+
+// A tag can be pushed again after the server pulled it, so pods pull the
+// digest the server runs, or else they would never match it.
+function pinned(image: string, imageId: string | undefined): string {
+  const digest = digestOf(imageId);
+  if (digest === undefined) {
+    return image;
+  }
+
+  return `${repositoryOf(image)}@${digest}`;
+}
+
+function repositoryOf(image: string): string {
+  const at = image.indexOf("@");
+  if (at !== -1) {
+    return image.slice(0, at);
+  }
+
+  const colon = image.lastIndexOf(":");
+
+  return colon > image.lastIndexOf("/") ? image.slice(0, colon) : image;
 }
 
 // An image ID such as repo@sha256:..., with a runtime's prefix or none.

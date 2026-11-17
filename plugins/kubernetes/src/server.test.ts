@@ -1201,8 +1201,8 @@ test("replaces a runner pod whose node ran another digest of the same moving tag
   expect(api.pods.get(oldName)).not.toBe(oldPod);
   expect(tokenOf(oldName)).not.toBe(oldToken);
 
-  expect(oldPod?.spec["initContainers"]).toMatchObject([
-    { image: "pipoca:test" },
+  expect(api.pods.get(oldName)?.spec["initContainers"]).toMatchObject([
+    { image: "pipoca@sha256:new" },
   ]);
 
   expect([...api.claims.keys()].sort()).toEqual([oldName, currentName].sort());
@@ -1213,4 +1213,55 @@ test("replaces a runner pod whose node ran another digest of the same moving tag
   expect(
     t.log.filter(({ message }) => message === "runner pod replaced"),
   ).toHaveLength(1);
+});
+
+test("starts runner pods on the digest the server runs, so its tag pushed again doesn't replace them", async () => {
+  api.pods.set("pipoca-server", {
+    metadata: { name: "pipoca-server", labels: {} },
+    spec: { containers: [{ image: "pipoca:test", command: [] }] },
+    status: {
+      phase: "Running",
+      containerStatuses: [
+        {
+          name: "server",
+          image: "pipoca:test",
+          imageID: "registry/pipoca@sha256:built",
+        },
+      ],
+    },
+  });
+
+  const environment = await kubernetesEnvironment({ workspace: "claim" });
+  const session = await startSession(environment);
+  const name = `pi-session-${session.id}`;
+  await pass();
+
+  const pod = api.pods.get(name);
+
+  expect(pod?.spec["initContainers"]).toMatchObject([
+    { image: "pipoca@sha256:built" },
+  ]);
+
+  await pass(3);
+
+  if (pod) {
+    pod.status = {
+      phase: "Running",
+      initContainerStatuses: [
+        {
+          name: "pipoca",
+          image: "pipoca@sha256:built",
+          imageID: "registry/pipoca@sha256:built",
+        },
+      ],
+    };
+  }
+
+  await pass(3);
+
+  expect(api.pods.get(name)).toBe(pod);
+
+  expect(
+    t.log.filter(({ message }) => message === "runner pod replaced"),
+  ).toHaveLength(0);
 });
