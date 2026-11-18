@@ -6121,10 +6121,15 @@ test("opens an artifact Pi published, in a sandbox, from its card in the chat", 
 
   const resolved = page.getByRole("list", { name: "Resolved comments" });
 
-  // The thread just written stays open.
+  // Pi's answer is in the thread, as Pi via the person who sent it.
   await resolved.getByText("Resolved by Pi").waitFor();
-  await resolved.getByText("Added Q4").waitFor();
-  await resolved.getByText(/via you/).waitFor();
+  await resolved.getByText("1 reply").click();
+
+  const answered = viewer.getByRole("region", { name: "Thread" });
+
+  await answered.getByText("Added Q4").waitFor();
+  await answered.getByText(/via you/).waitFor();
+  await answered.getByRole("button", { name: "All comments" }).click();
 
   // In comment mode a click picks what to comment on; out of it, the page
   // works as itself.
@@ -6306,9 +6311,14 @@ test("comments on selected text and on a clicked element, pins them on the page,
 
   await frame.locator('[data-pipoca-pin="1"]').click();
 
-  await list
-    .getByRole("button", { name: "Comment 1 by You", expanded: true })
+  // A pin opens its thread, and Back returns to the list.
+  const opened = viewer.getByRole("region", { name: "Thread" });
+
+  await opened
+    .getByRole("heading", { name: /^Thread on “The retry/ })
     .waitFor();
+
+  await opened.getByRole("button", { name: "All comments" }).click();
 
   faux.setResponses([fauxAssistantMessage([fauxText("Looking at both")])]);
 
@@ -6327,6 +6337,225 @@ test("comments on selected text and on a clicked element, pins them on the page,
 
   expect(await page.getByText("Looking at both").count()).toBe(1);
 }, 30_000);
+
+test("two people chat in a comment thread, seeing who's here, who's typing and each other's replies live", async () => {
+  const folder = join(root, "chatted");
+  await mkdir(folder, { recursive: true });
+  await writeFile(join(folder, "plan.html"), "<p>Retries last 24 hours.</p>");
+
+  faux.setResponses([
+    fauxAssistantMessage(
+      [
+        fauxToolCall("publish_artifact", {
+          path: "plan.html",
+          title: "Retry plan",
+        }),
+      ],
+      { stopReason: "toolUse" },
+    ),
+    fauxAssistantMessage([fauxText("Published the plan")]),
+  ]);
+
+  await page.goto(server.url.href);
+  await page.getByRole("button", { name: "New session" }).click();
+  const form = page.locator("form#create");
+
+  await pickWorkspace(form, folder);
+  await form.getByRole("button", { name: "Start session" }).click();
+  await page.locator("#status", { hasText: "idle" }).waitFor();
+
+  const prompt = page.locator("#prompt-text");
+  await prompt.fill("publish the plan");
+  await prompt.press("Enter");
+  await page.getByText("Published the plan").waitFor();
+
+  const [invite] = (await (
+    await fetch(new URL("/api/invites", server.url), {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie },
+      body: JSON.stringify({}),
+    })
+  ).json()) as { readonly id: string; readonly token: string }[];
+
+  const other = await browser.newContext({
+    viewport: { width: 1280, height: 900 },
+  });
+
+  try {
+    const rui = await other.newPage();
+    await rui.goto(new URL(`/#join/${invite?.token ?? ""}`, server.url).href);
+
+    const account = rui.getByRole("form", { name: "Make your account" });
+    await account.getByLabel("Username").fill("rui");
+    await account.getByLabel("Password").fill("correct horse");
+    await account.getByRole("button", { name: "Join" }).click();
+    await rui.getByRole("list", { name: "Your steps" }).waitFor();
+
+    await other.request.patch(new URL("/api/me/setup", server.url).href, {
+      data: { finished: true },
+    });
+
+    const listed = (await (
+      await fetch(new URL("/api/ext/artifacts/artifacts", server.url), {
+        headers: { cookie },
+      })
+    ).json()) as { artifacts: { id: string; title: string }[] };
+
+    const id =
+      listed.artifacts.find(({ title }) => title === "Retry plan")?.id ?? "";
+
+    await fetch(
+      new URL(`/api/ext/artifacts/artifacts/${id}/shares`, server.url),
+      {
+        method: "PUT",
+        headers: { "content-type": "application/json", cookie },
+        body: JSON.stringify({ shares: [{ name: "rui", role: "comment" }] }),
+      },
+    );
+
+    await page.getByRole("link", { name: /Retry plan/ }).click();
+    const viewer = page.getByRole("dialog", { name: "Retry plan" });
+    await viewer.getByRole("button", { name: "Comment", exact: true }).click();
+
+    await viewer
+      .getByRole("button", { name: "Comment on the whole page" })
+      .click();
+
+    const box = page.getByRole("form", { name: "New comment" });
+
+    await box
+      .getByRole("textbox", { name: "Comment text" })
+      .fill("Is a day too long?");
+
+    await box
+      .getByRole("textbox", { name: "Comment text" })
+      .press("Control+Enter");
+
+    // A long thread opens at its newest message.
+    const [top] = (
+      (await (
+        await fetch(
+          new URL(`/api/ext/artifacts/artifacts/${id}/comments`, server.url),
+          {
+            headers: { cookie },
+          },
+        )
+      ).json()) as { comments: { id: string }[] }
+    ).comments;
+
+    for (let n = 1; n <= 12; n += 1) {
+      await fetch(
+        new URL(`/api/ext/artifacts/artifacts/${id}/comments`, server.url),
+        {
+          method: "POST",
+          headers: { "content-type": "application/json", cookie },
+          body: JSON.stringify({
+            version: 1,
+            body: `Note ${String(n)} on the retry window`,
+            parent: top?.id,
+            toPi: false,
+          }),
+        },
+      );
+    }
+
+    await viewer.getByRole("button", { name: /^Comment 1 by / }).click();
+
+    const fromEnd = async (): Promise<number> =>
+      page.evaluate(
+        "(() => { const box = document.querySelector('ol[aria-label=Messages]').parentElement; return box.scrollHeight - box.scrollTop - box.clientHeight; })()",
+      );
+
+    await viewer.getByText("Note 12 on the retry window").waitFor();
+    expect(await fromEnd()).toBeLessThan(48);
+
+    await rui.goto(new URL(`/#plugin/artifacts/${id}`, server.url).href);
+    await rui.reload();
+    await rui.getByRole("button", { name: "Comment 1" }).click();
+    await rui.getByRole("button", { name: /^Comment 1 by / }).click();
+
+    // Each sees the other is here.
+    await viewer.getByRole("img", { name: "Also here: rui" }).waitFor();
+    await rui.getByRole("img", { name: "Also here: pedro" }).waitFor();
+
+    // Rui mentions Pedro from the list, and Pedro sees Rui typing.
+    const reply = rui.getByRole("form", { name: "Reply" }).getByRole("textbox");
+    await reply.pressSequentially("Agreed, @pe");
+
+    await rui
+      .getByRole("listbox", { name: "People" })
+      .getByRole("option")
+      .first()
+      .click();
+
+    await reply.pressSequentially("12 hours is enough");
+
+    await viewer.getByText("rui is typing…").waitFor();
+
+    await rui
+      .getByRole("form", { name: "Reply" })
+      .getByRole("button", { name: "Reply" })
+      .click();
+
+    const messages = viewer.getByRole("list", { name: "Messages" });
+    await messages.getByText("Agreed, @pedro 12 hours is enough").waitFor();
+
+    // Pedro is named in it, so it stands out to him.
+    await messages.locator("b", { hasText: "@pedro" }).waitFor();
+
+    // Pedro was at the end, so the new reply scrolls into view.
+    expect(await fromEnd()).toBeLessThan(48);
+
+    await viewer
+      .getByText("rui is typing…")
+      .waitFor({ state: "hidden", timeout: 3000 });
+
+    // Pedro reacts, and Rui sees it.
+    await messages
+      .getByRole("listitem")
+      .last()
+      .getByRole("button", { name: "Add a reaction" })
+      .click();
+
+    // The menu opens inside the comments, where nothing covers it.
+    const menu = await page
+      .getByRole("menu", { name: "Add a reaction" })
+      .boundingBox();
+
+    const aside = await viewer
+      .getByRole("complementary", { name: "Comments" })
+      .boundingBox();
+
+    expect(
+      menu !== null &&
+        aside !== null &&
+        menu.x >= aside.x &&
+        menu.x + menu.width <= aside.x + aside.width &&
+        menu.y + menu.height <= aside.y + aside.height,
+    ).toBe(true);
+
+    await page.getByRole("menuitem", { name: "Thumbs up" }).click();
+
+    await rui
+      .getByRole("list", { name: "Messages" })
+      .getByRole("button", { name: /^Thumbs up from / })
+      .waitFor();
+
+    // Rui leaves, and Pedro sees it at once.
+    await rui.close();
+
+    await viewer
+      .getByRole("img", { name: "Also here: rui" })
+      .waitFor({ state: "hidden", timeout: 5000 });
+  } finally {
+    await other.close();
+
+    await fetch(new URL(`/api/invites/${invite?.id ?? ""}`, server.url), {
+      method: "DELETE",
+      headers: { cookie },
+    });
+  }
+}, 60_000);
 
 test("edits a Markdown artifact beside its preview and compares the versions with the changed words marked", async () => {
   const folder = join(root, "plan");

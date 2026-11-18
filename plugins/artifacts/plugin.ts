@@ -105,5 +105,13 @@ create table artifacts_batch_threads (
     // version it was written on, with quote naming it for people.
     `alter table artifacts_comments add column kind text not null default 'comment' check (kind in ('comment', 'question', 'decision', 'suggestion'));
 alter table artifacts_comments add column element text not null default '';`,
+    // 5: reactions on comments, one of each kind per person.
+    `create table artifacts_reactions (
+  comment_id text not null references artifacts_comments (id) on delete cascade,
+  user_id text not null references users (id) on delete cascade,
+  emoji text not null check (emoji in ('👍', '🎉', '👀', '✅')),
+  created_at integer not null,
+  primary key (comment_id, user_id, emoji)
+) strict, without rowid;`,
   ],
 });

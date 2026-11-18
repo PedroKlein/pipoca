@@ -15,20 +15,26 @@ export function Avatar({
   name,
   size = "sm",
   square = false,
+  pi = false,
   children,
   className,
 }: {
   readonly name: string;
+  // Pi's own mark, in its colour.
+  readonly pi?: boolean;
   readonly size?: keyof typeof sizes;
   readonly square?: boolean;
   readonly children?: ReactNode;
   readonly className?: string;
 }): ReactElement {
+  const initials = square ? initialsOf(name) : personInitials(name);
+
   return (
     <span
       aria-hidden="true"
       className={cn(
-        "grid shrink-0 place-items-center bg-hover font-semibold text-fg-strong",
+        "grid shrink-0 place-items-center font-semibold",
+        pi ? "bg-butter text-on-butter" : "bg-hover text-fg-strong",
         sizes[size],
         square
           ? cn(
@@ -39,7 +45,7 @@ export function Avatar({
         className,
       )}
     >
-      {children ?? (square ? initialsOf(name) : personInitials(name))}
+      {children ?? (pi ? "Pi" : initials)}
     </span>
   );
 }

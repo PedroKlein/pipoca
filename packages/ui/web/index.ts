@@ -1,5 +1,6 @@
 export { AreaLayout, type AreaGroup, type AreaItem } from "./area-layout";
 export { Avatar } from "./avatar";
+export { type Completion, type Typed, useCompletion } from "./completion";
 export { Badge, type BadgeState } from "./badge";
 export {
   Button,

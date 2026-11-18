@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { renderPart, sessionWith } from "@pipoca/plugins/web/testing";
 import { until } from "@pipoca/testing/until";
 import { act } from "react";
-import type { ArtifactSummary, Comment } from "../src/artifacts";
+import type { ArtifactSummary, Comment, Presence } from "../src/artifacts";
 import { web } from "./index";
 
 // The page's change stream, which tells only what a test says changed.
@@ -231,6 +231,18 @@ interface Served {
   readonly url: string;
   readonly method: string;
   readonly body?: unknown;
+  readonly keepalive?: true;
+}
+
+// Answers who's looking for a fake that doesn't, and keeps those calls out
+// of what it hears.
+function lively(
+  fetch: (url: string, init?: RequestInit) => Promise<Response>,
+): (url: string, init?: RequestInit) => Promise<Response> {
+  return async (url, init) =>
+    url.endsWith("/presence") || url.endsWith("/people")
+      ? Response.json({ people: [] })
+      : fetch(url, init);
 }
 
 // The plugin's routes as a fake server, with the artifact these tests open
@@ -240,18 +252,41 @@ function serving(
   asked: Served[],
   {
     comments = () => [],
-  }: { readonly comments?: () => readonly Comment[] } = {},
+    people = [],
+    here = () => [],
+    beats = [],
+  }: {
+    readonly comments?: () => readonly Comment[];
+    // Who else can see the artifact, and who of them is looking now.
+    readonly people?: readonly string[];
+    readonly here?: () => readonly Presence[];
+    // Where the viewer's presence calls go, kept out of what was asked.
+    readonly beats?: Served[];
+  } = {},
 ): (url: string, init?: RequestInit) => Promise<Response> {
   return async (url, init) => {
     await Promise.resolve();
 
-    asked.push({
+    const served: Served = {
       url,
       method: init?.method ?? "GET",
       ...(typeof init?.body === "string" && {
         body: JSON.parse(init.body) as unknown,
       }),
-    });
+      ...(init?.keepalive === true && { keepalive: true as const }),
+    };
+
+    if (url.endsWith("/presence")) {
+      beats.push(served);
+
+      return Response.json(served.method === "GET" ? { people: here() } : {});
+    }
+
+    if (url.endsWith("/people")) {
+      return Response.json({ people });
+    }
+
+    asked.push(served);
 
     if (url.endsWith("/comments")) {
       return Response.json(
@@ -1493,7 +1528,7 @@ test("a link opens the artifact alone in the window, and an earlier version offe
     { path: "a1/v/2" },
     {
       hash: "#plugin/artifacts/a1/v/2",
-      fetch: async (url, init) => {
+      fetch: lively(async (url, init) => {
         await Promise.resolve();
 
         asked.push({ url, method: init?.method ?? "GET" });
@@ -1505,7 +1540,7 @@ test("a link opens the artifact alone in the window, and an earlier version offe
         return url.endsWith("/restore")
           ? Response.json({ version: 4 })
           : Response.json({ ...artifact({ versions: 3 }), ...viewed(3) });
-      },
+      }),
     },
   );
 
@@ -1550,7 +1585,7 @@ test("sharing names people and what they can do, and the link opens the latest o
     "page",
     { path: "a1" },
     {
-      fetch: async (url, init) => {
+      fetch: lively(async (url, init) => {
         await Promise.resolve();
 
         asked.push({
@@ -1567,7 +1602,7 @@ test("sharing names people and what they can do, and the link opens the latest o
         return url.endsWith("/shares")
           ? Response.json({ shares: [] })
           : Response.json({ ...artifact({ versions: 2 }), ...viewed(2) });
-      },
+      }),
     },
   );
 
@@ -1868,6 +1903,7 @@ function thread(o: Partial<Comment> & { readonly id: string }): Comment {
     resolved: false,
     resolvedByPi: false,
     createdAt: Date.now(),
+    reactions: [],
     ...o,
   };
 }
@@ -1931,7 +1967,7 @@ test("drafts for Pi are listed with the page's pins, and the checked ones go to 
     {},
     {
       hash: "#session-1?artifact=a1&comments=1",
-      fetch: async (url, init) => {
+      fetch: lively(async (url, init) => {
         if (url.endsWith("/send") && (sends += 1) === 1) {
           return Response.json({ error: "Pi is offline" }, { status: 503 });
         }
@@ -1940,8 +1976,17 @@ test("drafts for Pi are listed with the page's pins, and the checked ones go to 
           return Response.json({ error: "Try later" }, { status: 503 });
         }
 
+        if (url.endsWith("/t2/resolve")) {
+          comments[1] = thread({
+            id: "t2",
+            author: "Rui",
+            body: "Keep this chart",
+            resolved: true,
+          });
+        }
+
         return serve(url, init);
-      },
+      }),
     },
   );
 
@@ -1978,8 +2023,7 @@ test("drafts for Pi are listed with the page's pins, and the checked ones go to 
   frame.tell({ pipoca: "pin", n: 3 });
 
   await drawn(
-    () =>
-      named(page, "Comment 3 by You")?.getAttribute("aria-expanded") === "true",
+    () => document.activeElement?.textContent === "Thread on “Nov 3”",
   );
 
   await drawn(() =>
@@ -2007,6 +2051,15 @@ test("drafts for Pi are listed with the page's pins, and the checked ones go to 
       .filter((each) => each.pipoca === "commenting")
       .at(-1)?.on,
   ).toBe(true);
+
+  // Back at the list, focus is on the thread's card again.
+  act(() => {
+    named(page, "All comments")?.click();
+  });
+
+  expect(document.activeElement?.getAttribute("aria-label")).toBe(
+    "Comment 3 by You",
+  );
 
   // A send that fails says so, and can be tried again.
   act(() => {
@@ -2093,8 +2146,18 @@ test("drafts for Pi are listed with the page's pins, and the checked ones go to 
     body: { resolved: true },
   });
 
+  expect(named(page, "Reopen")).toBeDefined();
+  expect(reply()).toBeNull();
+
+  // The resolved thread isn't open any more, so focus goes to the list.
   act(() => {
-    named(page, "Resolved 1")?.click();
+    named(page, "All comments")?.click();
+  });
+
+  await drawn(() => document.activeElement?.textContent === "Comments");
+
+  act(() => {
+    named(page, "Resolved 2")?.click();
   });
 
   expect(aside()?.textContent).toContain("Resolved by Pi");
@@ -2159,10 +2222,11 @@ test("comments that can't be loaded say so, and the page still shows", async () 
     {},
     {
       hash: "#session-1?artifact=a1&comments=1",
-      fetch: async (url, init) =>
+      fetch: lively(async (url, init) =>
         url.endsWith("/comments")
           ? Response.json({ error: "down" }, { status: 500 })
           : serve(url, init),
+      ),
     },
   );
 
@@ -2183,10 +2247,11 @@ test("a comment can be on the whole page, for people who can't select", async ()
     {},
     {
       hash: "#session-1?artifact=a1&comments=1",
-      fetch: async (url, init) =>
+      fetch: lively(async (url, init) =>
         failing && init?.method === "POST"
           ? Response.json({ error: "Disk full" }, { status: 507 })
           : serve(url, init),
+      ),
     },
   );
 
@@ -2330,8 +2395,7 @@ test("a pin opens its thread from the page with the comments closed, and @pi sen
   frame.tell({ pipoca: "pin", n: 1 });
 
   await drawn(
-    () =>
-      named(page, "Comment 1 by Ana")?.getAttribute("aria-expanded") === "true",
+    () => document.activeElement?.textContent === "Thread on “three times”",
   );
 
   await drawn(
@@ -2341,6 +2405,10 @@ test("a pin opens its thread from the page with the comments closed, and @pi sen
         .filter((each) => each.pipoca === "commenting")
         .at(-1)?.on === true,
   );
+
+  act(() => {
+    named(page, "All comments")?.click();
+  });
 
   act(() => {
     named(page, "Comment on the whole page")?.click();
@@ -2362,4 +2430,409 @@ test("a pin opens its thread from the page with the comments closed, and @pi sen
   await drawn(
     () => page.querySelector("[role=status]")?.textContent === "Sent to Pi",
   );
+});
+
+// What the viewer told the server about being here, without its page id.
+function told(beats: readonly Served[]): unknown[] {
+  return beats
+    .filter(({ method }) => method === "POST")
+    .map(({ body, keepalive }) => {
+      const { page, ...rest } = body as { page: unknown };
+
+      expect(typeof page).toBe("string");
+
+      return keepalive === true ? { ...rest, keepalive } : rest;
+    });
+}
+
+test("a thread is a small chat: who's here, reactions, mentions and who's typing", async () => {
+  const asked: Served[] = [];
+  const beats: Served[] = [];
+  let here: Presence[] = [{ name: "Rui", typing: null }];
+  let held: (() => void) | undefined;
+  let refusals = 0;
+
+  const comments = [
+    thread({
+      id: "t1",
+      author: "Rui",
+      quote: "A sender retries with exponential backoff for 24 hours",
+      body: "Too long. @Ana what do you think?",
+      sentBy: "Rui",
+      reactions: [{ emoji: "👍", people: ["Ana"], mine: false }],
+    }),
+    thread({
+      id: "t2",
+      parent: "t1",
+      author: "Pi",
+      byPi: true,
+      body: "x@Ana @Anabel @ana @AxB @Zed @pi",
+    }),
+    thread({ id: "t3", author: "Bo", quote: "merchant", body: "Which one?" }),
+  ];
+
+  const serve = serving(
+    { ...artifact({ versions: 2 }), ...viewed(2), askable: true },
+    asked,
+    {
+      people: ["A.B", "Bo", "Rui"],
+      here: () => here,
+      beats,
+      comments: () => comments,
+    },
+  );
+
+  const page = renderPart(
+    web,
+    "overlay",
+    {},
+    {
+      hash: "#session-1?artifact=a1&comments=1",
+      fetch: async (url, init) => {
+        if (url.endsWith("/t2/reactions") && (refusals += 1) === 1) {
+          return Response.json({ error: "Try later" }, { status: 503 });
+        }
+
+        if (url.endsWith("/t1/reactions") && typeof init?.body === "string") {
+          const { on } = JSON.parse(init.body) as { on: boolean };
+
+          await new Promise<void>((resolve) => {
+            held = resolve;
+          });
+
+          comments[0] = thread({
+            ...comments[0],
+            id: "t1",
+            reactions: [
+              { emoji: "👍", people: on ? ["Ana", "You"] : ["Ana"], mine: on },
+            ],
+          });
+        }
+
+        return serve(url, init);
+      },
+    },
+  );
+
+  await opened(asked);
+
+  await drawn(
+    () =>
+      page.querySelector("[aria-label='Also here: Rui']") !== null &&
+      named(page, "Comment 1 by Rui") !== undefined,
+  );
+
+  expect(told(beats)[0]).toEqual({ here: true });
+
+  // A card says how many replies its thread has and whether Pi has it.
+  const card = named(page, "Comment 1 by Rui");
+
+  expect(
+    card
+      ?.getAttribute("aria-describedby")
+      ?.split(" ")
+      .map((id) => document.getElementById(id)?.textContent),
+  ).toEqual([
+    "Too long. @Ana what do you think?",
+    "1 reply",
+    "Sent to Pi by Rui",
+  ]);
+
+  act(() => {
+    card?.click();
+  });
+
+  const section = (): HTMLElement | null =>
+    page.querySelector("section[aria-label=Thread]");
+
+  // A long quote keeps its start and end, and says all of it on hover.
+  const title = section()?.querySelector("h3");
+
+  expect(title?.textContent).toBe("Thread on “A sender … 24 hours”");
+
+  expect(title?.getAttribute("title")).toBe(
+    "A sender retries with exponential backoff for 24 hours",
+  );
+
+  expect(title?.parentElement?.textContent).toContain("Sent to Pi");
+
+  const messages = (): Element[] => [
+    ...(section()?.querySelectorAll("ol[aria-label=Messages] > li") ?? []),
+  ];
+
+  expect(
+    messages().map((each) => each.querySelector("b")?.textContent),
+  ).toEqual(["Rui", "Pi"]);
+
+  // Only whole names of people who can see it, the viewer's own and Pi's
+  // stand out.
+  const bold = (at: number): (string | null)[] =>
+    [...(messages()[at]?.querySelectorAll("p b") ?? [])].map(
+      (each) => each.textContent,
+    );
+
+  expect(bold(0)).toEqual(["@Ana"]);
+  expect(bold(1)).toEqual(["@ana", "@pi"]);
+
+  // A reaction is added to, and a second press before it lands does
+  // nothing; once it's back, pressing it again takes it off.
+  const pill = (): HTMLButtonElement | undefined =>
+    buttons(page).find(
+      (each) =>
+        each.getAttribute("aria-label")?.startsWith("Thumbs up from") === true,
+    );
+
+  act(() => {
+    pill()?.click();
+  });
+
+  await act(async () => until(() => held !== undefined));
+
+  expect(pill()?.getAttribute("aria-disabled")).toBe("true");
+
+  act(() => {
+    pill()?.click();
+  });
+
+  act(() => {
+    held?.();
+    held = undefined;
+  });
+
+  await drawn(() => pill()?.getAttribute("aria-pressed") === "true");
+
+  expect(pill()?.getAttribute("aria-label")).toBe("Thumbs up from Ana, You");
+
+  act(() => {
+    pill()?.click();
+  });
+
+  await act(async () => until(() => held !== undefined));
+
+  act(() => {
+    held?.();
+    held = undefined;
+  });
+
+  await drawn(() => pill()?.getAttribute("aria-pressed") === "false");
+
+  expect(
+    asked
+      .filter(({ url }) => url.endsWith("/reactions"))
+      .map(({ body }) => body),
+  ).toEqual([
+    { emoji: "👍", on: true },
+    { emoji: "👍", on: false },
+  ]);
+
+  // Any of the four can be picked from the message's menu, again after a
+  // try that failed.
+  const celebrate = (): void => {
+    act(() => {
+      messages()[1]
+        ?.querySelector<HTMLButtonElement>(
+          "button[aria-label='Add a reaction']",
+        )
+        ?.click();
+    });
+
+    act(() => {
+      [...page.querySelectorAll<HTMLButtonElement>("[role=menuitem]")]
+        .find((each) => each.textContent.includes("Celebrate"))
+        ?.click();
+    });
+  };
+
+  celebrate();
+  await drawn(() => messages()[1]?.textContent.includes("Try later") === true);
+
+  celebrate();
+
+  await act(async () =>
+    until(
+      () =>
+        asked.filter(({ url }) => url.endsWith("/t2/reactions")).length === 1,
+    ),
+  );
+
+  expect(
+    asked
+      .filter(({ url }) => url.endsWith("/t2/reactions"))
+      .map(({ body }) => body),
+  ).toEqual([{ emoji: "🎉", on: true }]);
+
+  // @ lists the people who can see it and Pi; arrows move and wrap, and
+  // Enter picks.
+  const box = (): HTMLTextAreaElement | null =>
+    page.querySelector("form[aria-label=Reply] textarea");
+
+  const options = (): string[] =>
+    [...page.querySelectorAll("[role=listbox][aria-label=People] li")].map(
+      (each) => each.querySelector("span")?.textContent ?? "",
+    );
+
+  typeInto(box(), "Fine by me @");
+
+  expect(options()).toEqual(["@pi", "@A.B", "@Bo", "@Rui"]);
+
+  // A name that starts with what's typed comes before one that has it.
+  typeInto(box(), "Fine by me @b");
+
+  expect(options()).toEqual(["@Bo", "@A.B"]);
+
+  typeInto(box(), "Fine by me @");
+
+  act(() => {
+    box()?.focus();
+
+    box()?.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }),
+    );
+  });
+
+  act(() => {
+    box()?.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+    );
+  });
+
+  expect(box()?.value).toBe("Fine by me @Rui ");
+
+  // Typing tells the others once in a burst, and sending says it stopped.
+  await act(async () =>
+    until(() => told(beats).some((each) => Bun.deepEquals(each, typingIn))),
+  );
+
+  expect(
+    told(beats).filter((each) => Bun.deepEquals(each, typingIn)),
+  ).toHaveLength(1);
+
+  await act(async () => {
+    page
+      .querySelector<HTMLFormElement>("form[aria-label=Reply]")
+      ?.requestSubmit();
+
+    await until(() =>
+      told(beats).some((each) => Bun.deepEquals(each, stopped)),
+    );
+  });
+
+  expect(
+    asked
+      .filter(
+        ({ method, url }) => method === "POST" && url.endsWith("/comments"),
+      )
+      .map(({ body }) => body),
+  ).toEqual([
+    { version: 2, body: "Fine by me @Rui", parent: "t1", toPi: false },
+  ]);
+
+  await drawn(() => box()?.value === "");
+
+  // Who else types here shows under the messages, and not who types in
+  // another thread.
+  const typing = (): string | undefined =>
+    section()?.querySelector("[role=status]")?.textContent;
+
+  here = [
+    { name: "Rui", typing: "t1" },
+    { name: "Bo", typing: "t1" },
+  ];
+
+  changed("artifacts.presence-a1");
+  await drawn(() => typing() === "Rui and Bo are typing…");
+
+  here = [{ name: "Rui", typing: "t3" }];
+
+  changed("artifacts.presence-a1");
+  await drawn(() => typing() === "");
+
+  // A pin opens its own thread with an empty reply box, and the typing
+  // others saw in the last one stops.
+  typeInto(box(), "Half a thought");
+
+  await act(async () =>
+    until(() => told(beats).some((each) => Bun.deepEquals(each, typingIn))),
+  );
+
+  const stops = told(beats).filter((each) =>
+    Bun.deepEquals(each, stopped),
+  ).length;
+
+  frameOf(page).tell({ pipoca: "pin", n: 2 });
+
+  await drawn(
+    () =>
+      section()?.querySelector("h3")?.textContent === "Thread on “merchant”",
+  );
+
+  expect(box()?.value).toBe("");
+
+  await act(async () =>
+    until(
+      () =>
+        told(beats).filter((each) => Bun.deepEquals(each, stopped)).length >
+        stops,
+    ),
+  );
+
+  // Leaving the page says so, even as it closes.
+  await act(async () => {
+    dispatchEvent(new Event("pagehide"));
+
+    await until(() => told(beats).some((each) => Bun.deepEquals(each, gone)));
+  });
+
+  expect(told(beats).at(-1)).toEqual({ here: false, keepalive: true });
+
+  // Nothing it says after that, such as a stop, can bring it back.
+  typeInto(box(), "Late");
+
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  });
+
+  expect(told(beats).at(-1)).toEqual(gone);
+});
+
+const typingIn = { here: true, typing: "t1" };
+const stopped = { here: true, typing: null };
+const gone = { here: false, keepalive: true };
+
+test("people who only view read a thread but don't react or reply", async () => {
+  const asked: Served[] = [];
+
+  const page = renderPart(
+    web,
+    "overlay",
+    {},
+    {
+      hash: "#session-1?artifact=a1&comments=1",
+      fetch: serving(
+        { ...artifact({ versions: 2 }), ...viewed(2), access: "view" },
+        asked,
+        {
+          comments: () => [
+            thread({
+              id: "t1",
+              body: "Ship it",
+              reactions: [{ emoji: "🎉", people: ["Bo"], mine: false }],
+            }),
+          ],
+        },
+      ),
+    },
+  );
+
+  await opened(asked);
+  await drawn(() => named(page, "Comment 1 by Ana") !== undefined);
+
+  act(() => {
+    named(page, "Comment 1 by Ana")?.click();
+  });
+
+  expect(named(page, "Celebrate from Bo")?.disabled).toBe(true);
+  expect(named(page, "Add a reaction")).toBeUndefined();
+  expect(named(page, "Resolve")).toBeUndefined();
+  expect(page.querySelector("form[aria-label=Reply]")).toBeNull();
 });

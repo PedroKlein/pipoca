@@ -7,6 +7,7 @@ import {
   useOverlay,
 } from "@pipoca/plugins/web";
 import {
+  Avatar,
   Button,
   buttonClass,
   cn,
@@ -48,6 +49,7 @@ import {
   pinsOf,
   threadsOf,
 } from "./comments";
+import { usePresence } from "./presence";
 import { ShareDialog } from "./share";
 import { Compare, Editor } from "./versions";
 
@@ -358,6 +360,18 @@ function Shown({
     { changes: ["artifacts"] },
   );
 
+  const presence = usePresence(artifact.id);
+
+  const { value: people } = useLoaded(
+    async () =>
+      api
+        .get<{ people: string[] }>(`artifacts/${artifact.id}/people`)
+        .then(({ people: all }) => all)
+        .catch((): string[] => []),
+    `${artifact.id}:people`,
+    { changes: ["artifacts"] },
+  );
+
   const threads = useMemo(
     () =>
       comments === undefined || comments === "failed"
@@ -604,6 +618,7 @@ function Shown({
         <span role="status" className="text-caption text-fg-dim">
           {said}
         </span>
+        <Here people={presence.people.map(({ name }) => name)} />
         <Menu
           label={
             latest
@@ -723,11 +738,11 @@ function Shown({
               anchor={anchor}
               scrolled={held.scrolled}
               area={area}
+              people={people ?? []}
               onDone={(done) => {
                 setAnchor(undefined);
 
                 if (done !== undefined) {
-                  setActive(done.id);
                   setSaved(done.id);
                   setSaid(savedLine(artifact, done.sentToPi));
                   reload();
@@ -739,7 +754,7 @@ function Shown({
         {commenting && (
           <aside
             aria-label="Comments"
-            className="flex w-[340px] shrink-0 flex-col border-l border-line bg-elevated max-sm:w-full"
+            className="flex w-[420px] shrink-0 flex-col border-l border-line bg-elevated max-sm:w-full"
           >
             <CommentList
               artifact={artifact}
@@ -758,6 +773,9 @@ function Shown({
                 setAnchor({ page: true });
               }}
               onChanged={reload}
+              people={people ?? []}
+              presence={presence.people}
+              onTyping={presence.typing}
             />
           </aside>
         )}
@@ -772,6 +790,44 @@ function Shown({
       />
       {confirmDialog}
     </div>
+  );
+}
+
+// The others looking at the artifact now.
+function Here({
+  people,
+}: {
+  readonly people: readonly string[];
+}): ReactElement | null {
+  if (people.length === 0) {
+    return null;
+  }
+
+  return (
+    <span
+      role="img"
+      aria-label={`Also here: ${people.join(", ")}`}
+      title={`Also here: ${people.join(", ")}`}
+      className="flex -space-x-1.5"
+    >
+      {people.slice(0, 3).map((name, at) => (
+        <Avatar
+          key={`${String(at)}:${name}`}
+          name={name}
+          size="xs"
+          className="ring-2 ring-elevated"
+        />
+      ))}
+      {people.length > 3 && (
+        <Avatar
+          name={`+${String(people.length - 3)}`}
+          size="xs"
+          className="ring-2 ring-elevated"
+        >
+          {`+${String(people.length - 3)}`}
+        </Avatar>
+      )}
+    </span>
   );
 }
 

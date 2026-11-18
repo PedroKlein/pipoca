@@ -20,6 +20,8 @@ import {
   type Batch,
   type Comment,
   type CommentKind,
+  type Reaction,
+  reactionEmoji,
   bytes,
   kindOf,
   type Published,
@@ -28,6 +30,7 @@ import {
   supported,
   type Version,
 } from "./artifacts";
+import { presences } from "./presence";
 import { rendered } from "./render";
 
 interface Row {
@@ -80,7 +83,18 @@ const version = Type.Object({
 // Artifacts, their versions' bytes in the plugin's blob store (ADR 0078).
 export const server = defineServer(
   artifacts,
-  ({ blobs, clock, config, events, log, people, routes, sessions, store }) => {
+  ({
+    blobs,
+    clock,
+    config,
+    events,
+    log,
+    people,
+    routes,
+    sessions,
+    store,
+    timer,
+  }) => {
     const maxFileBytes = (): number => config.get().maxFileBytes;
 
     blobs.acceptUploads({ maxBytes: maxFileBytes });
@@ -480,7 +494,54 @@ export const server = defineServer(
       return person === reader ? "You" : (people.get(person)?.name ?? person);
     };
 
-    const toComment = (each: CommentRow, reader: string | null): Comment => ({
+    const reactionsOf = (
+      artifact: string,
+      reader: string | null,
+    ): ReadonlyMap<string, readonly Reaction[]> => {
+      const found = new Map<string, Reaction[]>();
+
+      for (const { comment_id, user_id, emoji } of store.all<{
+        comment_id: string;
+        user_id: string;
+        emoji: Reaction["emoji"];
+      }>(
+        "select r.comment_id, r.user_id, r.emoji from artifacts_reactions r join artifacts_comments c on c.id = r.comment_id where c.artifact_id = ? order by r.created_at, r.user_id",
+        artifact,
+      )) {
+        const on = found.get(comment_id) ?? [];
+        const at = on.findIndex((each) => each.emoji === emoji);
+        const was = on[at] ?? { emoji, people: [], mine: false };
+
+        const next = {
+          emoji,
+          people: [...was.people, personName(user_id, reader)],
+          mine: was.mine || user_id === reader,
+        };
+
+        if (at < 0) {
+          on.push(next);
+        } else {
+          on[at] = next;
+        }
+
+        found.set(comment_id, on);
+      }
+
+      for (const on of found.values()) {
+        on.sort(
+          (a, b) =>
+            reactionEmoji.indexOf(a.emoji) - reactionEmoji.indexOf(b.emoji),
+        );
+      }
+
+      return found;
+    };
+
+    const toComment = (
+      each: CommentRow,
+      reader: string | null,
+      reactions: ReadonlyMap<string, readonly Reaction[]> = new Map(),
+    ): Comment => ({
       id: each.id,
       kind: each.kind,
       version: each.version,
@@ -495,15 +556,22 @@ export const server = defineServer(
       resolved: each.resolved_at !== null,
       resolvedByPi: each.resolved_by_pi === 1,
       createdAt: each.created_at,
+      reactions: reactions.get(each.id) ?? [],
     });
 
-    const comments = (id: string, reader: string | null): readonly Comment[] =>
-      store
+    const comments = (
+      id: string,
+      reader: string | null,
+    ): readonly Comment[] => {
+      const reactions = reactionsOf(id, reader);
+
+      return store
         .all<CommentRow>(
           "select * from artifacts_comments where artifact_id = ? order by created_at, id",
           id,
         )
-        .map((each) => toComment(each, reader));
+        .map((each) => toComment(each, reader, reactions));
+    };
 
     const thread = (artifact: Row, id: string): CommentRow => {
       const found = store.get<CommentRow>(
@@ -768,6 +836,129 @@ export const server = defineServer(
         }
 
         return { id, sentToPi: toSession !== undefined };
+      },
+    );
+
+    routes.put(
+      "artifacts/:id/comments/:comment/reactions",
+      {
+        auth: "person",
+        body: Type.Object({
+          emoji: Type.Union(reactionEmoji.map((each) => Type.Literal(each))),
+          on: Type.Boolean(),
+        }),
+        changes: ["artifacts"],
+      },
+      ({ caller, params, body }) => {
+        const artifact = commenter(params.id, caller);
+
+        const found = store.get<{ id: string }>(
+          "select id from artifacts_comments where id = ? and artifact_id = ?",
+          params.comment,
+          artifact.id,
+        );
+
+        if (found === undefined) {
+          throw new NotFound(`no comment ${params.comment}`);
+        }
+
+        if (body.on) {
+          store.run(
+            "insert or ignore into artifacts_reactions (comment_id, user_id, emoji, created_at) values (?, ?, ?, ?)",
+            found.id,
+            caller.person.id,
+            body.emoji,
+            clock.now(),
+          );
+        } else {
+          store.run(
+            "delete from artifacts_reactions where comment_id = ? and user_id = ? and emoji = ?",
+            found.id,
+            caller.person.id,
+            body.emoji,
+          );
+        }
+
+        return { reacted: body.on };
+      },
+    );
+
+    // Who a comment can mention: everyone else who can see the artifact.
+    routes.get(
+      "artifacts/:id/people",
+      { auth: "person" },
+      ({ caller, params }) => {
+        const artifact = theirs(params.id, caller);
+
+        return {
+          people: people
+            .list()
+            .filter(
+              (each) => each.id !== caller.person.id && sees(artifact, each.id),
+            )
+            .map((each) => each.name)
+            .sort((a, b) => a.localeCompare(b)),
+        };
+      },
+    );
+
+    const looking = presences({
+      clock,
+      timer,
+      changed: (artifact) => {
+        routes.topic(`presence-${artifact}`);
+      },
+    });
+
+    routes.get(
+      "artifacts/:id/presence",
+      { auth: "person" },
+      ({ caller, params }) => {
+        const artifact = theirs(params.id, caller);
+
+        return {
+          people: looking
+            .list(artifact.id)
+            .filter(
+              ({ person }) =>
+                person !== caller.person.id && sees(artifact, person),
+            )
+            .map(({ person, typing }) => ({
+              name: personName(person, null),
+              typing,
+            })),
+        };
+      },
+    );
+
+    routes.post(
+      "artifacts/:id/presence",
+      {
+        auth: "person",
+        body: Type.Object({
+          page: Type.String({ minLength: 1, maxLength: 64 }),
+          here: Type.Boolean(),
+          typing: Type.Optional(
+            Type.Union([
+              Type.String({ minLength: 1, maxLength: 100 }),
+              Type.Null(),
+            ]),
+          ),
+        }),
+      },
+      ({ caller, params, body }) => {
+        // Typing is where a reply is coming, so only for people who reply.
+        const { typing } = body;
+        const replying = typeof typing === "string";
+        const artifact = (replying ? commenter : theirs)(params.id, caller);
+
+        if (typeof typing === "string") {
+          thread(artifact, typing);
+        }
+
+        looking.beat(artifact.id, caller.person.id, body);
+
+        return { here: body.here };
       },
     );
 
