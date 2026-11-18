@@ -21,6 +21,8 @@ export function usePresence(id: string): {
     at: 0,
   });
 
+  const gone = useRef(false);
+
   const { value } = useLoaded(
     async () =>
       api
@@ -44,14 +46,17 @@ export function usePresence(id: string): {
     };
 
     const leave = (): void => {
+      gone.current = true;
       beat(false);
     };
 
     // Back from the browser's page cache, after leaving said goodbye.
     const back = (): void => {
+      gone.current = false;
       beat(true);
     };
 
+    gone.current = false;
     beat(true);
 
     const every = setInterval(() => {
@@ -73,11 +78,17 @@ export function usePresence(id: string): {
     (thread: string | null) => {
       const now = Date.now();
 
-      if (thread === said.current.thread && now - said.current.at < typingMs) {
+      // Stopping is said once, typing at most every few seconds per thread,
+      // and nothing once the page said it left.
+      if (
+        gone.current ||
+        (thread === said.current.thread &&
+          (thread === null || now - said.current.at < typingMs))
+      ) {
         return;
       }
 
-      said.current = { thread: thread ?? "", at: thread === null ? 0 : now };
+      said.current = { thread, at: now };
 
       void api
         .post(`artifacts/${id}/presence`, { page, here: true, typing: thread })

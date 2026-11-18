@@ -434,7 +434,7 @@ function Message({
                   react(each.emoji, !each.mine);
                 }}
                 className={cn(
-                  "inline-flex h-6 cursor-pointer items-center gap-1 rounded-full border px-2 text-caption disabled:cursor-default",
+                  "inline-flex h-6 cursor-pointer items-center gap-1 rounded-full border px-2 text-caption disabled:cursor-default aria-disabled:cursor-progress aria-disabled:opacity-60",
                   each.mine
                     ? "border-line-strong bg-hover text-fg-strong"
                     : "border-line text-fg",

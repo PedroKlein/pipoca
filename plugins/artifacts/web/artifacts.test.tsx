@@ -2784,6 +2784,15 @@ test("a thread is a small chat: who's here, reactions, mentions and who's typing
   });
 
   expect(told(beats).at(-1)).toEqual({ here: false, keepalive: true });
+
+  // Nothing it says after that, such as a stop, can bring it back.
+  typeInto(box(), "Late");
+
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  });
+
+  expect(told(beats).at(-1)).toEqual(gone);
 });
 
 const typingIn = { here: true, typing: "t1" };

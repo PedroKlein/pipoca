@@ -95,6 +95,11 @@ export function presences({
       const now = clock.now();
       const key = `${person}:${page}`;
 
+      // A stop that arrives after the page left doesn't bring it back.
+      if (typing === null && !room.has(key)) {
+        return;
+      }
+
       if (here) {
         let typed = room.get(key)?.typing ?? null;
 

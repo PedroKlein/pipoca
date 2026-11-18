@@ -720,6 +720,11 @@ test("people see who else is looking and who is typing in which thread, until th
 
   expect(await seen("ana")).toEqual([]);
 
+  // A stop that lands after the page closed doesn't bring the person back.
+  await here("bo", { here: true, typing: null }, "two");
+
+  expect(await seen("ana")).toEqual([]);
+
   // Only a person's latest ten pages count, however many they claim.
   for (let n = 0; n <= 10; n += 1) {
     await here("bo", { here: true }, `page ${String(n)}`);
