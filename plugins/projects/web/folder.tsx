@@ -3,6 +3,7 @@ import {
   uploadBlob,
   useApi,
   useDraft,
+  useFilled,
   useLoaded,
   useNow,
   useOverlay,
@@ -21,7 +22,7 @@ import {
   TextInput,
   useConfirm,
 } from "@pipoca/ui";
-import { folderAttachment } from "./files";
+import { folderAttachment, publishable } from "./files";
 import { type ReactElement, useEffect, useRef, useState } from "react";
 import { projects } from "../plugin";
 import { bytes, type FolderFile, type FolderWrite } from "../src/model";
@@ -34,12 +35,17 @@ type Named<T> = T & { readonly by: string };
 export function Folder({
   project,
 }: {
-  readonly project: { readonly id: string; readonly coordinatorId: string };
+  readonly project: {
+    readonly id: string;
+    readonly coordinatorId: string;
+    readonly steers: boolean;
+  };
 }): ReactElement {
   const api = useApi(projects);
   const path = `projects/${encodeURIComponent(project.id)}`;
   const { open } = useOverlay();
   const draft = useDraft();
+  const publishes = useFilled("file.actions");
   const time = useNow();
   const [confirm, confirmDialog] = useConfirm();
 
@@ -330,6 +336,18 @@ export function Folder({
                           saveAs(fileHref(file.path), file.path);
                         },
                       },
+                      // The file's viewer holds the publish button, which
+                      // the artifacts plugin draws.
+                      ...(publishes && project.steers && publishable(file.path)
+                        ? [
+                            {
+                              label: "Publish as artifact…",
+                              run: () => {
+                                open({ project: project.id, path: file.path });
+                              },
+                            },
+                          ]
+                        : []),
                       {
                         label: "Attach to a new message",
                         run: () => {

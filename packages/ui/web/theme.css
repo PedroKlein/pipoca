@@ -156,6 +156,9 @@
   --color-term-bg: var(--term-bg);
   --color-term-fg: var(--term-fg);
   --color-scrim: var(--scrim);
+  /* What a browser draws under a page that sets no background of its own,
+     in either theme, for artifacts and file previews. */
+  --color-canvas: #ffffff;
   --color-butter: var(--butter);
   --color-on-butter: var(--on-butter);
   --color-transparent: transparent;

@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { drafts, renderPart } from "@pipoca/plugins/web/testing";
 import { until } from "@pipoca/testing/until";
-import { act } from "react";
+import { act, type ComponentType } from "react";
 import { Folder } from "./folder";
 import { web } from "./index";
 
@@ -37,7 +37,7 @@ test("the Project folder opens subfolders, finds files, says who wrote each and 
   const page = renderPart(
     { ...web, slots },
     "folder",
-    { project: { id: "p1", coordinatorId: "c1" } },
+    { project: { id: "p1", coordinatorId: "c1", steers: true } },
     {
       fetch: async (url, init) => {
         await Promise.resolve();
@@ -234,4 +234,75 @@ test("the Project folder opens subfolders, finds files, says who wrote each and 
   await act(async () => until(() => deleted.length === 1));
 
   expect(deleted).toEqual(["/api/ext/projects/projects/p1/file?path=notes.md"]);
+});
+
+test("a file's More menu offers Publish as artifact to whoever steers the Project where artifacts can be published, and opens the file to publish it", async () => {
+  const items = async (
+    fills: Readonly<Record<string, ComponentType<never>>>,
+    steers: boolean,
+    name = "notes.md",
+  ): Promise<string[]> => {
+    let asked = 0;
+
+    const page = renderPart(
+      { ...web, slots },
+      "folder",
+      { project: { id: "p1", coordinatorId: "c1", steers } },
+      {
+        fills,
+        fetch: async (url) => {
+          await Promise.resolve();
+          asked += 1;
+
+          return Response.json(
+            url.endsWith("/files")
+              ? {
+                  perProjectBytes: 1024,
+                  historyDays: 14,
+                  files: [file(name, "Ana")],
+                }
+              : { writes: [] },
+          );
+        },
+      },
+    );
+
+    await act(async () => until(() => asked === 2));
+
+    act(() => {
+      page
+        .querySelector<HTMLButtonElement>(`[aria-label="More for ${name}"]`)
+        ?.click();
+    });
+
+    return [...document.querySelectorAll<HTMLElement>("[role=menuitem]")].map(
+      (each) => each.textContent,
+    );
+  };
+
+  const publish = { "file.actions": () => <span data-publish /> };
+
+  expect(await items({}, true)).not.toContain("Publish as artifact…");
+  location.hash = "#session-1";
+  expect(await items(publish, false)).not.toContain("Publish as artifact…");
+
+  location.hash = "#session-1";
+
+  // Only a file that makes an artifact: a page, document, picture, PDF or
+  // table, not plain text or code.
+  expect(await items(publish, true, "data.json")).not.toContain(
+    "Publish as artifact…",
+  );
+
+  location.hash = "#session-1";
+
+  expect(await items(publish, true)).toContain("Publish as artifact…");
+
+  act(() => {
+    [...document.querySelectorAll<HTMLElement>("[role=menuitem]")]
+      .find((each) => each.textContent === "Publish as artifact…")
+      ?.click();
+  });
+
+  expect(location.hash).toContain("?project=p1&path=notes.md");
 });

@@ -229,7 +229,7 @@ export function TeamHub({ route }: { readonly route: Route }): ReactElement {
       <main inert={drawer} className="flex min-w-0 flex-1 flex-col">
         {!framed ? (
           <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-            <div className="p-2 md:hidden">
+            <div className="hidden p-2 drawer:block">
               <MenuButton onMenu={openDrawer} />
             </div>
             {content()}

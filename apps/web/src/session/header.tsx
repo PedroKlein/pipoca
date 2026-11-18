@@ -46,15 +46,16 @@ export function Header({
       )}
     >
       {onMenu && (
-        <Button
-          variant="ghost"
-          iconOnly
-          aria-label="Open sessions"
-          onClick={onMenu}
-          className="md:hidden"
-        >
-          <Icon name="menu" />
-        </Button>
+        <span className="hidden drawer:contents">
+          <Button
+            variant="ghost"
+            iconOnly
+            aria-label="Open sessions"
+            onClick={onMenu}
+          >
+            <Icon name="menu" />
+          </Button>
+        </span>
       )}
       <div
         className={cn(

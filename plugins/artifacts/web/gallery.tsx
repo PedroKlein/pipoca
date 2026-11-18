@@ -282,7 +282,7 @@ function FirstScreen({
       aria-hidden="true"
       className={cn(
         "relative block h-37.5 overflow-hidden border-b border-line",
-        artifact.kind !== "pdf" && seen ? "bg-white" : "bg-elevated",
+        artifact.kind !== "pdf" && seen ? "bg-canvas" : "bg-elevated",
       )}
     >
       {artifact.kind === "pdf" ? (

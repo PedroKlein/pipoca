@@ -124,7 +124,8 @@ function useSessionFiles(sessionId: string): Kept | undefined {
   const api = useApi(plugin);
 
   return useLoaded(
-    async () => api.get<Kept>(`sessions/${sessionId}/files`),
+    async () =>
+      api.get<Kept>(`sessions/${encodeURIComponent(sessionId)}/files`),
     sessionId,
     { changes: ["files"] },
   ).value;
@@ -499,7 +500,7 @@ async function sendUpload(
   const hash = await uploadBlob(api, file, onSent);
 
   const { path } = await api.post<{ path: string }>(
-    `sessions/${sessionId}/uploads`,
+    `sessions/${encodeURIComponent(sessionId)}/uploads`,
     { name: file.name, hash },
   );
 

@@ -2,8 +2,9 @@ import { cn } from "@pipoca/ui";
 import { type ReactElement, type ReactNode, useEffect, useRef } from "react";
 
 // The sidebar, which on a phone slides in over a scrim while open. It takes
-// focus, gives it back on closing, and closes on Escape, on following a
-// link, or when the screen grows wide enough to show it beside the page.
+// focus, keeps it from what sits behind, gives it back on closing, and
+// closes on Escape, on following a link, or once the window has room to
+// show it beside the page.
 export function Drawer({
   open,
   onClose,
@@ -26,29 +27,84 @@ export function Drawer({
     }
 
     const opener = document.activeElement;
-
-    aside.current
-      ?.querySelector<HTMLElement>("a[href], button:not(:disabled), input")
-      ?.focus();
-
-    const wide = matchMedia("(width >= 48rem)");
+    const area = aside.current?.parentElement;
 
     const shut = (): void => {
       close.current();
     };
 
+    // A docked artifact also makes it a drawer, so the window's width alone
+    // doesn't say when it sits beside the page.
+    const inline = (): boolean =>
+      aside.current !== null &&
+      getComputedStyle(aside.current).position !== "fixed";
+
+    if (inline()) {
+      shut();
+
+      return undefined;
+    }
+
+    aside.current
+      ?.querySelector<HTMLElement>("a[href], button:not(:disabled), input")
+      ?.focus();
+
+    // The page and whatever is docked beside it, also once a dock comes;
+    // not a dialog the sidebar opens, such as New session.
+    const hidden = new Set<HTMLElement>();
+
+    const hide = (): void => {
+      for (const each of area?.children ?? []) {
+        if (
+          each instanceof HTMLElement &&
+          !(each instanceof HTMLDialogElement) &&
+          each !== aside.current &&
+          each.getAttribute("aria-hidden") !== "true" &&
+          !each.inert
+        ) {
+          each.inert = true;
+          hidden.add(each);
+        }
+      }
+    };
+
+    const changed = (): void => {
+      if (inline()) {
+        shut();
+      } else {
+        hide();
+      }
+    };
+
+    hide();
+
+    const watch = new MutationObserver(changed);
+
+    if (area !== null && area !== undefined) {
+      watch.observe(area, { childList: true });
+    }
+
     const shutOnEscape = (event: KeyboardEvent): void => {
-      if (event.key === "Escape") {
+      // A dialog the sidebar opened takes its own Escape.
+      if (
+        event.key === "Escape" &&
+        !(event.target instanceof Element && event.target.closest("dialog"))
+      ) {
         shut();
       }
     };
 
-    wide.addEventListener("change", shut);
+    addEventListener("resize", changed);
     document.addEventListener("keydown", shutOnEscape);
 
     return () => {
-      wide.removeEventListener("change", shut);
+      watch.disconnect();
+      removeEventListener("resize", changed);
       document.removeEventListener("keydown", shutOnEscape);
+
+      for (const each of hidden) {
+        each.inert = false;
+      }
 
       if (opener instanceof HTMLElement && opener.isConnected) {
         opener.focus();
@@ -62,8 +118,8 @@ export function Drawer({
         aria-hidden="true"
         onClick={onClose}
         className={cn(
-          "fixed inset-0 z-10 bg-scrim backdrop-blur-scrim md:hidden",
-          !open && "hidden",
+          "fixed inset-0 z-10 hidden bg-scrim backdrop-blur-scrim",
+          open && "drawer:block",
         )}
       />
       <aside
@@ -74,11 +130,11 @@ export function Drawer({
           }
         }}
         className={cn(
-          "z-20 w-sidebar shrink-0 border-r border-line max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:w-[min(320px,85vw)] max-md:shadow-pop",
+          "z-20 w-sidebar shrink-0 border-r border-line drawer:fixed drawer:inset-y-0 drawer:left-0 drawer:w-[min(320px,85vw)] drawer:shadow-pop",
           // Showing it at once lets focus move in; hiding it after the slide keeps the slide visible.
           open
-            ? "max-md:motion-safe:transition-[translate]"
-            : "max-md:invisible max-md:-translate-x-full max-md:motion-safe:transition-[translate,visibility]",
+            ? "drawer:motion-safe:transition-[translate]"
+            : "drawer:invisible drawer:-translate-x-full drawer:motion-safe:transition-[translate,visibility]",
         )}
       >
         {children}

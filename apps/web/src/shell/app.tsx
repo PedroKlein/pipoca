@@ -109,7 +109,10 @@ function Screens(): ReactElement {
 
 function Area({ children }: { readonly children: ReactNode }): ReactElement {
   return (
-    <div className="flex h-dvh overflow-hidden bg-bg font-sans text-ui text-fg">
+    <div
+      data-area
+      className="flex h-dvh overflow-hidden bg-bg font-sans text-ui text-fg"
+    >
       {children}
       {fillsOf("dock").map(({ plugin, Component }) => (
         <PluginBoundary key={plugin} name={plugin}>
@@ -236,7 +239,7 @@ function Home({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-      <div className="p-2 md:hidden">
+      <div className="hidden p-2 drawer:block">
         <MenuButton onMenu={onMenu} />
       </div>
       <SetupReminders />

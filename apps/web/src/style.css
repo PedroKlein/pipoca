@@ -5,6 +5,18 @@
 @source "../../../packages/ui/web";
 @source "../../../plugins/*/web";
 
+/* The sidebar is a drawer on narrow windows, and while a plugin docks
+   something beside the page. */
+@custom-variant drawer {
+  @media (width < 48rem) {
+    @slot;
+  }
+
+  &:where([data-area]:has(> [data-dock]) *) {
+    @slot;
+  }
+}
+
 @layer base {
   body {
     background: var(--bg);

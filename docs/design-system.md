@@ -25,6 +25,7 @@ Every colour is a CSS variable, set for a theme by `data-theme` on any element. 
 | `fg` / `fg-strong` / `fg-dim`       | Ink                     | Puff                  | Text, headings, secondary text        |
 | `accent` / `on-accent`              | Ink / Ivory             | Puff / Ink            | Primary buttons, selection, links     |
 | `working` `waiting` `done` `failed` | teal, amber, green, red | lighter tints         | Session and runner states only        |
+| `canvas`                            | White `#ffffff`         | White `#ffffff`       | Under an artifact or a file preview   |
 
 The four state colours mean the same thing everywhere and are never used for decoration. `butter` only shows in the mark, since it sits between amber and red. `scrim` dims the page behind a dialog or drawer, and `--ansi-0` to `--ansi-15` colour terminal output.
 

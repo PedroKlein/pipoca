@@ -25,3 +25,10 @@ An admin adds a mailbox in Settings > Integrations > Email with its address, log
 - A Session of that person gets `email_send` to send mail or reply to one by its Message-ID.
 - Replies to mail the Session sent come back to that Session as messages instead of starting runs.
 - A routine's results can go out with the `email.mail` destination, and a run that proposes can send with the `email.send` action.
+
+## Telling people
+
+Both plugins also tell people of mentions and review requests on [artifacts](artifacts-and-files.md#activity), as each person turns on in Activity. They reach a person by the email on their account, which each person sets in Settings > General > **Edit profile**. No two accounts share one, and nothing checks it's theirs.
+
+- Slack sends a direct message from a bot the person uses, else one the team uses, which finds them with `users.lookupByEmail`. That needs the `users:read` and `users:read.email` scopes: **Create the Slack app** asks for them, and a bot made before needs them added and the app reinstalled. The message holds the headline, such as "Ana asked you to review Rollout plan", and a link.
+- Email goes from a mailbox the person uses, else one the team uses, with a subject that says only what happened, such as "You were mentioned in Pipoca", and a link.

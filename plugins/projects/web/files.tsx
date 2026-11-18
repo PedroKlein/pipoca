@@ -21,7 +21,7 @@ import {
   useFilled,
   type Attachment,
 } from "@pipoca/plugins/web";
-import { isHttpError } from "@pipoca/plugins";
+import { isHttpError, previewKind } from "@pipoca/plugins";
 import { Dialog, plural } from "@pipoca/ui";
 import { type ReactElement, useId, useState } from "react";
 import { projects } from "../plugin";
@@ -48,7 +48,10 @@ function useSessionFolder(sessionId: string): SessionFolder | undefined {
   const api = useApi(projects);
 
   return useLoaded(
-    async () => api.get<SessionFolder>(`sessions/${sessionId}/folder`),
+    async () =>
+      api.get<SessionFolder>(
+        `sessions/${encodeURIComponent(sessionId)}/folder`,
+      ),
     `folder:${sessionId}`,
     { changes: ["projects"] },
   ).value;
@@ -175,7 +178,7 @@ function ProjectFileViewer({
   const { open } = useOverlay();
   const now = useNow();
   const publishes = useFilled("file.actions");
-  const base = `projects/${id}`;
+  const base = `projects/${encodeURIComponent(id)}`;
 
   const { value } = useLoaded(
     async () =>
@@ -237,7 +240,7 @@ function ProjectFileViewer({
         },
       }}
       note={
-        publishes && value?.[1].steers === true
+        publishes && value?.[1].steers === true && publishable(shown.path)
           ? "Every Session in the Project sees this file in project/. Publish it as an artifact to share it and get comments."
           : "Every Session in the Project sees this file in project/."
       }
@@ -319,6 +322,14 @@ export function folderAttachment(path: string): Attachment {
     title: path,
     icon: "folder",
     detail: "from project/ · already saved",
-    text: `Attached: ${path} from the Project's shared folder; list_project_files gives its full path.`,
+    text: `Attached: ${JSON.stringify(path)} from the Project's shared folder; list_project_files gives its full path.`,
   };
+}
+
+// What makes an artifact: a page, document, picture, PDF or table, not plain
+// text or code.
+export function publishable(path: string): boolean {
+  const kind = previewKind(path.split("/").at(-1) ?? path);
+
+  return kind !== undefined && kind !== "text";
 }

@@ -39,7 +39,8 @@ export const web = defineWeb(greeter, {
 
 ## Pages and settings
 
-- `pages` are the plugin's pages, under `#plugin/<id>/<path>`. `nav` lists one in the sidebar, under More unless it is `pinned` or the person pins it, and `area` puts it on the team hub (`"hub"`) or in Team setup (`"setup"`) instead. `href(plugin, path)` links to one.
+- `pages` are the plugin's pages, under `#plugin/<id>/<path>`. `nav` lists one in the sidebar, under More unless it is `pinned` or the person pins it, and `area` puts it on the team hub (`"hub"`) or in Team setup (`"setup"`) instead. A plugin can list several pages, each pinned on its own. `href(plugin, path)` links to one.
+- `nav.Count` draws a number beside the entry, such as what's unread. `nav.Items` lists rows under it, and `nav.Live` lists work below all the entries, such as active Projects.
 - A page whose `bare(path)` is true for the rest of the address is drawn alone in the window, without the sidebar, as a link to one artifact is.
 - `settings` is its section on the Settings page: `form: "auto"` draws a form from its config, or give your own `Section`.
 - A page or `Section` puts its title, description and actions in `Page` from `@pipoca/ui`. Inside the app's own column it draws only those and its content.
@@ -72,10 +73,14 @@ export const web = defineWeb(greeter, {
 | `link:<scheme>`                                                                      | How a link with that scheme in the chat's Markdown shows.                                                                                          |
 | `home`                                                                               | The home screen, drawn by the first plugin that fills it, as the assistant is.                                                                     |
 | `overlay`                                                                            | Over every page, as the artifact viewer is. It reads what to show from `useOverlay()`.                                                             |
+| `dock`                                                                               | Beside every page, as the artifact viewer is when docked by the chat.                                                                              |
+| `activity.channel`                                                                   | Where else a person is told of artifact activity on a `topic`, such as " · push", on the artifacts plugin's Activity page.                         |
 | `environment.section`, `template.section`                                            | A section on an Environment's or a template's page.                                                                                                |
 | `settings.general`, `settings.accounts`, `settings.profile`, `settings.base-profile` | A section on those Settings pages, or on the Server base.                                                                                          |
 
 `useFilled(slot)` says whether any plugin fills a slot, so a part can leave out a button that would open nothing.
+
+A part adds a section to a Session header's **Files** menu with `FilesSection` (`name`, `order`, `title`, `count`, an `action` beside the filter, and its rows as a function of the filter), drawn while the menu is open. `FilesRow` is one row. `FileViewer` shows a file over the page in the shared viewer, with the header actions you give it.
 
 The composer's attachments are `Attachment`s (`key`, `title`, `icon`, `detail` and the `text` that goes with the message), drawn as `AttachedCard`s. `FileCard` is the card a file shows as in the chat, which opens it.
 

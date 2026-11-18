@@ -1110,14 +1110,10 @@ export const server = defineServer(
       return found.session;
     };
 
-    // Names every thread asked since its last notice in one notice, so Pi
-    // takes them in one turn. The thread text stays out of it.
-    const tell = (sessionId: string): void => {
-      if (sessions.get(sessionId)?.archivedAt !== null) {
-        return;
-      }
-
-      const waiting = store.all<CommentRow & { title: string }>(
+    // Threads sent to Pi that it hasn't heard of yet, as a busy Session
+    // hears them once it settles.
+    const untold = (sessionId: string) =>
+      store.all<CommentRow & { title: string }>(
         `select c.*, a.title from artifacts_comments c
          join artifacts_artifacts a on a.id = c.artifact_id
          where a.session_id = ? and c.parent_id is null and c.sent_to_pi = 1
@@ -1125,6 +1121,15 @@ export const server = defineServer(
          order by c.asked_at, c.id`,
         sessionId,
       );
+
+    // Names every thread asked since its last notice in one notice, so Pi
+    // takes them in one turn. The thread text stays out of it.
+    const tell = (sessionId: string): void => {
+      if (sessions.get(sessionId)?.archivedAt !== null) {
+        return;
+      }
+
+      const waiting = untold(sessionId);
 
       if (waiting.length === 0) {
         return;
@@ -1169,6 +1174,8 @@ export const server = defineServer(
           );
         }
       });
+
+      routes.topic("artifacts");
     };
 
     // A busy Session hears once it settles, so threads sent during a turn
@@ -1882,6 +1889,25 @@ export const server = defineServer(
       },
       async ({ caller, query }) =>
         activity.list(caller.person.id, query.view ?? "mine"),
+    );
+
+    routes.get(
+      "waiting",
+      {
+        auth: "person",
+        query: Type.Object({ session: Type.String({ minLength: 1 }) }),
+      },
+      ({ caller, query }) => {
+        const session = sessions.get(query.session);
+
+        // Only while a turn runs, which they follow.
+        const reading =
+          session?.archivedAt === null &&
+          isBusy(session.status) &&
+          sessions.sees(session.id, caller.person.id);
+
+        return { threads: reading ? untold(query.session).length : 0 };
+      },
     );
 
     routes.get("activity/unread", { auth: "person" }, ({ caller }) => ({

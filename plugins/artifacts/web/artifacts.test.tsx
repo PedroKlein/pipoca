@@ -4326,7 +4326,7 @@ test("the + menu attaches an artifact as text that names its id and version for 
       title: "Checkout latency",
       icon: "file-text",
       detail: "artifact · version 4",
-      text: "Attached: the artifact “Checkout latency” (a1), version 4. Read it with read_artifact.",
+      text: 'Attached: the artifact "Checkout latency" (a1), version 4. Read it with read_artifact.',
     },
   ]);
 
@@ -4834,6 +4834,11 @@ test("Activity lists what's for the person, opens each where it happened and mar
 
   expect(text(0)).toEndWith("Mention");
 
+  // Only what was written gives way on a narrow row.
+  expect(rows()[0]?.querySelector(".truncate")?.textContent).toBe(
+    "“Works for me. @Ana ok to accept?",
+  );
+
   expect(text(1)).toContain(
     "Pedro asked you to review Webhooks v2 delivery design",
   );
@@ -4967,4 +4972,96 @@ test("a link to another thread of the artifact open in the window opens that thr
   });
 
   await drawn(() => title() === "Thread on “Nov 3”");
+});
+
+test("a version Pi publishes while the artifact is open says so and compares it with the one before", async () => {
+  let served = { ...artifact({ versions: 3 }), ...viewed(3) };
+
+  const page = renderPart(
+    { ...web, slots },
+    "page",
+    { path: "a1" },
+    {
+      hash: "#plugin/artifacts/a1",
+      fetch: lively(async (url) => {
+        await Promise.resolve();
+
+        return url.endsWith("/comments")
+          ? Response.json({ comments: [] })
+          : Response.json(served);
+      }),
+    },
+  );
+
+  await drawn(() => page.textContent.includes("Version 3 · latest"));
+
+  // What was there when it opened isn't news.
+  expect(page.querySelector("[aria-label='New version']")).toBeNull();
+
+  const four = viewed(4);
+
+  served = {
+    ...artifact({ versions: 4 }),
+    ...four,
+    history: four.history.map((each) =>
+      each.number === 4
+        ? { ...each, note: "Error rate next to the bars" }
+        : each,
+    ),
+  };
+
+  act(() => {
+    changed("artifacts.artifacts");
+  });
+
+  await drawn(() => page.querySelector("[aria-label='New version']") !== null);
+
+  expect(page.querySelector("[aria-label='New version']")?.textContent).toBe(
+    "Pi published version 4 · “Error rate next to the bars”Compare with 3",
+  );
+
+  act(() => {
+    named(page, "Compare with 3")?.click();
+  });
+
+  await drawn(
+    () => page.querySelector("[aria-label='Back to version 4']") !== null,
+  );
+});
+
+test("above the composer, it says how many threads wait for Pi's turn to end", async () => {
+  const asked: string[] = [];
+  let threads = 2;
+
+  const page = renderPart(
+    web,
+    "session.composer",
+    { session: sessionWith({}) },
+    {
+      fetch: lively(async (url) => {
+        await Promise.resolve();
+        asked.push(url);
+
+        return Response.json({ threads });
+      }),
+    },
+  );
+
+  await drawn(() => page.textContent.includes("waiting"));
+
+  expect(asked[0]).toBe(
+    `/api/ext/artifacts/waiting?session=${sessionWith({}).id}`,
+  );
+
+  expect(page.textContent).toBe(
+    "2 more threads waitingPi reads them when this turn ends",
+  );
+
+  threads = 0;
+
+  act(() => {
+    changed("artifacts.artifacts");
+  });
+
+  await drawn(() => page.textContent === "");
 });

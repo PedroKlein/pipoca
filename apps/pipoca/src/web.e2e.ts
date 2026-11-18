@@ -5278,7 +5278,7 @@ test("opens what Pi's turn saved from the card under its reply, publishes it as 
 
   await page
     .locator('#chat li[data-role="user"]', {
-      hasText: "Attached: the artifact “joined.csv”",
+      hasText: 'Attached: the artifact "joined.csv"',
     })
     .waitFor();
 
@@ -5665,6 +5665,29 @@ test("moves focus into the sessions drawer, closes it with Escape and gives focu
   expect(await page.locator(":focus").getAttribute("aria-label")).toBe(
     "Open sessions",
   );
+
+  // New session from the open drawer opens a dialog that takes input.
+  await menu.click();
+  await newSession.click();
+  await page.locator("form#create").waitFor();
+
+  expect(
+    await page.evaluate(
+      "document.querySelector('form#create').closest('[inert]') === null",
+    ),
+  ).toBe(true);
+
+  await page.keyboard.press("Escape");
+  await page.locator("form#create").waitFor({ state: "hidden" });
+
+  // Escape closed only the dialog: the drawer stays, with focus in it.
+  expect(await page.evaluate("document.querySelector('main').inert")).toBe(
+    true,
+  );
+
+  expect(await page.locator("aside :focus").count()).toBe(1);
+  await page.keyboard.press("Escape");
+  await newSession.waitFor({ state: "hidden" });
 
   await page.setViewportSize({ width: 1280, height: 720 });
 });
@@ -6177,7 +6200,7 @@ test("opens an artifact Pi published, in a sandbox, from its card in the chat", 
 
   await writeFile(
     join(folder, "report.html"),
-    "<h1>Quarterly report</h1><script>document.body.append(String(window.origin))</script><button onclick=\"parent.postMessage({ pipoca: 'draft', text: 'Make the chart blue' }, '*')\">Ask Pi</button>",
+    "<h1>Quarterly report</h1><script>document.body.append(String(window.origin)); parent.postMessage({ pipoca: 'draft', text: 'Unasked' }, '*')</script><button onclick=\"parent.postMessage({ pipoca: 'draft', text: 'Make the chart blue' }, '*')\">Ask Pi</button><button onclick=\"setTimeout(() => { parent.postMessage({ pipoca: 'draft', text: 'Later' }, '*'); document.body.append('posted later') }, 5500)\">Later</button>",
   );
 
   faux.setResponses([
@@ -6326,6 +6349,16 @@ test("opens an artifact Pi published, in a sandbox, from its card in the chat", 
   // In comment mode a click picks what to comment on; out of it, the page
   // works as itself.
   await viewer.getByRole("button", { name: /^Comment/, pressed: true }).click();
+
+  // Long after a click, while the page still has focus, a draft isn't the
+  // person's doing.
+  await frame.getByRole("button", { name: "Later" }).click();
+  // Waiting without looking: Playwright runs its looks as user gestures.
+  await page.waitForTimeout(6500);
+  await frame.getByText("posted later").waitFor();
+  expect(await viewer.isVisible()).toBe(true);
+  expect(await page.locator("#prompt-text").inputValue()).toBe("");
+
   await frame.getByRole("button", { name: "Ask Pi" }).click();
 
   await page.getByText("Answered in the thread").waitFor();
@@ -6351,7 +6384,7 @@ test("opens an artifact Pi published, in a sandbox, from its card in the chat", 
   );
 
   await page.locator("#prompt-text:focus").waitFor();
-}, 30_000);
+}, 45_000);
 
 test("Pi suggests an edit in a thread, accepting it saves the next version, and Activity tells the person who asked", async () => {
   const folder = join(root, "suggested");
@@ -6906,6 +6939,11 @@ test("docks an artifact beside the chat on a wide window, and on a phone keeps i
   await box.press("Enter");
   await page.getByText("Published the layouts").waitFor();
 
+  // With the sidebar beside the chat there's no menu to open it.
+  expect(
+    await page.getByRole("button", { name: "Open sessions" }).isVisible(),
+  ).toBe(false);
+
   try {
     await page.getByRole("link", { name: /Layouts/ }).click();
 
@@ -6919,6 +6957,39 @@ test("docks an artifact beside the chat on a wide window, and on a phone keeps i
     await page.locator("#prompt-text").fill("still here");
     const header = await docked.locator("header").boundingBox();
     expect(header?.height).toBeLessThan(64);
+
+    // A page that sets no background shows on white, as in a browser.
+    expect(
+      await page.evaluate(
+        "getComputedStyle(document.querySelector('[data-dock] iframe')).backgroundColor",
+      ),
+    ).toBe("rgb(255, 255, 255)");
+
+    // The sidebar steps aside to give the chat room, and comes back over it.
+    const chat = await page.locator("main").boundingBox();
+    expect(chat?.width).toBeGreaterThan(500);
+    await page.getByRole("button", { name: "Open sessions" }).click();
+    await page.getByRole("button", { name: "New session" }).waitFor();
+
+    // Behind the open sidebar the docked artifact takes no focus.
+    const dockInert = "document.querySelector('[data-dock]').inert";
+    expect(await page.evaluate(dockInert)).toBe(true);
+    await page.keyboard.press("Escape");
+    expect(await page.evaluate(dockInert)).toBe(false);
+
+    // Narrowed past the dock, the sidebar sits beside the page again and
+    // the page isn't left unusable behind a closed drawer.
+    await page.getByRole("button", { name: "Open sessions" }).click();
+    await page.getByRole("button", { name: "New session" }).waitFor();
+    await page.setViewportSize({ width: 1000, height: 900 });
+
+    await until(
+      async () => page.evaluate("document.querySelector('main').inert"),
+      (inert) => inert === false,
+    );
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await docked.waitFor();
 
     await docked.getByRole("button", { name: "Dock beside the page" }).click();
     await viewer.waitFor();
@@ -7044,6 +7115,12 @@ test("reads a design doc with its status, an outline of its sections and its com
   };
 
   await level();
+
+  // The card beside it numbers nothing, so the passage has no badge.
+  await until(
+    async () => frame.locator("[data-pipoca-pin]").count(),
+    (count) => count === 0,
+  );
 
   await frame.locator("body").evaluate("scrollBy(0, 120)");
 

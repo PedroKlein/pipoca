@@ -67,6 +67,7 @@ document.addEventListener("click", (event) => {
   if (String(getSelection()).trim() === "") pick(event.target);
 }, true);
 let pins = [];
+let badges = true;
 let shown = null;
 const pin = () => {
   for (const mark of document.querySelectorAll("mark[data-pipoca]")) mark.replaceWith(...mark.childNodes);
@@ -101,6 +102,7 @@ const pin = () => {
     if (active && n !== shown) target.scrollIntoView({ block: "nearest" });
     if (n === null) continue;
     placed.push({ n, target });
+    if (!badges) continue;
     const r = target.getBoundingClientRect();
     const badge = drawn("display: grid; place-items: center; width: 22px; height: 22px; border-radius: 11px 11px 11px 2px; background: rgb(243, 197, 82); color: rgb(26, 23, 18); font: 600 11px/1 system-ui, sans-serif; pointer-events: auto; cursor: pointer; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);");
     badge.dataset.pipocaPin = String(n);
@@ -144,6 +146,7 @@ addEventListener("message", (event) => {
     document.documentElement.style.cursor = commenting ? "crosshair" : "";
   } else if (event.data?.pipoca === "pins") {
     pins = event.data.pins;
+    badges = event.data.badges !== false;
     pinAndShow();
   } else if (event.data?.pipoca === "goto") {
     headings()[event.data.section]?.scrollIntoView({ block: "start", behavior: "smooth" });

@@ -1,6 +1,7 @@
 import { protocolVersion, versionHeader } from "@pipoca/protocol";
 import type { PluginDefinition } from "./definition";
 import { HttpError } from "./http";
+import { routeUrl } from "./route";
 
 type Query = Readonly<Record<string, string | number | boolean | undefined>>;
 
@@ -55,6 +56,10 @@ export function pluginClient(
     init: RequestInit,
   ): Promise<Response> => {
     const url = path.startsWith("/") ? path : `${base}${path}`;
+
+    if (routeUrl(url, path.startsWith("/") ? "/" : base) === undefined) {
+      throw new Error(`${path} isn't a route`);
+    }
 
     return send(
       options.server === undefined ? url : new URL(url, options.server).href,

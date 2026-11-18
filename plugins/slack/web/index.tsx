@@ -35,6 +35,8 @@ const manifest = {
         "im:history",
         "chat:write",
         "reactions:read",
+        "users:read",
+        "users:read.email",
       ],
     },
   },
