@@ -28,8 +28,22 @@ export function usePresence(id: string): {
   useEffect(() => {
     const beat = (here: boolean): void => {
       void api
-        .post(`artifacts/${id}/presence`, { here })
+        .raw(`artifacts/${id}/presence`, {
+          method: "POST",
+          body: JSON.stringify({ here }),
+          // Still sent while the page closes.
+          keepalive: !here,
+        })
         .catch(() => undefined);
+    };
+
+    const leave = (): void => {
+      beat(false);
+    };
+
+    // Back from the browser's page cache, after leaving said goodbye.
+    const back = (): void => {
+      beat(true);
     };
 
     beat(true);
@@ -38,9 +52,14 @@ export function usePresence(id: string): {
       beat(true);
     }, beatMs);
 
+    addEventListener("pagehide", leave);
+    addEventListener("pageshow", back);
+
     return () => {
       clearInterval(every);
-      beat(false);
+      removeEventListener("pagehide", leave);
+      removeEventListener("pageshow", back);
+      leave();
     };
   }, [api, id]);
 

@@ -344,6 +344,7 @@ function Message({
             {canReact && (
               <Menu
                 label="Add a reaction"
+                align="start"
                 size="sm"
                 variant="ghost"
                 icon="smile-plus"

@@ -6328,6 +6328,163 @@ test("comments on selected text and on a clicked element, pins them on the page,
   expect(await page.getByText("Looking at both").count()).toBe(1);
 }, 30_000);
 
+test("two people chat in a comment thread, seeing who's here, who's typing and each other's replies live", async () => {
+  const folder = join(root, "chatted");
+  await mkdir(folder, { recursive: true });
+  await writeFile(join(folder, "plan.html"), "<p>Retries last 24 hours.</p>");
+
+  faux.setResponses([
+    fauxAssistantMessage(
+      [
+        fauxToolCall("publish_artifact", {
+          path: "plan.html",
+          title: "Retry plan",
+        }),
+      ],
+      { stopReason: "toolUse" },
+    ),
+    fauxAssistantMessage([fauxText("Published the plan")]),
+  ]);
+
+  await page.goto(server.url.href);
+  await page.getByRole("button", { name: "New session" }).click();
+  const form = page.locator("form#create");
+
+  await pickWorkspace(form, folder);
+  await form.getByRole("button", { name: "Start session" }).click();
+  await page.locator("#status", { hasText: "idle" }).waitFor();
+
+  const prompt = page.locator("#prompt-text");
+  await prompt.fill("publish the plan");
+  await prompt.press("Enter");
+  await page.getByText("Published the plan").waitFor();
+
+  const [invite] = (await (
+    await fetch(new URL("/api/invites", server.url), {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie },
+      body: JSON.stringify({}),
+    })
+  ).json()) as { readonly id: string; readonly token: string }[];
+
+  const other = await browser.newContext({
+    viewport: { width: 1280, height: 900 },
+  });
+
+  try {
+    const rui = await other.newPage();
+    await rui.goto(new URL(`/#join/${invite?.token ?? ""}`, server.url).href);
+
+    const account = rui.getByRole("form", { name: "Make your account" });
+    await account.getByLabel("Username").fill("rui");
+    await account.getByLabel("Password").fill("correct horse");
+    await account.getByRole("button", { name: "Join" }).click();
+    await rui.getByRole("list", { name: "Your steps" }).waitFor();
+
+    await other.request.patch(new URL("/api/me/setup", server.url).href, {
+      data: { finished: true },
+    });
+
+    const listed = (await (
+      await fetch(new URL("/api/ext/artifacts/artifacts", server.url), {
+        headers: { cookie },
+      })
+    ).json()) as { artifacts: { id: string; title: string }[] };
+
+    const id =
+      listed.artifacts.find(({ title }) => title === "Retry plan")?.id ?? "";
+
+    await fetch(
+      new URL(`/api/ext/artifacts/artifacts/${id}/shares`, server.url),
+      {
+        method: "PUT",
+        headers: { "content-type": "application/json", cookie },
+        body: JSON.stringify({ shares: [{ name: "rui", role: "comment" }] }),
+      },
+    );
+
+    await page.getByRole("link", { name: /Retry plan/ }).click();
+    const viewer = page.getByRole("dialog", { name: "Retry plan" });
+    await viewer.getByRole("button", { name: "Comment", exact: true }).click();
+
+    await viewer
+      .getByRole("button", { name: "Comment on the whole page" })
+      .click();
+
+    const box = page.getByRole("form", { name: "New comment" });
+
+    await box
+      .getByRole("textbox", { name: "Comment text" })
+      .fill("Is a day too long?");
+
+    await box
+      .getByRole("textbox", { name: "Comment text" })
+      .press("Control+Enter");
+
+    await viewer.getByRole("button", { name: /^Comment 1 by / }).click();
+
+    await rui.goto(new URL(`/#plugin/artifacts/${id}`, server.url).href);
+    await rui.reload();
+    await rui.getByRole("button", { name: "Comment 1" }).click();
+    await rui.getByRole("button", { name: /^Comment 1 by / }).click();
+
+    // Each sees the other is here.
+    await viewer.getByRole("img", { name: "Also here: rui" }).waitFor();
+    await rui.getByRole("img", { name: /^Also here: / }).waitFor();
+
+    // Rui mentions Pedro from the list, and Pedro sees Rui typing.
+    const reply = rui.getByRole("form", { name: "Reply" }).getByRole("textbox");
+    await reply.pressSequentially("Agreed, @pe");
+
+    await rui
+      .getByRole("listbox", { name: "People" })
+      .getByRole("option")
+      .first()
+      .click();
+
+    await reply.pressSequentially("12 hours is enough");
+
+    await viewer.getByText("rui is typing…").waitFor();
+
+    await rui
+      .getByRole("form", { name: "Reply" })
+      .getByRole("button", { name: "Reply" })
+      .click();
+
+    const messages = viewer.getByRole("list", { name: "Messages" });
+    await messages.getByText(/12 hours is enough/).waitFor();
+    await viewer.getByText("rui is typing…").waitFor({ state: "hidden" });
+
+    // Pedro reacts, and Rui sees it.
+    await messages
+      .getByRole("listitem")
+      .last()
+      .getByRole("button", { name: "Add a reaction" })
+      .click();
+
+    await page.getByRole("menuitemradio", { name: "Thumbs up" }).click();
+
+    await rui
+      .getByRole("list", { name: "Messages" })
+      .getByRole("button", { name: /^Thumbs up from / })
+      .waitFor();
+
+    // Rui leaves, and Pedro sees it at once.
+    await rui.close();
+
+    await viewer
+      .getByRole("img", { name: "Also here: rui" })
+      .waitFor({ state: "hidden" });
+  } finally {
+    await other.close();
+
+    await fetch(new URL(`/api/invites/${invite?.id ?? ""}`, server.url), {
+      method: "DELETE",
+      headers: { cookie },
+    });
+  }
+}, 60_000);
+
 test("edits a Markdown artifact beside its preview and compares the versions with the changed words marked", async () => {
   const folder = join(root, "plan");
   await mkdir(folder, { recursive: true });
