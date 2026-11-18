@@ -34,6 +34,16 @@ export function applyTheme(choice: ThemeChoice = stored()): void {
     choice === "system" ? system : choice;
 }
 
+// Sets the theme now, and again when the system's changes, on every page,
+// with or without the sidebar.
+export function followTheme(): void {
+  applyTheme();
+
+  prefersLight().addEventListener("change", () => {
+    applyTheme();
+  });
+}
+
 // The page's theme, chosen per browser.
 export function useTheme(): readonly [
   ThemeChoice,
@@ -43,22 +53,6 @@ export function useTheme(): readonly [
 
   useEffect(() => {
     applyTheme(choice);
-
-    if (choice !== "system") {
-      return undefined;
-    }
-
-    const media = prefersLight();
-
-    const follow = (): void => {
-      applyTheme(choice);
-    };
-
-    media.addEventListener("change", follow);
-
-    return () => {
-      media.removeEventListener("change", follow);
-    };
   }, [choice]);
 
   const choose = (next: ThemeChoice): void => {

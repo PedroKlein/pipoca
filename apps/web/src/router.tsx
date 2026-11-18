@@ -1,3 +1,4 @@
+import { hashParts } from "@pipoca/plugins/web";
 import { useMemo, useSyncExternalStore } from "react";
 
 // Every page of the app by its address after #. A :name? part may be left
@@ -95,8 +96,7 @@ function match(
 // The page an address opens, from location.hash with or without its #.
 // What follows a ? is shown over the page, such as an artifact.
 export function parse(hash: string): Route {
-  const [page = ""] = hash.split("?");
-  const address = page.replace(/^#/, "").replace(/\/+$/, "");
+  const address = hashParts(hash).page.replace(/^#/, "").replace(/\/+$/, "");
   const parts = address === "" ? [] : address.split("/");
 
   for (const name of names) {

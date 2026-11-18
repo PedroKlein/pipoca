@@ -1,5 +1,9 @@
 import { piTerminal } from "@pipoca/protocol";
-import { type EmbeddedSessionProps, SessionPanel } from "@pipoca/plugins/web";
+import {
+  type EmbeddedSessionProps,
+  hashParts,
+  SessionPanel,
+} from "@pipoca/plugins/web";
 import {
   type ReactElement,
   useCallback,
@@ -109,7 +113,7 @@ export function SessionView({
 
   // Team work opens inside the team's area, whichever link led to it.
   useEffect(() => {
-    const [page, over] = location.hash.split("?");
+    const { page, over } = hashParts(location.hash);
 
     if (primary && team && page === href("session", { id: sessionId })) {
       navigate(

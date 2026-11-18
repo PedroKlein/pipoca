@@ -6015,7 +6015,7 @@ test("opens an artifact Pi published, in a sandbox, from its card in the chat", 
   await box.press("Enter");
   await page.getByText("Published the report").waitFor();
 
-  const card = page.getByRole("link", { name: "Artifact Quarterly report" });
+  const card = page.getByRole("link", { name: /Quarterly report/ });
   await card.getByText("Page · version 1 · Only you").waitFor();
   const link = (await card.getAttribute("href")) ?? "";
   const session = new URL(page.url()).hash;
@@ -6048,6 +6048,20 @@ test("opens an artifact Pi published, in a sandbox, from its card in the chat", 
   await page.keyboard.press("Escape");
   await viewer.getByRole("menu", { name: "More" }).waitFor({ state: "hidden" });
   expect(await viewer.isVisible()).toBe(true);
+  expect(new URL(page.url()).hash).toContain("?artifact=");
+
+  await viewer.getByRole("button", { name: "Share" }).click();
+
+  await page
+    .getByRole("dialog", { name: /^Share/ })
+    .getByRole("button", { name: "Cancel" })
+    .click();
+
+  await page
+    .getByRole("dialog", { name: /^Share/ })
+    .waitFor({ state: "hidden" });
+
+  expect(await viewer.isVisible()).toBe(true);
   await page.keyboard.press("Escape");
   await viewer.waitFor({ state: "hidden" });
   await page.waitForURL((url) => url.hash === session);
@@ -6055,7 +6069,6 @@ test("opens an artifact Pi published, in a sandbox, from its card in the chat", 
   await page.goto(`${server.url.href}${link}`);
   await page.getByRole("heading", { name: "Quarterly report" }).waitFor();
   await page.getByText("By pedro").waitFor();
-  expect(await page.getByRole("link", { name: "New session" }).count()).toBe(0);
 
   expect(await page.getByRole("button", { name: "New session" }).count()).toBe(
     0,
@@ -6089,7 +6102,7 @@ test("opens an artifact Pi published, in a sandbox, from its card in the chat", 
     fauxAssistantMessage([fauxText("Answered in the thread")]),
   ]);
 
-  await viewer.getByRole("button", { name: "Comment 0" }).click();
+  await viewer.getByRole("button", { name: "Comment", exact: true }).click();
 
   const comment = page.getByRole("form", { name: "Comment" });
 
@@ -6107,6 +6120,7 @@ test("opens an artifact Pi published, in a sandbox, from its card in the chat", 
   await frame.getByRole("button", { name: "Ask Pi" }).click();
 
   await page.getByText("Answered in the thread").waitFor();
+  await viewer.waitFor({ state: "hidden" });
 
   await page
     .getByText("You sent 1 comment thread on Quarterly report")

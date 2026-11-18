@@ -8,14 +8,14 @@ import { JoinPage } from "./setup/join";
 import { loadPlugins } from "./plugins";
 import { parse } from "./router";
 import { SignInPage } from "./setup/sign-in";
-import { applyTheme } from "./theme";
+import { followTheme } from "./theme";
 
 const root = document.getElementById("root");
 if (!root) {
   throw new Error("missing #root");
 }
 
-applyTheme();
+followTheme();
 
 const status = await request("auth.status").catch(() => undefined);
 const route = parse(location.hash);

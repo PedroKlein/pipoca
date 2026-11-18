@@ -24,6 +24,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { isHttpError, type TypedClient } from "@pipoca/plugins";
 import { artifacts as plugin } from "../plugin";
 import { type ArtifactView, type Comment, isText } from "../src/artifacts";
 import { type DiffLine, lineDiff } from "../src/diff";
@@ -37,6 +38,19 @@ export function artifactHref(id: string, version?: number): string {
     plugin,
     version === undefined ? id : `${id}/v/${String(version)}`,
   );
+}
+
+// An artifact as the viewer and the chat's cards load it. A missing one was
+// deleted or isn't shared with the person.
+export async function loadArtifact(
+  api: TypedClient,
+  id: string,
+): Promise<ArtifactView | "missing" | "failed"> {
+  return api
+    .get<ArtifactView>(`artifacts/${id}`)
+    .catch((error: unknown) =>
+      isHttpError(error) && error.status === 404 ? "missing" : "failed",
+    );
 }
 
 const sandbox =

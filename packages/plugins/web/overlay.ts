@@ -23,8 +23,20 @@ function subscribe(onChange: () => void): () => void {
   };
 }
 
+// An address's page, and what it shows over the page after a ?.
+export function hashParts(hash: string): {
+  readonly page: string;
+  readonly over: string | undefined;
+} {
+  const at = hash.indexOf("?");
+
+  return at === -1
+    ? { page: hash, over: undefined }
+    : { page: hash.slice(0, at), over: hash.slice(at + 1) };
+}
+
 function page(): string {
-  return location.hash.split("?")[0] ?? "";
+  return hashParts(location.hash).page;
 }
 
 function open(
@@ -40,6 +52,10 @@ function open(
     return;
   }
 
+  if (location.hash === target) {
+    return;
+  }
+
   location.hash = target;
   history.replaceState({ [opened]: true }, "");
 }
@@ -52,7 +68,12 @@ function close(): void {
   if (state?.[opened] === true) {
     history.back();
   } else {
-    history.replaceState(null, "", page() || location.pathname);
+    history.replaceState(
+      null,
+      "",
+      page() || `${location.pathname}${location.search}`,
+    );
+
     dispatchEvent(new HashChangeEvent("hashchange"));
   }
 }
@@ -62,7 +83,7 @@ export function useOverlay(): Overlay {
 
   return useMemo(
     () => ({
-      params: new URLSearchParams(hash.split("?")[1] ?? ""),
+      params: new URLSearchParams(hashParts(hash).over ?? ""),
       open,
       close,
     }),

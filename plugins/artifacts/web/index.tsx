@@ -11,7 +11,6 @@ import {
   useNow,
   useOverlay,
 } from "@pipoca/plugins/web";
-import { isHttpError } from "@pipoca/plugins";
 import {
   Badge,
   cardClass,
@@ -33,7 +32,7 @@ import {
   kindLabel,
   type Published,
 } from "../src/artifacts";
-import { artifactHref } from "./collaborate";
+import { artifactHref, loadArtifact } from "./collaborate";
 import { ArtifactLink, ArtifactOverlay, audienceLabel, Viewer } from "./viewer";
 
 export const web = defineWeb(plugin, {
@@ -203,15 +202,13 @@ function PublishedCard({ call }: ToolCallProps): ReactElement {
     async () =>
       published === undefined
         ? undefined
-        : api
-            .get<ArtifactSummary>(`artifacts/${published.id}`)
-            .catch((error: unknown) => {
-              if (isHttpError(error) && error.status === 404) {
-                return null;
-              }
+        : loadArtifact(api, published.id).then((loaded) => {
+            if (loaded === "missing") {
+              return null;
+            }
 
-              throw error;
-            }),
+            return loaded === "failed" ? undefined : loaded;
+          }),
     published?.id ?? "",
     { changes: ["artifacts"] },
   );
@@ -250,18 +247,12 @@ function PublishedCard({ call }: ToolCallProps): ReactElement {
   );
 
   return published !== undefined && now !== null ? (
-    <ArtifactLink
-      id={published.id}
-      label={`Artifact ${title}`}
-      className={cn(card, "hover:bg-hover")}
-    >
+    <ArtifactLink id={published.id} className={cn(card, "hover:bg-hover")}>
       {inside}
       <Icon name="chevron-right" className="text-fg-dim" />
     </ArtifactLink>
   ) : (
-    <div aria-label={`Artifact ${title}`} className={card}>
-      {inside}
-    </div>
+    <div className={card}>{inside}</div>
   );
 }
 

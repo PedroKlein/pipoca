@@ -73,7 +73,12 @@ export function Dialog({
   return (
     <dialog
       ref={dialog}
-      onClose={onClose}
+      onClose={(event) => {
+        // A dialog opened from this one closes only itself.
+        if (event.target === event.currentTarget) {
+          onClose();
+        }
+      }}
       aria-labelledby={title === undefined ? labelledBy : titleId}
       className={cn(
         "m-auto overflow-visible rounded-xl border border-line bg-elevated p-0 text-fg shadow-pop backdrop:bg-scrim backdrop:backdrop-blur-scrim open:animate-pop-in",
