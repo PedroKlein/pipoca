@@ -788,6 +788,7 @@ export type TeamView = Wire<typeof teamView>;
 export const account = Type.Object({
   ...user.properties,
   displayName: nullable(Type.String()),
+  email: nullable(Type.String()),
   defaultEnvironment: nullable(Type.String()),
 });
 
@@ -795,6 +796,8 @@ export type Account = Wire<typeof account>;
 
 export const accountChange = Type.Object({
   displayName: Type.Optional(Type.String()),
+  // Empty takes it off.
+  email: Type.Optional(Type.String({ maxLength: 254 })),
   defaultEnvironment: Type.Optional(nullable(Type.String())),
 });
 

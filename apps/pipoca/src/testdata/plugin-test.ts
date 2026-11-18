@@ -126,7 +126,7 @@ export async function pluginTest(
   const seeded = openStore(database);
   const passwordHash = await Bun.password.hash(password);
 
-  for (const { id, name = id, admin = false } of people) {
+  for (const { id, name = id, admin = false, email } of people) {
     seeded.people.insertUser({
       id,
       name,
@@ -134,6 +134,10 @@ export async function pluginTest(
       passwordHash,
       createdAt: new Date(clock.now()).toISOString(),
     });
+
+    if (email !== undefined) {
+      seeded.people.setEmail(id, email);
+    }
   }
 
   seeded.close();

@@ -16,6 +16,8 @@ export interface User {
   readonly name: string;
   // Installs, updates and turns on plugins, and changes their settings.
   readonly admin: boolean;
+  // Where they're told of what asks for them, if they gave one.
+  readonly email?: string;
 }
 
 export interface StoredUser extends User {
@@ -42,6 +44,7 @@ export interface PeopleStore {
   readonly users: () => readonly User[];
   readonly account: (id: string) => Account | undefined;
   readonly setDisplayName: (id: string, name: string | null) => void;
+  readonly setEmail: (id: string, email: string | null) => void;
   readonly setDefaultEnvironment: (
     id: string,
     environment: string | null,
@@ -153,11 +156,18 @@ export class People {
 
   // The caller checks that a default Environment is the person's own.
   changeAccount(id: string, change: AccountChange): Account | undefined {
+    const email =
+      change.email === undefined ? undefined : this.#ownEmail(id, change.email);
+
     if (change.displayName !== undefined) {
       this.#store.setDisplayName(
         id,
         checkedDisplayName(change.displayName) ?? null,
       );
+    }
+
+    if (email !== undefined) {
+      this.#store.setEmail(id, email);
     }
 
     if (change.defaultEnvironment !== undefined) {
@@ -169,6 +179,26 @@ export class People {
 
   people(): readonly Person[] {
     return this.#store.people();
+  }
+
+  // Mail and chat apps reach a person by it, so no two people share one.
+  #ownEmail(id: string, email: string): string | null {
+    const checked = checkedEmail(email);
+
+    if (
+      checked !== undefined &&
+      this.#store
+        .users()
+        .some(
+          (each) =>
+            each.id !== id &&
+            each.email?.toLowerCase() === checked.toLowerCase(),
+        )
+    ) {
+      throw new InvalidCredentials(`${checked} is someone else's email`);
+    }
+
+    return checked ?? null;
   }
 
   active(userId: string): void {
@@ -414,6 +444,16 @@ export function checkedDisplayName(name: string): string | undefined {
     throw new InvalidCredentials(
       `display name must be at most ${String(maxNameLength)} characters`,
     );
+  }
+
+  return trimmed === "" ? undefined : trimmed;
+}
+
+function checkedEmail(email: string): string | undefined {
+  const trimmed = email.trim();
+
+  if (trimmed !== "" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+    throw new InvalidCredentials(`${trimmed} isn't an email address`);
   }
 
   return trimmed === "" ? undefined : trimmed;

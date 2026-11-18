@@ -1,10 +1,12 @@
 import { afterEach, expect, test } from "bun:test";
+import { artifacts } from "@pipoca/artifacts/plugin";
 import { server as askServer } from "@pipoca/ask/server";
 import {
   definePlugin,
   defineServer,
   type PluginDestinations,
   type Questions,
+  type ServerContext,
   type Sessions,
 } from "@pipoca/plugins";
 import {
@@ -95,6 +97,22 @@ function fakeSlack() {
       posted.push(await request.json());
 
       return Response.json({ ok: true, channel: "C1", ts: "1700.0001" });
+    }
+
+    if (method === "users.lookupByEmail") {
+      const email = new URL(request.url).searchParams.get("email");
+
+      // Each bot finds only the people in its own workspace.
+      const found =
+        token === "xoxb-team-bot"
+          ? email === "bo@example.com" && "U2"
+          : email === "ana@example.com" && "U1";
+
+      return Response.json(
+        found === false
+          ? { ok: false, error: "users_not_found" }
+          : { ok: true, user: { id: found } },
+      );
     }
 
     if (method === "conversations.members") {
@@ -548,6 +566,96 @@ const deliverer = defineServer(
     seen = context.sessions;
   },
 );
+
+let telling: ServerContext<typeof artifacts> | undefined;
+
+const artifactsServer = defineServer(artifacts, (context) => {
+  telling = context;
+});
+
+test("a mention or review request reaches the person in Slack, found by their email, and a reply doesn't", async () => {
+  const fake = fakeSlack();
+
+  await using t = await testPlugin(server, {
+    people: [
+      { id: "ana", name: "Ana", admin: true, email: "ana@example.com" },
+      { id: "bo", name: "Bo", email: "bo@example.com" },
+    ],
+    fetch: fake.fetch,
+    plugins: [artifactsServer],
+  });
+
+  await addBot(t, "ana-bot");
+
+  // Activity names Slack where it can reach them.
+  expect(await t.as("ana").get("activity")).toEqual({ reaches: true });
+  expect(await t.as("bo").get("activity")).toEqual({ reaches: false });
+
+  const told = (
+    kind: "mention" | "review" | "reply",
+    to: string,
+    headline = `Rui ${kind} on Webhooks`,
+  ) => {
+    telling?.events.emit(
+      "activity",
+      {
+        kind,
+        artifact: "a1",
+        headline,
+        text: "Works for me.",
+        url: "/#plugin/artifacts/a1/comments",
+      },
+      { to: [person(to)] },
+    );
+  };
+
+  told("reply", "ana");
+  told("mention", "bo");
+
+  told(
+    "review",
+    "ana",
+    "Rui asked you to review <https://evil.example|Sign in> & <!channel>\n*now*",
+  );
+
+  await until(() => fake.posted.length > 0);
+
+  expect(fake.posted).toHaveLength(1);
+
+  const sent = fake.posted[0] as { channel: string; text: string };
+
+  expect(sent.channel).toBe("U1");
+
+  // What was written stays in Pipoca.
+  // A title or a name can't add links, pings or lines of its own.
+  expect(sent.text).toStartWith(
+    "*Rui asked you to review &lt;https://evil.example|Sign in&gt; &amp; &lt;!channel&gt; *now**\n<http",
+  );
+
+  expect(sent.text).toEndWith(
+    "/#plugin/artifacts/a1/comments|Open it in Pipoca>",
+  );
+
+  // A bot that can't find them, then one the team uses that can.
+  await addBot(t, "team-bot");
+
+  const { bots } = (await t.config()) as {
+    bots: readonly Record<string, unknown>[];
+  };
+
+  await t.editConfig({
+    bots: bots.map((bot) => ({
+      ...bot,
+      users: bot["name"] === "team-bot" ? ["team"] : ["ana", "bo"],
+    })),
+  });
+
+  told("mention", "bo");
+
+  await until(() => fake.posted.length > 1);
+
+  expect(fake.posted[1]).toMatchObject({ channel: "U2" });
+});
 
 test("posts a routine run's result in the channel its routine names", async () => {
   const fake = fakeSlack();

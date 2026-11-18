@@ -18,6 +18,7 @@ import {
   kindLabel,
   type Published,
 } from "../src/artifacts";
+import { ActivityCount, ActivityPage } from "./activity";
 import { artifactHref, loadArtifact } from "./collaborate";
 import { audienceLabel } from "./chrome";
 import { useDock } from "./dock";
@@ -27,6 +28,13 @@ import { ArtifactDock, ArtifactLink, ArtifactOverlay, Viewer } from "./viewer";
 
 export const web = defineWeb(plugin, {
   pages: [
+    {
+      path: "activity",
+      label: "Activity",
+      icon: "bell",
+      Page: ActivityPage,
+      nav: { Count: ActivityCount, pinned: true },
+    },
     {
       path: "",
       label: "Artifacts",
@@ -61,11 +69,13 @@ function ArtifactsPage({ path }: PageProps): ReactElement {
 
   return (
     <Viewer
-      key={id}
+      key={`${id}/${rest[0] === "comments" ? (rest[1] ?? "") : ""}`}
       id={id}
       mode="window"
       version={version}
       comments={rest[0] === "comments"}
+      {...(rest[0] === "comments" &&
+        rest[1] !== undefined && { thread: rest[1] })}
       onVersion={(number) => {
         location.replace(artifactHref(id, number));
       }}
@@ -265,7 +275,8 @@ function VersionNotice({ data }: NoticeProps): ReactElement {
           "A new version of an artifact"
         ) : (
           <>
-            {made.note.startsWith("restored ")
+            {made.note.startsWith("restored ") ||
+            made.note.startsWith("accepted ")
               ? `${made.by} ${made.note} as version ${String(made.number)} of `
               : `${made.by} saved version ${String(made.number)} of `}
             <b className="font-medium text-fg">{value.title}</b>

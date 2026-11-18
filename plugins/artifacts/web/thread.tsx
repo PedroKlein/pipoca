@@ -26,6 +26,7 @@ import {
   type Comment,
   type Reaction,
   reactionEmoji,
+  type Suggestion,
 } from "../src/artifacts";
 
 const pressMs = 3000;
@@ -417,9 +418,19 @@ function Message({
             </span>
           )}
         </span>
-        <p className="text-label whitespace-pre-wrap text-fg">
-          <Said text={comment.body} names={names} />
-        </p>
+        {comment.body !== "" && (
+          <p className="text-label whitespace-pre-wrap text-fg">
+            <Said text={comment.body} names={names} />
+          </p>
+        )}
+        {comment.suggestion !== null && (
+          <SuggestedEdit
+            artifact={artifact}
+            comment={comment.id}
+            edit={comment.suggestion}
+            onChanged={onChanged}
+          />
+        )}
         {comment.reactions.length > 0 && (
           <div className="flex flex-wrap items-center gap-1.5">
             {comment.reactions.map((each) => (
@@ -449,6 +460,105 @@ function Message({
         <ErrorText size="caption">{problem}</ErrorText>
       </div>
     </li>
+  );
+}
+
+// Pi's edit as what goes and what comes, which someone who steers accepts
+// as a version of their own or rejects.
+function SuggestedEdit({
+  artifact,
+  comment,
+  edit,
+  onChanged,
+}: {
+  readonly artifact: ArtifactView;
+  readonly comment: string;
+  readonly edit: Suggestion;
+  readonly onChanged: () => void;
+}): ReactElement {
+  const api = useApi(plugin);
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string>();
+
+  const decide = (accept: boolean): void => {
+    setBusy(true);
+    setProblem(undefined);
+
+    void api
+      .put(`artifacts/${artifact.id}/comments/${comment}/suggestion`, {
+        accept,
+      })
+      .then(onChanged)
+      .catch((error: unknown) => {
+        setProblem(error instanceof Error ? error.message : String(error));
+      })
+      .finally(() => {
+        setBusy(false);
+      });
+  };
+
+  const decided: Readonly<Record<Suggestion["state"], string>> = {
+    open: "",
+    accepted: `Accepted by ${String(edit.by)} as version ${String(edit.saved)}`,
+    rejected: `Rejected by ${String(edit.by)}`,
+  };
+
+  return (
+    <figure
+      aria-label="Suggested edit"
+      className="mt-1 overflow-hidden rounded-lg border border-line text-label"
+    >
+      <del
+        id={`${comment}-out`}
+        className="block bg-failed-tint px-3 py-2 whitespace-pre-wrap text-fg decoration-failed decoration-2"
+      >
+        <span className="sr-only">Takes out: </span>
+        {edit.find}
+      </del>
+      <ins
+        id={`${comment}-in`}
+        className="block bg-done-tint px-3 py-2 whitespace-pre-wrap text-fg no-underline"
+      >
+        <span className="sr-only">Puts in: </span>
+        {edit.replace}
+      </ins>
+      <figcaption className="flex flex-wrap items-center gap-2 px-3 py-2 text-caption text-fg-dim">
+        {edit.state !== "open" && decided[edit.state]}
+        {edit.state === "open" && artifact.access === "steer" && (
+          <>
+            <Button
+              size="sm"
+              variant="primary"
+              aria-describedby={`${comment}-out ${comment}-in`}
+              disabled={busy}
+              onClick={() => {
+                decide(true);
+              }}
+            >
+              Accept
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              aria-describedby={`${comment}-out ${comment}-in`}
+              disabled={busy}
+              onClick={() => {
+                decide(false);
+              }}
+            >
+              Reject
+            </Button>
+            <span className="ml-auto">
+              Accepting saves version {artifact.versions + 1}
+            </span>
+          </>
+        )}
+        {edit.state === "open" &&
+          artifact.access !== "steer" &&
+          "Waiting for someone who steers the Session"}
+        <ErrorText size="caption">{problem}</ErrorText>
+      </figcaption>
+    </figure>
   );
 }
 

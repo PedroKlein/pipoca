@@ -294,6 +294,7 @@
     "plugins/email": {
       "name": "@pipoca/email",
       "dependencies": {
+        "@pipoca/artifacts": "workspace:*",
         "@pipoca/plugins": "workspace:*",
         "@pipoca/protocol": "workspace:*",
         "@pipoca/ui": "workspace:*",
@@ -422,6 +423,7 @@
     "plugins/push": {
       "name": "@pipoca/push",
       "dependencies": {
+        "@pipoca/artifacts": "workspace:*",
         "@pipoca/plugins": "workspace:*",
         "@pipoca/protocol": "workspace:*",
         "@pipoca/routines": "workspace:*",
@@ -456,6 +458,7 @@
     "plugins/slack": {
       "name": "@pipoca/slack",
       "dependencies": {
+        "@pipoca/artifacts": "workspace:*",
         "@pipoca/plugins": "workspace:*",
         "@pipoca/protocol": "workspace:*",
         "@pipoca/ui": "workspace:*",

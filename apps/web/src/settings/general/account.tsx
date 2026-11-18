@@ -24,10 +24,12 @@ export function EditProfile({
 }): ReactElement {
   const [open, setOpen] = useState(false);
 
-  const rename = useAction(async (displayName: string) => {
-    await request("me.update", { body: { displayName } });
-    close();
-  });
+  const rename = useAction(
+    async (change: { displayName: string; email: string }) => {
+      await request("me.update", { body: change });
+      close();
+    },
+  );
 
   const error = rename.error;
 
@@ -38,8 +40,15 @@ export function EditProfile({
 
   const save = (event: SubmitEvent<HTMLFormElement>): void => {
     event.preventDefault();
-    const name = new FormData(event.currentTarget).get("displayName");
-    void rename.run(typeof name === "string" ? name : "");
+    const form = new FormData(event.currentTarget);
+
+    const text = (key: string): string => {
+      const value = form.get(key);
+
+      return typeof value === "string" ? value : "";
+    };
+
+    void rename.run({ displayName: text("displayName"), email: text("email") });
   };
 
   return (
@@ -53,7 +62,7 @@ export function EditProfile({
         Edit profile
       </Button>
       <Dialog open={open} onClose={close} title="Edit profile" size="sm">
-        <form onSubmit={save}>
+        <form noValidate onSubmit={save}>
           <DialogBody>
             <Field
               label="Your name"
@@ -64,6 +73,18 @@ export function EditProfile({
                 autoComplete="name"
                 maxLength={64}
                 defaultValue={account?.displayName ?? ""}
+              />
+            </Field>
+            <Field
+              label="Email"
+              hint="Where Pipoca emails you when someone mentions you or asks for your review, and how Slack finds you."
+            >
+              <TextInput
+                name="email"
+                type="email"
+                autoComplete="email"
+                maxLength={254}
+                defaultValue={account?.email ?? ""}
               />
             </Field>
             <ErrorText size="caption">{error}</ErrorText>

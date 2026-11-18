@@ -13,6 +13,8 @@ import {
 import { type Actor, blobHash, isBusy, type Owner } from "@pipoca/protocol";
 import { artifacts } from "../plugin";
 import {
+  type ActivityKind,
+  activityTopics,
   type Access,
   type ArtifactSummary,
   type Audience,
@@ -35,10 +37,12 @@ import {
   type Published,
   type Role,
   type Share,
+  type Suggestion,
   supported,
   type Verdict,
   type Version,
 } from "./artifacts";
+import { activityLog } from "./activity";
 import { presences } from "./presence";
 import { rendered } from "./render";
 
@@ -80,6 +84,16 @@ interface CommentRow {
   readonly resolved_by_pi: number;
   readonly asked_at: number | null;
   readonly created_at: number;
+}
+
+interface SuggestionRow {
+  readonly comment_id: string;
+  readonly version: number;
+  readonly find: string;
+  readonly replace: string;
+  readonly state: Suggestion["state"];
+  readonly decided_by_user_id: string | null;
+  readonly saved: number | null;
 }
 
 const shownMatches = 20;
@@ -420,6 +434,45 @@ export const server = defineServer(
         })),
       };
     };
+
+    const activity = activityLog({
+      store,
+      clock,
+      name: (person, reader) => personName(person, reader),
+      sees: (id, person) => {
+        const artifact = row(id);
+
+        return artifact !== undefined && sees(artifact, person);
+      },
+      docType: async (id, person) => {
+        const artifact = row(id);
+
+        return artifact === undefined
+          ? null
+          : ((await docOf(artifact, person))?.type ?? null);
+      },
+      told: (person, { thread, ...what }) => {
+        events.emit(
+          "activity",
+          {
+            ...what,
+            url: `/#plugin/artifacts/${what.artifact}/comments${thread === null ? "" : `/${thread}`}`,
+          },
+          { to: [owners.of(person)] },
+        );
+      },
+    });
+
+    // Who in a thread hears of a new word in it: everyone who wrote in it,
+    // Pi's replies counting for whoever sent the thread.
+    const threadPeople = (thread: string): string[] =>
+      store
+        .all<{ author_user_id: string }>(
+          "select distinct author_user_id from artifacts_comments where (id = ? or parent_id = ?) and author_user_id is not null",
+          thread,
+          thread,
+        )
+        .map(({ author_user_id }) => author_user_id);
 
     const view = async (
       artifact: Row,
@@ -766,6 +819,10 @@ export const server = defineServer(
 
         const doc = await docOf(artifact, caller.person.id);
 
+        const before = new Set(
+          reviewersOf(artifact).map(({ user_id }) => user_id),
+        );
+
         store.transaction(() => {
           store.run(
             `delete from artifacts_reviewers where artifact_id = ? and user_id not in (${named.map(() => "?").join(", ")})`,
@@ -789,6 +846,16 @@ export const server = defineServer(
             );
           }
         });
+
+        activity.tell(
+          artifact.id,
+          new Map(
+            named
+              .filter((each) => !before.has(each))
+              .map((each) => [each, "review"]),
+          ),
+          { comment: null, actor: caller.person.id },
+        );
 
         return { reviewers: named.length };
       },
@@ -899,10 +966,37 @@ export const server = defineServer(
       return found;
     };
 
+    const suggestionsOf = (
+      artifact: string,
+      reader: string | null,
+    ): ReadonlyMap<string, Suggestion> =>
+      new Map(
+        store
+          .all<SuggestionRow>(
+            "select s.* from artifacts_suggestions s join artifacts_comments c on c.id = s.comment_id where c.artifact_id = ?",
+            artifact,
+          )
+          .map((each) => [
+            each.comment_id,
+            {
+              find: each.find,
+              replace: each.replace,
+              version: each.version,
+              state: each.state,
+              by:
+                each.decided_by_user_id === null
+                  ? null
+                  : personName(each.decided_by_user_id, reader),
+              saved: each.saved,
+            },
+          ]),
+      );
+
     const toComment = (
       each: CommentRow,
       reader: string | null,
       reactions: ReadonlyMap<string, readonly Reaction[]> = new Map(),
+      suggestions: ReadonlyMap<string, Suggestion> = new Map(),
     ): Comment => ({
       id: each.id,
       kind: each.kind,
@@ -919,6 +1013,7 @@ export const server = defineServer(
       resolvedByPi: each.resolved_by_pi === 1,
       createdAt: each.created_at,
       reactions: reactions.get(each.id) ?? [],
+      suggestion: suggestions.get(each.id) ?? null,
     });
 
     const comments = (
@@ -926,13 +1021,14 @@ export const server = defineServer(
       reader: string | null,
     ): readonly Comment[] => {
       const reactions = reactionsOf(id, reader);
+      const suggestions = suggestionsOf(id, reader);
 
       return store
         .all<CommentRow>(
           "select * from artifacts_comments where artifact_id = ? order by created_at, id",
           id,
         )
-        .map((each) => toComment(each, reader, reactions));
+        .map((each) => toComment(each, reader, reactions, suggestions));
     };
 
     const thread = (artifact: Row, id: string): CommentRow => {
@@ -1110,6 +1206,28 @@ export const server = defineServer(
       tell(session.id);
     });
 
+    // The people a comment names with @, by their whole name: the longest
+    // that fits, so @Ana Silva isn't also @Ana.
+    const mentioned = (text: string): string[] => {
+      let left = text;
+
+      return [...people.list()]
+        .sort((one, other) => other.name.length - one.name.length)
+        .filter((each) => {
+          const named = new RegExp(
+            `(^|\\s)@${each.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w-])`,
+            "gi",
+          );
+
+          const found = named.test(left);
+
+          left = left.replace(named, "$1");
+
+          return found;
+        })
+        .map((each) => each.id);
+    };
+
     routes.get(
       "artifacts/:id/comments",
       { auth: "person" },
@@ -1197,6 +1315,27 @@ export const server = defineServer(
           ask(toSession, [parent ?? thread(artifact, id)], caller.person.id);
         }
 
+        const to = new Map<string, ActivityKind>();
+
+        if (artifact.owner_user_id !== null) {
+          to.set(artifact.owner_user_id, "comment");
+        }
+
+        for (const each of parent === undefined
+          ? []
+          : threadPeople(parent.id)) {
+          to.set(each, "reply");
+        }
+
+        for (const each of mentioned(body.body)) {
+          to.set(each, "mention");
+        }
+
+        activity.tell(artifact.id, to, {
+          comment: id,
+          actor: caller.person.id,
+        });
+
         return { id, sentToPi: toSession !== undefined };
       },
     );
@@ -1242,6 +1381,128 @@ export const server = defineServer(
         }
 
         return { reacted: body.on };
+      },
+    );
+
+    // Accepting saves a version under the person, so only people who steer
+    // the Session decide, and only while the passage is still there.
+    routes.put(
+      "artifacts/:id/comments/:comment/suggestion",
+      {
+        auth: "person",
+        body: Type.Object({ accept: Type.Boolean() }),
+        changes: ["artifacts"],
+      },
+      async ({ caller, params, body }) => {
+        const artifact = theirs(params.id, caller);
+
+        const found = store.get<SuggestionRow & { thread: string }>(
+          "select s.*, c.parent_id as thread from artifacts_suggestions s join artifacts_comments c on c.id = s.comment_id where s.comment_id = ? and c.artifact_id = ?",
+          params.comment,
+          artifact.id,
+        );
+
+        if (found === undefined) {
+          throw new NotFound(`no suggested edit ${params.comment}`);
+        }
+
+        if (!steers(artifact, caller.person.id)) {
+          throw new Forbidden(
+            "Only people who steer its Session accept or reject an edit.",
+          );
+        }
+
+        const open = (): void => {
+          const state = store.get<{ state: string }>(
+            "select state from artifacts_suggestions where comment_id = ?",
+            found.comment_id,
+          )?.state;
+
+          if (state !== "open") {
+            throw new HttpError(
+              409,
+              `This edit was ${String(state)} already.`,
+              "decided",
+            );
+          }
+        };
+
+        open();
+
+        if (!body.accept) {
+          store.run(
+            "update artifacts_suggestions set state = 'rejected', decided_by_user_id = ? where comment_id = ?",
+            caller.person.id,
+            found.comment_id,
+          );
+
+          return { version: null };
+        }
+
+        const latest = versionOf(artifact);
+
+        if (kindOf(latest.name) !== "markdown") {
+          throw new HttpError(
+            409,
+            `Version ${String(latest.number)} isn't Markdown, so the edit can't be applied.`,
+            "changed",
+          );
+        }
+
+        const text = new TextDecoder().decode(await content(latest));
+
+        if (occurrences(text, found.find) !== 1) {
+          throw new HttpError(
+            409,
+            `The text Pi suggested changing isn't in version ${String(latest.number)} anymore.`,
+            "changed",
+          );
+        }
+
+        const at = text.indexOf(found.find);
+
+        const stored = await blobs.put(
+          new TextEncoder().encode(
+            text.slice(0, at) +
+              found.replace +
+              text.slice(at + found.find.length),
+          ),
+        );
+
+        // Checked again after storing, as Pi or a person may have saved or
+        // decided meanwhile.
+        open();
+
+        onLatest(
+          latest.number,
+          versionOf(artifact),
+          () =>
+            "A new version was saved while this edit was accepted. Try again.",
+        );
+
+        const number = addVersion(
+          artifact.id,
+          latest.name,
+          stored.hash,
+          stored.size,
+          `user:${caller.person.id}`,
+          "accepted Pi's suggested edit",
+        );
+
+        store.run(
+          "update artifacts_suggestions set state = 'accepted', decided_by_user_id = ?, saved = ? where comment_id = ?",
+          caller.person.id,
+          number,
+          found.comment_id,
+        );
+
+        told(
+          artifact,
+          number,
+          `${caller.person.name} accepted your suggested edit in thread ${found.thread} as version ${String(number)} of the artifact “${artifact.title}” (${artifact.id}).`,
+        );
+
+        return { version: number };
       },
     );
 
@@ -1609,6 +1870,63 @@ export const server = defineServer(
       },
     );
 
+    routes.get(
+      "activity",
+      {
+        auth: "person",
+        query: Type.Object({
+          view: Type.Optional(
+            Type.Union([Type.Literal("mine"), Type.Literal("following")]),
+          ),
+        }),
+      },
+      async ({ caller, query }) =>
+        activity.list(caller.person.id, query.view ?? "mine"),
+    );
+
+    routes.get("activity/unread", { auth: "person" }, ({ caller }) => ({
+      unread: activity.unread(caller.person.id),
+    }));
+
+    routes.post(
+      "activity/read",
+      {
+        auth: "person",
+        body: Type.Object({
+          ids: Type.Optional(
+            Type.Array(Type.String({ minLength: 1 }), { maxItems: 200 }),
+          ),
+        }),
+        changes: ["artifacts"],
+      },
+      ({ caller, body }) => {
+        activity.read(caller.person.id, body.ids);
+
+        return { read: true };
+      },
+    );
+
+    routes.get("activity/settings", { auth: "person" }, ({ caller }) =>
+      activity.settings(caller.person.id),
+    );
+
+    routes.put(
+      "activity/settings",
+      {
+        auth: "person",
+        body: Type.Object({
+          topic: Type.Union(activityTopics.map((each) => Type.Literal(each))),
+          on: Type.Boolean(),
+        }),
+        changes: ["artifacts"],
+      },
+      ({ caller, body }) => {
+        activity.set(caller.person.id, body.topic, body.on);
+
+        return activity.settings(caller.person.id);
+      },
+    );
+
     routes.get("pins", { auth: "person" }, ({ caller }) => ({
       artifacts: store
         .all<Row>(
@@ -1805,6 +2123,62 @@ export const server = defineServer(
       return found;
     };
 
+    // Pi answers once per person's word, in a thread that's still open.
+    const answerable = (caller: SessionCaller, id: string): CommentRow => {
+      const top = sentThread(caller, id);
+
+      if (top.resolved_at !== null) {
+        throw new HttpError(
+          409,
+          `Thread ${top.id} is resolved. A person reopens it to ask again.`,
+          "resolved",
+        );
+      }
+
+      const last = store.get<{ by_pi: number }>(
+        "select by_pi from artifacts_comments where id = ? or parent_id = ? order by created_at desc, id desc limit 1",
+        top.id,
+        top.id,
+      );
+
+      if (last?.by_pi === 1) {
+        throw new HttpError(
+          409,
+          `You already answered thread ${top.id} and no one has written since.`,
+          "answered",
+        );
+      }
+
+      return top;
+    };
+
+    const answer = (top: CommentRow, text: string, on?: number): string => {
+      const id = Bun.randomUUIDv7();
+
+      store.run(
+        "insert into artifacts_comments (id, artifact_id, version, parent_id, author_user_id, by_pi, body, created_at) values (?, ?, ?, ?, ?, 1, ?, ?)",
+        id,
+        top.artifact_id,
+        on ?? versions(top.artifact_id).at(-1)?.number ?? top.version,
+        top.id,
+        top.sent_by_user_id,
+        text,
+        clock.now(),
+      );
+
+      return id;
+    };
+
+    const toldOfAnswer = (top: CommentRow, id: string): void => {
+      if (top.sent_by_user_id !== null) {
+        activity.tell(
+          top.artifact_id,
+          new Map(threadPeople(top.id).map((each) => [each, "reply"])),
+          { comment: id, actor: top.sent_by_user_id, byPi: true },
+        );
+      }
+    };
+
     routes.post(
       "session/comments/:thread/reply",
       {
@@ -1815,42 +2189,77 @@ export const server = defineServer(
         changes: ["artifacts"],
       },
       ({ caller, params, body }) => {
-        const top = sentThread(caller, params.thread);
+        const top = answerable(caller, params.thread);
+        const id = answer(top, body.text);
 
-        if (top.resolved_at !== null) {
-          throw new HttpError(
-            409,
-            `Thread ${top.id} is resolved. A person reopens it to ask again.`,
-            "resolved",
+        toldOfAnswer(top, id);
+
+        return { id };
+      },
+    );
+
+    // Only in Markdown, and only text that's in the latest version once,
+    // so a person sees exactly what changes.
+    routes.post(
+      "session/comments/:thread/suggest",
+      {
+        auth: "session",
+        body: Type.Object({
+          find: Type.String({ minLength: 1, maxLength: 10_000 }),
+          replace: Type.String({ maxLength: 10_000 }),
+          text: Type.Optional(Type.String({ maxLength: 10_000 })),
+        }),
+        changes: ["artifacts"],
+      },
+      async ({ caller, params, body }) => {
+        const top = answerable(caller, params.thread);
+        const artifact = row(top.artifact_id);
+
+        if (artifact === undefined) {
+          throw new NotFound(
+            `no comment thread ${top.id} sent to this Session`,
           );
         }
 
-        const last = store.get<{ by_pi: number }>(
-          "select by_pi from artifacts_comments where id = ? or parent_id = ? order by created_at desc, id desc limit 1",
-          top.id,
-          top.id,
-        );
+        const latest = versionOf(artifact);
 
-        if (last?.by_pi === 1) {
-          throw new HttpError(
-            409,
-            `You already answered thread ${top.id} and no one has written since.`,
-            "answered",
+        if (kindOf(latest.name) !== "markdown") {
+          throw new BadRequest(
+            "Edits are suggested on Markdown artifacts only. Reply, or publish a new version.",
           );
         }
 
-        const id = Bun.randomUUIDv7();
-
-        store.run(
-          "insert into artifacts_comments (id, artifact_id, version, parent_id, author_user_id, by_pi, body, created_at) values (?, ?, ?, ?, ?, 1, ?, ?)",
-          id,
-          top.artifact_id,
-          versions(top.artifact_id).at(-1)?.number ?? top.version,
-          top.id,
-          top.sent_by_user_id,
-          body.text,
-          clock.now(),
+        const times = occurrences(
+          new TextDecoder().decode(await content(latest)),
+          body.find,
         );
+
+        if (times !== 1) {
+          throw new BadRequest(
+            times === 0
+              ? `find isn't in version ${String(latest.number)}: read it with read_artifact and quote it exactly.`
+              : `find is in version ${String(latest.number)} ${String(times)} times: quote more of it, so it's there once.`,
+          );
+        }
+
+        // Checked again, as a person may have written while Pi read.
+        const still = answerable(caller, params.thread);
+
+        const id = store.transaction(() => {
+          const made = answer(still, body.text ?? "", latest.number);
+
+          store.run(
+            "insert into artifacts_suggestions (comment_id, version, find, replace) values (?, ?, ?, ?)",
+            made,
+            latest.number,
+            body.find,
+            body.replace,
+          );
+
+          return made;
+        });
+
+        toldOfAnswer(still, id);
 
         return { id };
       },
@@ -1889,6 +2298,16 @@ export const server = defineServer(
     );
   },
 );
+
+function occurrences(text: string, find: string): number {
+  let times = 0;
+
+  for (let at = text.indexOf(find); at >= 0; at = text.indexOf(find, at + 1)) {
+    times += 1;
+  }
+
+  return times;
+}
 
 // RFC 8187 leaves ' ( ) and * out of filename*, but encodeURIComponent keeps
 // them.

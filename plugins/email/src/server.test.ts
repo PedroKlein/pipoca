@@ -1,10 +1,12 @@
 import { afterEach, expect, test } from "bun:test";
+import { artifacts } from "@pipoca/artifacts/plugin";
 import { server as askServer } from "@pipoca/ask/server";
 import {
   definePlugin,
   defineServer,
   type PluginDestinations,
   type Questions,
+  type ServerContext,
   type Sessions,
 } from "@pipoca/plugins";
 import {
@@ -421,6 +423,88 @@ test("an invite goes out by mail from a mailbox the inviting admin sends from", 
   expect(mail.sent[0]).toContain("To: cy@example.com");
   expect(mail.sent[0]).toContain("Subject: Ana invited you to Pipoca");
   expect(mail.sent[0]?.replace(/=\r\n/g, "")).toContain("/#join/abc");
+});
+
+let telling: ServerContext<typeof artifacts> | undefined;
+
+const artifactsServer = defineServer(artifacts, (context) => {
+  telling = context;
+});
+
+test("a mention or review request is mailed to the person's own address, a reply isn't", async () => {
+  const mail = await fakeMail();
+
+  await using t = await started(undefined, {
+    people: [
+      { id: "ana", name: "Ana", admin: true, email: "ana@example.com" },
+      { id: "bo", name: "Bo", email: "bo@example.com" },
+      { id: "cy", name: "Cy" },
+    ],
+    plugins: [artifactsServer],
+  });
+
+  await addMailbox(t, mail);
+
+  // Activity names email where it can reach them.
+  expect(await t.as("ana").get("activity")).toEqual({ reaches: true });
+  expect(await t.as("bo").get("activity")).toEqual({ reaches: false });
+
+  const told = (kind: "mention" | "review" | "reply", to: string) => {
+    telling?.events.emit(
+      "activity",
+      {
+        kind,
+        artifact: "a1",
+        headline: `Rui ${kind} on Webhooks`,
+        text: "Works for me.",
+        url: "/#plugin/artifacts/a1/comments",
+      },
+      { to: [person(to)] },
+    );
+  };
+
+  told("reply", "ana");
+  told("mention", "bo");
+  told("mention", "ana");
+
+  await until(() => mail.sent.length > 0);
+
+  expect(mail.sent).toHaveLength(1);
+  expect(mail.sent[0]).toContain("To: ana@example.com");
+  // Nothing checks the address is theirs, so the title and names stay in
+  // Pipoca too.
+  expect(mail.sent[0]).toContain("Subject: You were mentioned in Pipoca");
+  expect(mail.sent[0]).not.toContain("Webhooks");
+
+  expect(mail.sent[0]?.replace(/=\r\n/g, "")).toContain(
+    "Open it in Pipoca: http",
+  );
+
+  expect(mail.sent[0]?.replace(/=\r\n/g, "")).toContain(
+    "/#plugin/artifacts/a1/comments",
+  );
+
+  // What was written stays in Pipoca.
+  expect(mail.sent[0]).not.toContain("Works for me.");
+
+  // A mailbox the team uses reaches everyone with an address.
+  const { mailboxes } = (await t.config()) as {
+    mailboxes: readonly Record<string, unknown>[];
+  };
+
+  await t.editConfig({
+    mailboxes: mailboxes.map((mailbox) => ({ ...mailbox, users: ["team"] })),
+  });
+
+  expect(await t.as("bo").get("activity")).toEqual({ reaches: true });
+  expect(await t.as("cy").get("activity")).toEqual({ reaches: false });
+
+  told("review", "bo");
+
+  await until(() => mail.sent.length > 1);
+
+  expect(mail.sent[1]).toContain("To: bo@example.com");
+  expect(mail.sent[1]).toContain("Subject: You were asked to review in Pipoca");
 });
 
 // A plugin that starts work from mail, as routines do, so its Sessions'

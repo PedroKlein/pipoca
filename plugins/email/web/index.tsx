@@ -3,6 +3,7 @@ import {
   defineWeb,
   type NoticeProps,
   type SetupStep,
+  type Slots,
   useApi,
   useLoaded,
   useViewer,
@@ -42,7 +43,10 @@ const mailboxStep: SetupStep = {
 
 export const web = defineWeb(email, {
   settings: { group: "integrations", Section },
-  slots: { "notice:email_reply": EmailReply },
+  slots: {
+    "notice:email_reply": EmailReply,
+    "activity.channel": ActivityChannel,
+  },
   setup: [mailboxStep],
 });
 
@@ -276,4 +280,19 @@ function EmailReply({ text }: Omit<NoticeProps, "context">): ReactElement {
       </span>
     </div>
   );
+}
+
+// Mentions and review requests reach the person here once they gave an
+// email and there's a mailbox to send them.
+function ActivityChannel({
+  topic,
+}: Slots["activity.channel"]): ReactElement | null {
+  const api = useApi(email);
+
+  const { value } = useLoaded(
+    async () => api.get<{ reaches: boolean }>("activity"),
+    "email.activity",
+  );
+
+  return topic === "asked" && value?.reaches === true ? <> · email</> : null;
 }

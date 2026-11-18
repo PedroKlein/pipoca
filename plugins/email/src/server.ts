@@ -1,11 +1,13 @@
 import {
   BadRequest,
   defineServer,
+  owners,
   NotFound,
   type Static,
   ToolError,
   Type,
 } from "@pipoca/plugins";
+import { artifacts } from "@pipoca/artifacts/plugin";
 import type { Owner, Session } from "@pipoca/protocol";
 import { email, sendMail } from "../plugin";
 import {
@@ -53,6 +55,8 @@ export const server = defineServer(email, (context) => {
     tools,
     provide,
     clock,
+    people,
+    urls,
   } = context;
 
   const mailboxes = config.collection("mailboxes");
@@ -180,6 +184,47 @@ export const server = defineServer(email, (context) => {
     );
   });
 
+  // A mention or a review request goes to the person's own address, from a
+  // mailbox they or the team send from (ADR 0081). Nothing checks that the
+  // address is theirs, so what was written, the title and names stay in
+  // Pipoca.
+  events.on(artifacts.events.activity, ({ fields, to }) => {
+    if (fields.kind === "reply") {
+      return;
+    }
+
+    for (const owner of to) {
+      const id = owners.personId(owner);
+      const address = id === undefined ? undefined : people.get(id)?.email;
+      const [mailbox] = usable([owner, "team"]);
+
+      if (address === undefined || mailbox === undefined) {
+        continue;
+      }
+
+      const link = new URL(fields.url, new URL(urls.public("")).origin).href;
+
+      send(mailbox, {
+        to: address,
+        subject:
+          fields.kind === "mention"
+            ? "You were mentioned in Pipoca"
+            : "You were asked to review in Pipoca",
+        text: `Open it in Pipoca: ${link}\n`,
+      }).then(
+        () => {
+          log("activity emailed", { mailbox: mailbox.name, kind: fields.kind });
+        },
+        (failure: unknown) => {
+          log("couldn't email activity", {
+            mailbox: mailbox.name,
+            error: failure instanceof Error ? failure.message : String(failure),
+          });
+        },
+      );
+    }
+  });
+
   const sent = async (
     input: Static<typeof sendMail>,
     session: Session,
@@ -264,6 +309,14 @@ export const server = defineServer(email, (context) => {
   routes.get("mailboxes", { auth: "admin" }, () =>
     mailboxes.list().map(viewOf),
   );
+
+  // Whether a mention can reach the person here: they gave an email and a
+  // mailbox they or the team send from.
+  routes.get("activity", { auth: "person" }, ({ caller }) => ({
+    reaches:
+      people.get(caller.person.id)?.email !== undefined &&
+      usable([caller.owner, "team"]).length > 0,
+  }));
 
   routes.post(
     "mailboxes",

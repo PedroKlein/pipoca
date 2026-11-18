@@ -6,6 +6,7 @@ import {
   type ArtifactSummary,
   bytes,
   type Comment,
+  type Suggestion,
   type CommentKind,
   kindOf,
   type Published,
@@ -279,6 +280,39 @@ export const session = defineSession(artifacts, (s) => {
   });
 
   s.tools.define({
+    name: "suggest_artifact_edit",
+    label: "Suggest artifact edit",
+    description:
+      "Answers a comment thread sent to you on a Markdown artifact with an edit people accept or reject: find is text that's in the latest version exactly once, replace is what goes there. Accepting saves a new version. Refused like a reply when your last answer is still the newest.",
+    params: Type.Object({
+      thread: Type.String({ description: "The thread's id" }),
+      find: Type.String({
+        description:
+          "The passage to change, copied exactly from the latest version",
+      }),
+      replace: Type.String({ description: "What it becomes" }),
+      text: Type.Optional(
+        Type.String({ description: "Why, in Markdown, shown above the edit" }),
+      ),
+    }),
+    annotations: { destructive: false },
+    prompt: {
+      snippet: "Suggest an edit to a Markdown artifact in a comment thread",
+      guidelines: [
+        "On a Markdown design doc, spec or plan, answer a thread that asks for a change with suggest_artifact_edit rather than publishing a new version, so people decide.",
+      ],
+    },
+    run: async ({ thread, find, replace, text }) => {
+      await s.api.post(
+        `session/comments/${encodeURIComponent(thread)}/suggest`,
+        { find, replace, ...(text !== undefined && { text }) },
+      );
+
+      return `Suggested an edit in thread ${thread}. People accept or reject it there.`;
+    },
+  });
+
+  s.tools.define({
     name: "resolve_artifact_comment",
     label: "Resolve artifact comment",
     description:
@@ -313,12 +347,33 @@ function threadLines(comments: readonly Comment[]): string[] {
       ].join(""),
       ...comments
         .filter((each) => each.parent === thread.id)
-        .map((reply) =>
-          reply.byPi
-            ? `  You replied: ${fence(reply.body)}`
-            : `  ${reply.author} replied: ${fence(reply.body)}`,
-        ),
+        .flatMap((reply) => {
+          if (!reply.byPi) {
+            return [`  ${reply.author} replied: ${fence(reply.body)}`];
+          }
+
+          return [
+            ...(reply.body === ""
+              ? []
+              : [`  You replied: ${fence(reply.body)}`]),
+            ...(reply.suggestion === null
+              ? []
+              : [`  ${suggested(reply.suggestion)}`]),
+          ];
+        }),
     ]);
+}
+
+function suggested(edit: Suggestion): string {
+  const what = `You suggested replacing ${fence(edit.find)} with ${fence(edit.replace)}`;
+
+  if (edit.state === "accepted") {
+    return `${what}: accepted by ${String(edit.by)} as version ${String(edit.saved)}`;
+  }
+
+  return edit.state === "rejected"
+    ? `${what}: rejected by ${String(edit.by)}`
+    : `${what}: waiting for a person`;
 }
 
 const said: Readonly<Record<CommentKind, string>> = {

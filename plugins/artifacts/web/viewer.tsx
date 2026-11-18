@@ -174,6 +174,9 @@ function Addressed({
       titleId={titleId}
       version={Number(params.get("v"))}
       comments={comments}
+      {...(params.get("thread") !== null && {
+        thread: params.get("thread") ?? "",
+      })}
       onVersion={(number) => {
         open(
           {
@@ -196,6 +199,7 @@ export function Viewer({
   mode,
   version,
   comments: commentsAtFirst = false,
+  thread: threadAtFirst,
   titleId,
   onVersion,
   onClose,
@@ -205,6 +209,8 @@ export function Viewer({
   // A version other than the latest, when the address names one.
   readonly version: number | undefined;
   readonly comments?: boolean;
+  // The thread open at first, such as one Activity links to.
+  readonly thread?: string;
   readonly titleId?: string;
   readonly onVersion: (version: number | undefined) => void;
   readonly onClose: () => void;
@@ -260,7 +266,8 @@ export function Viewer({
       shown={
         asked === null ? artifact.versions : Math.min(asked, artifact.versions)
       }
-      commentsAtFirst={commentsAtFirst}
+      commentsAtFirst={commentsAtFirst || threadAtFirst !== undefined}
+      threadAtFirst={threadAtFirst}
       titleId={titleId}
       onVersion={onVersion}
       onClose={onClose}
@@ -334,6 +341,7 @@ function Shown({
   asked,
   shown,
   commentsAtFirst,
+  threadAtFirst,
   titleId,
   onVersion,
   onClose,
@@ -344,6 +352,7 @@ function Shown({
   readonly asked: number | null;
   readonly shown: number;
   readonly commentsAtFirst: boolean;
+  readonly threadAtFirst: string | undefined;
   readonly titleId: string | undefined;
   readonly onVersion: (version: number | undefined) => void;
   readonly onClose: () => void;
@@ -394,7 +403,7 @@ function Shown({
     [shown],
   );
 
-  const [active, setActive] = useState<string>();
+  const [active, setActive] = useState(threadAtFirst);
   const [saved, setSaved] = useState<string>();
   const [measured, area] = useSize();
   const [sharing, setSharing] = useState(false);

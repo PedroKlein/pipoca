@@ -1,10 +1,17 @@
-import { ConfigForm, defineWeb, useApi, useLoaded } from "@pipoca/plugins/web";
+import {
+  ConfigForm,
+  defineWeb,
+  type Slots,
+  useApi,
+  useLoaded,
+} from "@pipoca/plugins/web";
 import { Button, ErrorText, Page, Row, Rows } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
 import { push } from "../plugin";
 
 export const web = defineWeb(push, {
   settings: { group: "you", Section },
+  slots: { "activity.channel": ActivityChannel },
   // How long a question in team work waits before its starter hears of it.
   pages: [
     {
@@ -22,6 +29,32 @@ const supported =
   "serviceWorker" in navigator &&
   typeof PushManager !== "undefined";
 
+function useSubscription() {
+  return useLoaded(
+    async () =>
+      supported
+        ? ((
+            await navigator.serviceWorker.getRegistration("/")
+          )?.pushManager.getSubscription() ?? null)
+        : null,
+    "push.subscription",
+  );
+}
+
+// Mentions, review requests and replies reach a device that turned
+// notifications on; every comment stays in Pipoca.
+function ActivityChannel({
+  topic,
+}: Slots["activity.channel"]): ReactElement | null {
+  const { value } = useSubscription();
+
+  return topic === "comments" ||
+    value === null ||
+    value === undefined ? null : (
+    <> · push</>
+  );
+}
+
 function Section(): ReactElement | null {
   const api = useApi(push);
   const [error, setError] = useState<string>();
@@ -31,13 +64,7 @@ function Section(): ReactElement | null {
     "push.key",
   ).value;
 
-  const { value: current, reload } = useLoaded(
-    async () =>
-      (
-        await navigator.serviceWorker.getRegistration("/")
-      )?.pushManager.getSubscription() ?? null,
-    "push.subscription",
-  );
+  const { value: current, reload } = useSubscription();
 
   if (!supported) {
     return null;

@@ -1,4 +1,4 @@
-import { Config, definePlugin } from "@pipoca/plugins";
+import { Config, definePlugin, event, Type } from "@pipoca/plugins";
 
 // A page, document or picture Pi publishes, with every version kept at one
 // link (ADR 0078). An artifact follows its Session: whoever sees the Session
@@ -132,5 +132,58 @@ create table artifacts_reviewers (
   added_at integer not null,
   primary key (artifact_id, user_id)
 ) strict, without rowid;`,
+    // 8: an edit Pi suggests in a reply, on the version it read, which a
+    // person accepts as a version of their own or rejects.
+    `create table artifacts_suggestions (
+  comment_id text primary key references artifacts_comments (id) on delete cascade,
+  version integer not null check (version >= 1),
+  find text not null,
+  replace text not null,
+  state text not null default 'open' check (state in ('open', 'accepted', 'rejected')),
+  decided_by_user_id text references users (id) on delete set null,
+  saved integer
+) strict, without rowid;`,
+    // 9: what each person is told of, and which of it they asked for.
+    `create table artifacts_activity (
+  id text primary key,
+  user_id text not null references users (id) on delete cascade,
+  kind text not null check (kind in ('mention', 'review', 'reply', 'comment')),
+  artifact_id text not null references artifacts_artifacts (id) on delete cascade,
+  comment_id text references artifacts_comments (id) on delete cascade,
+  actor_user_id text references users (id) on delete set null,
+  by_pi integer not null default 0 check (by_pi in (0, 1)),
+  created_at integer not null,
+  read_at integer
+) strict;
+create index artifacts_activity_user on artifacts_activity (user_id, created_at);
+
+create table artifacts_activity_settings (
+  user_id text not null references users (id) on delete cascade,
+  topic text not null check (topic in ('asked', 'replies', 'comments')),
+  told integer not null check (told in (0, 1)),
+  primary key (user_id, topic)
+) strict, without rowid;`,
   ],
+  events: {
+    // ADR 0081: mentions, review requests and replies, for the plugins that
+    // tell people elsewhere, such as push, Slack and email.
+    activity: event({
+      title: "Artifact activity for a person",
+      description:
+        "Someone mentioned the person, asked them to review a doc, or replied in a thread they're in.",
+      fields: Type.Object({
+        kind: Type.Union([
+          Type.Literal("mention"),
+          Type.Literal("review"),
+          Type.Literal("reply"),
+        ]),
+        artifact: Type.String(),
+        headline: Type.String({ description: "What happened, in a line" }),
+        text: Type.String({ description: "What was written, cut short" }),
+        url: Type.String({
+          description: "Where it opens, from the server's root",
+        }),
+      }),
+    }),
+  },
 });

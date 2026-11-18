@@ -8,6 +8,7 @@ import {
   type Questions,
   type ServerContext,
 } from "@pipoca/plugins";
+import { artifacts } from "@pipoca/artifacts/plugin";
 import { routines } from "@pipoca/routines/plugin";
 import {
   type PluginTest,
@@ -614,6 +615,89 @@ test("tells a routine's person when it paused itself or its chain stopped, and e
     tag: "routines.chain_stopped.fix",
     url: "/",
   });
+});
+
+let telling: ServerContext<typeof artifacts> | undefined;
+
+const artifactsServer = defineServer(artifacts, (context) => {
+  telling = context;
+});
+
+test("tells a person they were mentioned, asked to review or answered on an artifact", async () => {
+  const { sent, fetch } = services();
+
+  await using t = await testPlugin(server, {
+    people,
+    fetch,
+    plugins: [artifactsServer],
+  });
+
+  const [owns, anas] = await Promise.all(
+    ["device-1", "device-2"].map(async (name) => browser(device(name))),
+  );
+
+  await subscribe(t, "owner", owns?.subscription ?? {});
+  await subscribe(t, "ana", anas?.subscription ?? {});
+
+  telling?.events.emit(
+    "activity",
+    {
+      kind: "mention",
+      artifact: "a1",
+      headline: "Rui mentioned you on Webhooks v2 delivery design",
+      text: "Works for me. @Ana ok to accept?",
+      url: "/#plugin/artifacts/a1/comments",
+    },
+    { to: [person("ana")] },
+  );
+
+  await delivered(sent, 1);
+
+  expect(sent[0]?.headers.get("urgency")).toBe("high");
+
+  expect(await anas?.read(sent[0]?.body)).toEqual({
+    title: "Rui mentioned you on Webhooks v2 delivery design",
+    body: "Works for me. @Ana ok to accept?",
+    tag: "artifacts.a1",
+    url: "/#plugin/artifacts/a1/comments",
+  });
+
+  telling?.events.emit(
+    "activity",
+    {
+      kind: "reply",
+      artifact: "a1",
+      headline: "Pi replied in a thread you're in",
+      text: "12 hours covers it.",
+      url: "/#plugin/artifacts/a1/comments",
+    },
+    { to: [person("ana")] },
+  );
+
+  await delivered(sent, 2);
+
+  expect(sent[1]?.headers.get("urgency")).toBe("normal");
+
+  // Only the person it's for hears.
+  telling?.events.emit(
+    "activity",
+    {
+      kind: "review",
+      artifact: "a1",
+      headline: "Pedro asked you to review it",
+      text: "",
+      url: "/#plugin/artifacts/a1/comments",
+    },
+    { to: [person("owner")] },
+  );
+
+  await delivered(sent, 3);
+
+  expect(sent.map(({ url }) => url.split("/").at(-1))).toEqual([
+    "device-2",
+    "device-2",
+    "device-1",
+  ]);
 });
 
 // A plugin that starts work whose questions wait past the turn, as routines

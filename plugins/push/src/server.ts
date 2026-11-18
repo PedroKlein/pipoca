@@ -11,6 +11,7 @@ import {
   Type,
 } from "@pipoca/plugins";
 import { isBusy, type Session, type SessionStatus } from "@pipoca/protocol";
+import { artifacts } from "@pipoca/artifacts/plugin";
 import { routines } from "@pipoca/routines/plugin";
 import { usage } from "@pipoca/usage/plugin";
 import { push } from "../plugin";
@@ -199,6 +200,27 @@ export const server = defineServer(
         body: fields.reason,
         tag: `routines.chain_stopped.${fields.name}`,
       });
+    });
+
+    // Mentions and review requests ask something of the person; a reply
+    // only tells them (ADR 0081).
+    events.on(artifacts.events.activity, ({ fields, to }) => {
+      for (const owner of to) {
+        const id = owners.personId(owner);
+
+        if (id !== undefined) {
+          tell(
+            id,
+            {
+              title: fields.headline,
+              body: fields.text,
+              tag: `artifacts.${fields.artifact}`,
+              url: fields.url,
+            },
+            fields.kind !== "reply",
+          );
+        }
+      }
     });
 
     // In team work Pi asks a named person, and whoever started the work hears

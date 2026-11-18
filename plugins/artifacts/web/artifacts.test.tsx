@@ -2,8 +2,13 @@ import { expect, spyOn, test } from "bun:test";
 import { AttachMenu } from "@pipoca/plugins/web";
 import { renderPart, resize, sessionWith } from "@pipoca/plugins/web/testing";
 import { until } from "@pipoca/testing/until";
-import { act } from "react";
-import type { ArtifactSummary, Comment, Presence } from "../src/artifacts";
+import { act, type ReactElement, useState } from "react";
+import type {
+  ActivityItem,
+  ArtifactSummary,
+  Comment,
+  Presence,
+} from "../src/artifacts";
 import { web } from "./index";
 
 // The page's change stream, which tells only what a test says changed.
@@ -1304,39 +1309,42 @@ test("a version a person saved shows in the chat as a row that opens it", async 
   expect(location.hash).toBe("#session-1?artifact=a1&v=2");
 });
 
-test("a restored version shows in the chat as restored", async () => {
-  const restored = { ...viewed(3) };
+test("a restored version and an accepted edit show in the chat as what they were", async () => {
+  for (const note of ["restored version 1", "accepted Pi's suggested edit"]) {
+    const made = { ...viewed(3) };
 
-  const page = renderPart(
-    web,
-    "notice:artifact_version",
-    { text: "Ana restored version 1", data: { artifact: "a1", version: 3 } },
-    {
-      fetch: serving(
-        {
-          ...artifact({ title: "Rollout plan", kind: "markdown", versions: 3 }),
-          ...restored,
-          history: restored.history.map((each) =>
-            each.number === 3
-              ? {
-                  ...each,
-                  author: "user:ana",
-                  by: "Ana",
-                  note: "restored version 1",
-                }
-              : each,
-          ),
-        },
-        [],
-      ),
-    },
-  );
+    const page = renderPart(
+      web,
+      "notice:artifact_version",
+      { text: "Ana saved version 3", data: { artifact: "a1", version: 3 } },
+      {
+        fetch: serving(
+          {
+            ...artifact({
+              title: "Rollout plan",
+              kind: "markdown",
+              versions: 3,
+            }),
+            ...made,
+            history: made.history.map((each) =>
+              each.number === 3
+                ? { ...each, author: "user:ana", by: "Ana", note }
+                : each,
+            ),
+          },
+          [],
+        ),
+      },
+    );
 
-  await drawn(() => page.textContent.includes("Rollout plan"));
+    await drawn(() => page.textContent.includes("Rollout plan"));
 
-  expect(page.textContent).toContain(
-    "Ana restored version 1 as version 3 of Rollout plan",
-  );
+    expect(page.textContent).toContain(
+      `Ana ${note} as version 3 of Rollout plan`,
+    );
+
+    page.remove();
+  }
 });
 
 test("a version row without its version says only that there's a new one", async () => {
@@ -1698,7 +1706,7 @@ function viewed(versions: number) {
   };
 }
 
-const slots = { page: web.pages?.[0]?.Page };
+const slots = { page: web.pages?.find(({ path }) => path === "")?.Page };
 
 test("the Artifacts page shows yours, the ones shared with you and the team's, finds them by title or Session, and opens one over the page", async () => {
   const asked: string[] = [];
@@ -2931,6 +2939,7 @@ function thread(o: Partial<Comment> & { readonly id: string }): Comment {
     resolvedByPi: false,
     createdAt: Date.now(),
     reactions: [],
+    suggestion: null,
     ...o,
   };
 }
@@ -3864,6 +3873,179 @@ test("people who only view read a thread but don't react or reply", async () => 
   expect(page.querySelector("form[aria-label=Reply]")).toBeNull();
 });
 
+test("Pi's suggested edit shows what goes and what comes, and someone who steers accepts it as the next version or rejects it", async () => {
+  for (const [button, accept, caption] of [
+    ["Accept", true, "Accepted by You as version 6"],
+    ["Reject", false, "Rejected by You"],
+  ] as const) {
+    await decided(button, accept, caption);
+  }
+});
+
+async function decided(
+  button: string,
+  accept: boolean,
+  caption: string,
+): Promise<void> {
+  const asked: Served[] = [];
+
+  const edit = {
+    find: "A sender retries with exponential backoff for 24 hours",
+    replace: "A sender retries with exponential backoff for 12 hours",
+    version: 5,
+    by: null,
+    saved: null,
+  };
+
+  let state: "open" | "accepted" | "rejected" = "open";
+
+  const comments = () => [
+    thread({ id: "t1", body: "@pi propose a shorter window", sentBy: "You" }),
+    thread({
+      id: "t2",
+      parent: "t1",
+      author: "You",
+      byPi: true,
+      body: "12 hours covers the March outage.",
+      suggestion:
+        state === "open"
+          ? { ...edit, state }
+          : { ...edit, state, by: "You", saved: accept ? 6 : null },
+    }),
+  ];
+
+  const serve = serving({ ...artifact({ versions: 5 }), ...viewed(5) }, asked, {
+    comments,
+  });
+
+  const page = renderPart(
+    web,
+    "overlay",
+    {},
+    {
+      hash: "#session-1?artifact=a1&comments=1",
+      fetch: async (url, init) => {
+        if (url.endsWith("/suggestion")) {
+          asked.push({
+            url,
+            method: init?.method ?? "GET",
+            body: JSON.parse(
+              typeof init?.body === "string" ? init.body : "null",
+            ) as unknown,
+          });
+
+          state = accept ? "accepted" : "rejected";
+          changed("artifacts.artifacts");
+
+          return Response.json({ version: 6 });
+        }
+
+        return serve(url, init);
+      },
+    },
+  );
+
+  await opened(asked);
+  await drawn(() => named(page, "Comment 1 by Ana") !== undefined);
+
+  act(() => {
+    named(page, "Comment 1 by Ana")?.click();
+  });
+
+  const figure = (): HTMLElement | null =>
+    page.querySelector("figure[aria-label='Suggested edit']");
+
+  await drawn(() => figure() !== null);
+
+  expect(figure()?.querySelector("del")?.textContent).toBe(
+    `Takes out: ${edit.find}`,
+  );
+
+  expect(figure()?.querySelector("ins")?.textContent).toBe(
+    `Puts in: ${edit.replace}`,
+  );
+
+  expect(figure()?.querySelector("figcaption")?.textContent).toContain(
+    "Accepting saves version 6",
+  );
+
+  act(() => {
+    named(page, button)?.click();
+  });
+
+  await drawn(
+    () => figure()?.querySelector("figcaption")?.textContent === caption,
+  );
+
+  expect(asked.find(({ url }) => url.endsWith("/suggestion"))).toMatchObject({
+    url: "/api/ext/artifacts/artifacts/a1/comments/t2/suggestion",
+    method: "PUT",
+    body: { accept },
+  });
+
+  expect(named(page, "Reject")).toBeUndefined();
+  page.remove();
+}
+
+test("people who can't steer see Pi's suggested edit wait for someone who can", async () => {
+  const asked: Served[] = [];
+
+  const page = renderPart(
+    web,
+    "overlay",
+    {},
+    {
+      hash: "#session-1?artifact=a1&comments=1",
+      fetch: serving(
+        { ...artifact({ versions: 2 }), ...viewed(2), access: "comment" },
+        asked,
+        {
+          comments: () => [
+            thread({ id: "t1", body: "Shorter?", sentBy: "Ana" }),
+            thread({
+              id: "t2",
+              parent: "t1",
+              byPi: true,
+              body: "",
+              suggestion: {
+                find: "24 hours",
+                replace: "12 hours",
+                version: 2,
+                state: "open",
+                by: null,
+                saved: null,
+              },
+            }),
+          ],
+        },
+      ),
+    },
+  );
+
+  await opened(asked);
+  await drawn(() => named(page, "Comment 1 by Ana") !== undefined);
+
+  act(() => {
+    named(page, "Comment 1 by Ana")?.click();
+  });
+
+  await drawn(
+    () => page.querySelector("figure[aria-label='Suggested edit']") !== null,
+  );
+
+  expect(named(page, "Accept")).toBeUndefined();
+
+  expect(
+    page.querySelector("figure[aria-label='Suggested edit'] figcaption")
+      ?.textContent,
+  ).toBe("Waiting for someone who steers the Session");
+
+  // A suggestion with nothing to say draws no empty paragraph.
+  const pi = [...page.querySelectorAll("ol[aria-label=Messages] > li")].at(-1);
+
+  expect(pi?.querySelector("p")).toBeNull();
+});
+
 test("Publish as artifact in the file viewer uploads the file's bytes, publishes it in its Session and opens the artifact instead", async () => {
   const asked: { url: string; method: string; body?: unknown }[] = [];
 
@@ -4525,4 +4707,264 @@ test("a design doc's outline lists its sections with their open threads, goes to
   act(() => {
     named(page, "Dock beside the page")?.click();
   });
+});
+
+test("Activity lists what's for the person, opens each where it happened and marks it read, and says what they're told of where", async () => {
+  const asked: Served[] = [];
+
+  const entry = (o: Partial<ActivityItem> & { readonly id: string }) => ({
+    kind: "mention" as const,
+    artifact: "a1",
+    title: "Webhooks v2 delivery design",
+    thread: "t1",
+    quote: "retries",
+    by: "Rui",
+    byPi: false,
+    suggested: false,
+    excerpt: "Works for me. @Ana ok to accept?",
+    doc: null,
+    version: 5,
+    at: Date.now() - 1000,
+    read: false,
+    ...o,
+  });
+
+  let read = new Set<string>();
+
+  const mine = () => {
+    const items = [
+      entry({ id: "i1" }),
+      entry({
+        id: "i2",
+        kind: "review",
+        by: "Pedro",
+        thread: null,
+        quote: "",
+        excerpt: "",
+        doc: "design",
+      }),
+      entry({
+        id: "i3",
+        kind: "reply",
+        by: "Pi",
+        byPi: true,
+        suggested: true,
+        excerpt: "12 hours covers the March outage",
+      }),
+      entry({
+        id: "i4",
+        kind: "comment",
+        artifact: "a2",
+        title: "Rollout checklist",
+        thread: "t9",
+        excerpt: "Add a step",
+      }),
+    ].map((each) => ({ ...each, read: read.has(each.id) }));
+
+    return { items, unread: items.filter((each) => !each.read).length };
+  };
+
+  let settings = { asked: true, replies: true, comments: false };
+
+  const page = renderPart(
+    web,
+    "page:activity",
+    { path: "" },
+    {
+      hash: "#plugin/artifacts/activity",
+      fills: { "activity.channel": () => <> · push</> },
+      fetch: async (url, init) => {
+        await Promise.resolve();
+
+        const body =
+          typeof init?.body === "string"
+            ? (JSON.parse(init.body) as Record<string, unknown>)
+            : undefined;
+
+        asked.push({ url, method: init?.method ?? "GET", body });
+
+        if (url.endsWith("/activity/read")) {
+          const ids = body?.["ids"] as string[] | undefined;
+
+          read = new Set(ids ?? mine().items.map(({ id }) => id));
+          changed("artifacts.artifacts");
+
+          return Response.json({ read: true });
+        }
+
+        if (url.endsWith("/activity/settings")) {
+          if (init?.method === "PUT") {
+            settings = { ...settings, [String(body?.["topic"])]: body?.["on"] };
+          }
+
+          return Response.json(settings);
+        }
+
+        if (url.includes("/activity?view=following")) {
+          return Response.json({
+            items: [
+              entry({ id: "f1", read: true, kind: "reply", excerpt: "Me" }),
+              entry({ id: "f2", read: true, kind: "comment" }),
+            ],
+            unread: 0,
+          });
+        }
+
+        return Response.json(mine());
+      },
+    },
+  );
+
+  const rows = (): HTMLElement[] => [
+    ...page.querySelectorAll<HTMLElement>("ul[aria-label=Activity] button"),
+  ];
+
+  await drawn(() => rows().length === 4);
+
+  const text = (at: number): string =>
+    (rows()[at]?.textContent ?? "").replaceAll("\u00a0", " ");
+
+  expect(text(0)).toContain(
+    "Unread: Rui mentioned you on Webhooks v2 delivery design",
+  );
+
+  expect(text(0)).toContain(
+    "“Works for me. @Ana ok to accept?” · thread on retries · ",
+  );
+
+  expect(text(0)).toEndWith("Mention");
+
+  expect(text(1)).toContain(
+    "Pedro asked you to review Webhooks v2 delivery design",
+  );
+
+  expect(text(1)).toContain("Design doc · version 5 · ");
+  expect(text(2)).toContain("Pi suggested an edit in a thread you're in");
+  expect(text(3)).toContain("Rui commented on Rollout checklist");
+  expect(text(3)).toContain("Your artifact · ");
+
+  // A row opens the artifact at its thread and marks it read.
+  act(() => {
+    rows()[3]?.click();
+  });
+
+  expect(location.hash).toBe(
+    "#plugin/artifacts/activity?artifact=a2&comments=1&thread=t9",
+  );
+
+  await drawn(() => !text(3).includes("Unread"));
+
+  expect(asked.find(({ url }) => url.endsWith("/activity/read"))?.body).toEqual(
+    {
+      ids: ["i4"],
+    },
+  );
+
+  act(() => {
+    named(page, "Mark all read")?.click();
+  });
+
+  await drawn(() =>
+    rows().every((each) => !each.textContent.includes("Unread")),
+  );
+
+  expect(named(page, "Mark all read")?.disabled).toBe(true);
+
+  // What they're told of, and where.
+  const card = page.querySelector("section[aria-labelledby=activity-settings]");
+
+  expect(
+    [...(card?.querySelectorAll("li") ?? [])].map((each) => [
+      each.querySelector("span")?.textContent,
+      each.querySelector("span + span")?.textContent,
+      each.querySelector("[role=switch]")?.getAttribute("aria-checked"),
+    ]),
+  ).toEqual([
+    ["Mentions and review requests", "Here · push", "true"],
+    ["Replies in threads I'm in", "Here · push", "true"],
+    ["Every new comment on my artifacts", "Here · push", "false"],
+  ]);
+
+  act(() => {
+    card?.querySelectorAll<HTMLElement>("[role=switch]")[2]?.click();
+  });
+
+  await drawn(
+    () =>
+      card
+        ?.querySelectorAll("[role=switch]")[2]
+        ?.getAttribute("aria-checked") === "true",
+  );
+
+  expect(asked.findLast(({ method }) => method === "PUT")?.body).toEqual({
+    topic: "comments",
+    on: true,
+  });
+
+  // Everything they follow, without a mark of its own.
+  act(() => {
+    named(page, "Everything I follow")?.click();
+  });
+
+  await drawn(() => rows().length === 2);
+
+  expect(text(0)).toContain("Rui replied in a thread you're in");
+
+  // What they follow isn't always theirs.
+  expect(text(1)).not.toContain("Your artifact");
+  expect(named(page, "Mark all read")).toBeUndefined();
+});
+
+test("a link to another thread of the artifact open in the window opens that thread", async () => {
+  const Gallery = slots.page;
+
+  if (Gallery === undefined) {
+    throw new Error("no gallery page");
+  }
+
+  const Page = Gallery;
+
+  let go = (_path: string): void => undefined;
+
+  function Moving(): ReactElement {
+    const [path, setPath] = useState("a1/comments/t1");
+
+    go = setPath;
+
+    return <Page path={path} />;
+  }
+
+  const moving = { page: Moving };
+
+  const page = renderPart(
+    { ...web, slots: moving },
+    "page",
+    {},
+    {
+      hash: "#plugin/artifacts/a1/comments/t1",
+      fetch: lively(async (url) => {
+        await Promise.resolve();
+
+        return url.endsWith("/comments")
+          ? Response.json({
+              comments: [
+                thread({ id: "t1", quote: "three times" }),
+                thread({ id: "t2", quote: "Nov 3" }),
+              ],
+            })
+          : Response.json({ ...artifact({ versions: 2 }), ...viewed(2) });
+      }),
+    },
+  );
+
+  const title = (): string | null | undefined =>
+    page.querySelector("h3")?.textContent;
+
+  await drawn(() => title() === "Thread on “three times”");
+
+  act(() => {
+    go("a1/comments/t2");
+  });
+
+  await drawn(() => title() === "Thread on “Nov 3”");
 });

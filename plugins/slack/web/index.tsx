@@ -2,6 +2,7 @@ import {
   defineWeb,
   type NoticeProps,
   type SetupStep,
+  type Slots,
   useApi,
   useLoaded,
   useViewer,
@@ -70,7 +71,10 @@ const botStep: SetupStep = {
 
 export const web = defineWeb(slack, {
   settings: { group: "integrations", Section },
-  slots: { "notice:slack_reply": SlackReply },
+  slots: {
+    "notice:slack_reply": SlackReply,
+    "activity.channel": ActivityChannel,
+  },
   setup: [botStep],
 });
 
@@ -265,4 +269,19 @@ function SlackReply({ text }: Omit<NoticeProps, "context">): ReactElement {
       </span>
     </div>
   );
+}
+
+// Mentions and review requests reach the person here once they gave an
+// email and there's a bot to send them.
+function ActivityChannel({
+  topic,
+}: Slots["activity.channel"]): ReactElement | null {
+  const api = useApi(slack);
+
+  const { value } = useLoaded(
+    async () => api.get<{ reaches: boolean }>("activity"),
+    "slack.activity",
+  );
+
+  return topic === "asked" && value?.reaches === true ? <> · Slack</> : null;
 }
