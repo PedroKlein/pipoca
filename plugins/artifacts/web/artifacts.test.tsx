@@ -2528,9 +2528,7 @@ test("a thread is a small chat: who's here, reactions, mentions and who's typing
   // A long quote keeps its start and end, and says all of it on hover.
   const title = section()?.querySelector("h3");
 
-  expect(title?.textContent).toBe(
-    "Thread on “A sender retries … off for 24 hours”",
-  );
+  expect(title?.textContent).toBe("Thread on “A sender … for 24 hours”");
 
   expect(title?.getAttribute("title")).toBe(
     "A sender retries with exponential backoff for 24 hours",

@@ -250,20 +250,41 @@ export function ThreadView({
   );
 }
 
-const quoteShown = 32;
+const quoteShown = 24;
 
-// Long quotes keep their start and end, as the page shows both.
+// Long quotes keep their first and last words, as the page shows both.
 function titleOf(top: Comment): string {
   if (top.quote === "") {
     return "Thread on the whole page";
   }
 
   const { quote } = top;
-  const half = quoteShown / 2;
 
-  return quote.length <= quoteShown
-    ? `Thread on “${quote}”`
-    : `Thread on “${quote.slice(0, half).trimEnd()} … ${quote.slice(-half).trimStart()}”`;
+  if (quote.length <= quoteShown) {
+    return `Thread on “${quote}”`;
+  }
+
+  const words = quote.split(/\s+/);
+  const half = quoteShown / 2;
+  const start = fitting(words, half);
+  const end = fitting([...words].reverse(), half).reverse();
+
+  return `Thread on “${start.join(" ") || quote.slice(0, half)} … ${end.join(" ") || quote.slice(-half)}”`;
+}
+
+// As many of the words as fit in the length, in order.
+function fitting(words: readonly string[], length: number): string[] {
+  const kept: string[] = [];
+
+  for (const word of words) {
+    if ([...kept, word].join(" ").length > length) {
+      break;
+    }
+
+    kept.push(word);
+  }
+
+  return kept;
 }
 
 function kindWord(kind: Comment["kind"]): string {
