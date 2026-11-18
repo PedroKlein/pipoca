@@ -5666,6 +5666,20 @@ test("moves focus into the sessions drawer, closes it with Escape and gives focu
     "Open sessions",
   );
 
+  // New session from the open drawer opens a dialog that takes input.
+  await menu.click();
+  await newSession.click();
+  await page.locator("form#create").waitFor();
+
+  expect(
+    await page.evaluate(
+      "document.querySelector('form#create').closest('[inert]') === null",
+    ),
+  ).toBe(true);
+
+  await page.keyboard.press("Escape");
+  await page.locator("form#create").waitFor({ state: "hidden" });
+
   await page.setViewportSize({ width: 1280, height: 720 });
 });
 
@@ -6330,7 +6344,7 @@ test("opens an artifact Pi published, in a sandbox, from its card in the chat", 
   // Long after a click, while the page still has focus, a draft isn't the
   // person's doing.
   await frame.getByRole("button", { name: "Later" }).click();
-  // Waiting without looking: each look Playwright takes counts as a click.
+  // Waiting without looking: Playwright runs its looks as user gestures.
   await page.waitForTimeout(6500);
   await frame.getByText("posted later").waitFor();
   expect(await viewer.isVisible()).toBe(true);

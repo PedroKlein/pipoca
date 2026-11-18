@@ -5,7 +5,11 @@ const origin = "http://pipoca.internal";
 // address parser drops, a "#", or a "//" naming another host would let
 // input such as an id name another route.
 export function routeUrl(path: string, base: string): string | undefined {
-  const [pathname = ""] = path.trim().split("?");
+  const [pathname = ""] = path
+    // The parser strips these control characters from both ends.
+    // eslint-disable-next-line no-control-regex
+    .replace(/^[\x00-\x20]+|[\x00-\x20]+$/g, "")
+    .split("?");
 
   const dotted = pathname.split(/[/\\]/).some((segment) => {
     try {

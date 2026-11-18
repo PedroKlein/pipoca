@@ -49,13 +49,15 @@ export function Drawer({
       ?.querySelector<HTMLElement>("a[href], button:not(:disabled), input")
       ?.focus();
 
-    // The page and whatever is docked beside it, also once a dock comes.
+    // The page and whatever is docked beside it, also once a dock comes;
+    // not a dialog the sidebar opens, such as New session.
     const hidden = new Set<HTMLElement>();
 
     const hide = (): void => {
       for (const each of area?.children ?? []) {
         if (
           each instanceof HTMLElement &&
+          !(each instanceof HTMLDialogElement) &&
           each !== aside.current &&
           each.getAttribute("aria-hidden") !== "true" &&
           !each.inert
