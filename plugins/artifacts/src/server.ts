@@ -274,6 +274,12 @@ export const server = defineServer(
           now,
           id,
         );
+
+        // A verdict was on what the doc said before.
+        store.run(
+          "update artifacts_reviewers set verdict = null where artifact_id = ?",
+          id,
+        );
       });
 
       return number;
@@ -357,7 +363,7 @@ export const server = defineServer(
       author.startsWith("user:") ? nameOf(author.slice("user:".length)) : "Pi";
 
     // What each version's file says it is, read once.
-    const marks = new Map<string, DocMark | undefined>();
+    const marks = new Map<string, Promise<DocMark | undefined>>();
 
     const markOf = async (latest: VersionRow): Promise<DocMark | undefined> => {
       const kind = kindOf(latest.name);
@@ -366,18 +372,19 @@ export const server = defineServer(
         return undefined;
       }
 
-      if (!marks.has(latest.hash)) {
-        const kept = await blobs.bytes(latest.hash);
+      const known =
+        marks.get(latest.hash) ??
+        blobs
+          .bytes(latest.hash)
+          .then((kept) =>
+            kept === undefined
+              ? undefined
+              : docMark(kind, new TextDecoder().decode(kept)),
+          );
 
-        marks.set(
-          latest.hash,
-          kept === undefined
-            ? undefined
-            : docMark(kind, new TextDecoder().decode(kept)),
-        );
-      }
+      marks.set(latest.hash, known);
 
-      return marks.get(latest.hash);
+      return known;
     };
 
     // Someone who can no longer see the doc no longer reviews it.
@@ -661,6 +668,19 @@ export const server = defineServer(
             );
           }
         });
+
+        for (const { user_id } of store.all<{ user_id: string }>(
+          "select user_id from artifacts_reviewers where artifact_id = ?",
+          artifact.id,
+        )) {
+          if (!sees(artifact, user_id)) {
+            store.run(
+              "delete from artifacts_reviewers where artifact_id = ? and user_id = ?",
+              artifact.id,
+              user_id,
+            );
+          }
+        }
 
         return { shares: shares(artifact.id) };
       },

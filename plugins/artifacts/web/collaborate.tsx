@@ -133,7 +133,7 @@ export function Frame({
       if (data?.pipoca === "outline") {
         onOutline?.({
           ...outlineOf(data.sections, data.tops),
-          scrolled: typeof data.scrolled === "number" ? data.scrolled : 0,
+          scrolled: finite(data.scrolled) ? data.scrolled : 0,
         });
 
         return;
@@ -283,7 +283,9 @@ function outlineOf(
       (each: unknown) => {
         const { n, top } = (each ?? {}) as Record<string, unknown>;
 
-        return finite(n) && finite(top) ? [{ n, top }] : [];
+        return finite(n) && Number.isInteger(n) && finite(top)
+          ? [{ n, top }]
+          : [];
       },
     ),
   };

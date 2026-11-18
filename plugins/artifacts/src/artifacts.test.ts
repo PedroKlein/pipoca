@@ -1710,6 +1710,24 @@ test("an artifact is a design doc by its front matter, its meta tag or a person'
     await sent("ana", "PUT", "reviewers", { reviewers: ["Bo", "Cy"] }),
   ).toBe(400);
 
+  // Shared again, they aren't asked again.
+  await t.as("ana").put(`artifacts/${id}/shares`, {
+    shares: [
+      { name: "Bo", role: "comment" },
+      { name: "Cy", role: "view" },
+    ],
+  });
+
+  expect((await doc())?.reviewers.map(({ name }) => name)).toEqual(["Bo"]);
+
+  // A new version asks for a new verdict.
+  await writeFile(join(cwd, "plan.md"), "# Plan\n\nShip Monday.\n");
+  await part.tool("publish_artifact", { path: "plan.md", id });
+
+  expect((await doc())?.reviewers).toEqual([
+    { name: "Bo", you: false, verdict: null },
+  ]);
+
   // Unmarked, it's a plain artifact again.
   expect(await sent("ana", "PUT", "doc", { type: null })).toBe(200);
   expect(await doc()).toBeNull();
@@ -1793,9 +1811,10 @@ test("an artifact is a design doc by its front matter, its meta tag or a person'
   expect(
     await marked(
       "upper.html",
+      // Only a person decides.
       '<meta name="pipoca:doc" content="Design Doc"><meta name="pipoca:status" content="Decided">',
     ),
-  ).toMatchObject({ type: "design", status: "decided" });
+  ).toMatchObject({ type: "design", status: "draft" });
 
   expect(
     await marked(
@@ -1808,5 +1827,10 @@ test("an artifact is a design doc by its front matter, its meta tag or a person'
 
   expect(
     await marked("late.md", "# Notes\n\n---\ndoc: design\n---\n"),
+  ).toBeNull();
+
+  // An unclosed block of Windows lines is read in one pass.
+  expect(
+    await marked("crlf.md", `---\r\na: b\r\n${"x\r\n".repeat(200)}`),
   ).toBeNull();
 });

@@ -100,11 +100,11 @@ export interface DocMark {
   readonly status?: DocStatus;
 }
 
+// Only a person decides, so a file can't say a doc is decided.
 const statusWords: Readonly<Record<string, DocStatus>> = {
   draft: "draft",
   review: "review",
   "in review": "review",
-  decided: "decided",
 };
 
 // What a file says it is: Markdown front matter such as doc: design and
