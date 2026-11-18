@@ -948,11 +948,12 @@ export const server = defineServer(
       },
       ({ caller, params, body }) => {
         // Typing is where a reply is coming, so only for people who reply.
-        const typing = typeof body.typing === "string";
-        const artifact = (typing ? commenter : theirs)(params.id, caller);
+        const { typing } = body;
+        const replying = typeof typing === "string";
+        const artifact = (replying ? commenter : theirs)(params.id, caller);
 
-        if (typing) {
-          thread(artifact, body.typing);
+        if (typeof typing === "string") {
+          thread(artifact, typing);
         }
 
         looking.beat(artifact.id, caller.person.id, body);

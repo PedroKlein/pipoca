@@ -166,7 +166,7 @@ export function useCompletion<T extends Typed>({
       >
         {listed.map((option, index) => (
           <li
-            key={option.value}
+            key={index}
             id={`${listId}-${String(index)}`}
             role="option"
             aria-selected={index === current}

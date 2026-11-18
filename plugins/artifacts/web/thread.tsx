@@ -15,6 +15,7 @@ import {
   type ReactElement,
   type ReactNode,
   useEffect,
+  useEffectEvent,
   useLayoutEffect,
   useRef,
   useState,
@@ -181,7 +182,6 @@ export function ThreadView({
   }, [top.id, replies.length]);
 
   const resolve = (): void => {
-    onTyping(false);
     setProblem(undefined);
     setBusy(true);
 
@@ -209,10 +209,7 @@ export function ThreadView({
           size="sm"
           iconOnly
           aria-label="All comments"
-          onClick={() => {
-            onTyping(false);
-            onBack();
-          }}
+          onClick={onBack}
         >
           <Icon name="chevron-left" className="size-4" />
         </Button>
@@ -356,7 +353,9 @@ function Message({
       return;
     }
 
-    setPressedOn(comment.reactions);
+    const pressed = comment.reactions;
+
+    setPressedOn(pressed);
     setProblem(undefined);
 
     void api
@@ -369,7 +368,7 @@ function Message({
 
         // Free it even if the reload fails and the reactions stay as they were.
         setTimeout(() => {
-          setPressedOn(undefined);
+          setPressedOn((held) => (held === pressed ? undefined : held));
         }, pressMs);
       })
       .catch((error: unknown) => {
@@ -429,7 +428,8 @@ function Message({
                 type="button"
                 aria-pressed={each.mine}
                 aria-label={`${reactionNames[each.emoji]} from ${each.people.join(", ")}`}
-                disabled={!canReact || busy}
+                disabled={!canReact}
+                aria-disabled={busy}
                 onClick={() => {
                   react(each.emoji, !each.mine);
                 }}
@@ -472,6 +472,16 @@ function Composer({
   const [sending, setSending] = useState(false);
   const [problem, setProblem] = useState<string>();
   const mentions = useMentions(names);
+  const typed = useRef(false);
+
+  // Leaving the thread, however it happens, stops the typing others see.
+  const stop = useEffectEvent(() => {
+    if (typed.current) {
+      onTyping(false);
+    }
+  });
+
+  useEffect(() => stop, []);
 
   const send = (): void => {
     if (sending || body.trim() === "") {
@@ -490,6 +500,7 @@ function Composer({
       })
       .then(() => {
         setBody("");
+        typed.current = false;
         onTyping(false);
         onChanged();
       })
@@ -526,6 +537,7 @@ function Composer({
           {...mentions.box}
           onChange={(event) => {
             setBody(event.target.value);
+            typed.current = true;
             onTyping(true);
           }}
           onKeyDown={(event) => {

@@ -412,6 +412,7 @@ export function CommentList({
   if (opened !== undefined) {
     return (
       <ThreadView
+        key={opened.top.id}
         artifact={artifact}
         version={version}
         top={opened.top}

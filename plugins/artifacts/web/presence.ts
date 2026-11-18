@@ -15,7 +15,11 @@ export function usePresence(id: string): {
 } {
   const api = useApi(plugin);
   const [page] = useState(() => crypto.randomUUID());
-  const said = useRef({ thread: "", at: 0 });
+
+  const said = useRef<{ thread: string | null; at: number }>({
+    thread: null,
+    at: 0,
+  });
 
   const { value } = useLoaded(
     async () =>

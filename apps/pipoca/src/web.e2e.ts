@@ -6426,7 +6426,43 @@ test("two people chat in a comment thread, seeing who's here, who's typing and e
       .getByRole("textbox", { name: "Comment text" })
       .press("Control+Enter");
 
+    // A long thread opens at its newest message.
+    const [top] = (
+      (await (
+        await fetch(
+          new URL(`/api/ext/artifacts/artifacts/${id}/comments`, server.url),
+          {
+            headers: { cookie },
+          },
+        )
+      ).json()) as { comments: { id: string }[] }
+    ).comments;
+
+    for (let n = 1; n <= 12; n += 1) {
+      await fetch(
+        new URL(`/api/ext/artifacts/artifacts/${id}/comments`, server.url),
+        {
+          method: "POST",
+          headers: { "content-type": "application/json", cookie },
+          body: JSON.stringify({
+            version: 1,
+            body: `Note ${String(n)} on the retry window`,
+            parent: top?.id,
+            toPi: false,
+          }),
+        },
+      );
+    }
+
     await viewer.getByRole("button", { name: /^Comment 1 by / }).click();
+
+    const fromEnd = async (): Promise<number> =>
+      page.evaluate(
+        "(() => { const box = document.querySelector('ol[aria-label=Messages]').parentElement; return box.scrollHeight - box.scrollTop - box.clientHeight; })()",
+      );
+
+    await viewer.getByText("Note 12 on the retry window").waitFor();
+    expect(await fromEnd()).toBeLessThan(48);
 
     await rui.goto(new URL(`/#plugin/artifacts/${id}`, server.url).href);
     await rui.reload();
@@ -6461,6 +6497,9 @@ test("two people chat in a comment thread, seeing who's here, who's typing and e
 
     // Pedro is named in it, so it stands out to him.
     await messages.locator("b", { hasText: "@pedro" }).waitFor();
+
+    // Pedro was at the end, so the new reply scrolls into view.
+    expect(await fromEnd()).toBeLessThan(48);
 
     await viewer
       .getByText("rui is typing…")

@@ -2448,7 +2448,7 @@ function told(beats: readonly Served[]): unknown[] {
 test("a thread is a small chat: who's here, reactions, mentions and who's typing", async () => {
   const asked: Served[] = [];
   const beats: Served[] = [];
-  let here: Presence[] = [{ name: "Ana", typing: null }];
+  let here: Presence[] = [{ name: "Rui", typing: null }];
   let held: (() => void) | undefined;
   let refusals = 0;
 
@@ -2468,6 +2468,7 @@ test("a thread is a small chat: who's here, reactions, mentions and who's typing
       byPi: true,
       body: "x@Ana @Anabel @ana @AxB @Zed @pi",
     }),
+    thread({ id: "t3", author: "Bo", quote: "merchant", body: "Which one?" }),
   ];
 
   const serve = serving(
@@ -2517,14 +2518,28 @@ test("a thread is a small chat: who's here, reactions, mentions and who's typing
 
   await drawn(
     () =>
-      page.querySelector("[aria-label='Also here: Ana']") !== null &&
+      page.querySelector("[aria-label='Also here: Rui']") !== null &&
       named(page, "Comment 1 by Rui") !== undefined,
   );
 
   expect(told(beats)[0]).toEqual({ here: true });
 
+  // A card says how many replies its thread has and whether Pi has it.
+  const card = named(page, "Comment 1 by Rui");
+
+  expect(
+    card
+      ?.getAttribute("aria-describedby")
+      ?.split(" ")
+      .map((id) => document.getElementById(id)?.textContent),
+  ).toEqual([
+    "Too long. @Ana what do you think?",
+    "1 reply",
+    "Sent to Pi by Rui",
+  ]);
+
   act(() => {
-    named(page, "Comment 1 by Rui")?.click();
+    card?.click();
   });
 
   const section = (): HTMLElement | null =>
@@ -2573,7 +2588,7 @@ test("a thread is a small chat: who's here, reactions, mentions and who's typing
 
   await act(async () => until(() => held !== undefined));
 
-  expect(pill()?.disabled).toBe(true);
+  expect(pill()?.getAttribute("aria-disabled")).toBe("true");
 
   act(() => {
     pill()?.click();
@@ -2698,9 +2713,7 @@ test("a thread is a small chat: who's here, reactions, mentions and who's typing
       ?.requestSubmit();
 
     await until(() =>
-      told(beats).some((each) =>
-        Bun.deepEquals(each, { here: true, typing: null }),
-      ),
+      told(beats).some((each) => Bun.deepEquals(each, stopped)),
     );
   });
 
@@ -2722,17 +2735,46 @@ test("a thread is a small chat: who's here, reactions, mentions and who's typing
     section()?.querySelector("[role=status]")?.textContent;
 
   here = [
-    { name: "Ana", typing: "t1" },
+    { name: "Rui", typing: "t1" },
     { name: "Bo", typing: "t1" },
   ];
 
   changed("artifacts.presence-a1");
-  await drawn(() => typing() === "Ana and Bo are typing…");
+  await drawn(() => typing() === "Rui and Bo are typing…");
 
-  here = [{ name: "Ana", typing: "t9" }];
+  here = [{ name: "Rui", typing: "t3" }];
 
   changed("artifacts.presence-a1");
   await drawn(() => typing() === "");
+
+  // A pin opens its own thread with an empty reply box, and the typing
+  // others saw in the last one stops.
+  typeInto(box(), "Half a thought");
+
+  await act(async () =>
+    until(() => told(beats).some((each) => Bun.deepEquals(each, typingIn))),
+  );
+
+  const stops = told(beats).filter((each) =>
+    Bun.deepEquals(each, stopped),
+  ).length;
+
+  frameOf(page).tell({ pipoca: "pin", n: 2 });
+
+  await drawn(
+    () =>
+      section()?.querySelector("h3")?.textContent === "Thread on “merchant”",
+  );
+
+  expect(box()?.value).toBe("");
+
+  await act(async () =>
+    until(
+      () =>
+        told(beats).filter((each) => Bun.deepEquals(each, stopped)).length >
+        stops,
+    ),
+  );
 
   // Leaving the page says so, even as it closes.
   await act(async () => {
@@ -2745,6 +2787,7 @@ test("a thread is a small chat: who's here, reactions, mentions and who's typing
 });
 
 const typingIn = { here: true, typing: "t1" };
+const stopped = { here: true, typing: null };
 const gone = { here: false, keepalive: true };
 
 test("people who only view read a thread but don't react or reply", async () => {
