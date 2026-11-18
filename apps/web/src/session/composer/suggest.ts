@@ -54,21 +54,6 @@ export function ranked<T>(
   return [...starts, ...contains];
 }
 
-export function complete(
-  text: string,
-  caret: number,
-  from: number,
-  pick: string,
-): { readonly text: string; readonly caret: number } {
-  const rest = text.slice(caret);
-  const inserted = rest.startsWith(" ") ? pick : `${pick} `;
-
-  return {
-    text: text.slice(0, from) + inserted + rest,
-    caret: from + inserted.length + (rest.startsWith(" ") ? 1 : 0),
-  };
-}
-
 // Built-in commands the browser runs itself: /copy, and /model or /thinking
 // without an argument, which open their menus (ADR 0023).
 export function browserCommand(
