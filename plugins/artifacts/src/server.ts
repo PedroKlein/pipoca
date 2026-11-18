@@ -243,6 +243,15 @@ export const server = defineServer(
       return number;
     };
 
+    // A base names a version there is.
+    const based = (base: number, latest: VersionRow): void => {
+      if (base > latest.number) {
+        throw new BadRequest(
+          `there's no version ${String(base)}; the latest is ${String(latest.number)}`,
+        );
+      }
+    };
+
     const byOf = (author: string): string =>
       author.startsWith("user:") ? nameOf(author.slice("user:".length)) : "Pi";
 
@@ -313,6 +322,23 @@ export const server = defineServer(
         });
       },
     );
+
+    // A person's own version reaches the Session as a notice without a
+    // turn, so Pi reads it before it next changes the artifact.
+    const told = (artifact: Row, number: number, what: string): void => {
+      if (artifact.session_id === null) {
+        return;
+      }
+
+      sessions.send(artifact.session_id, {
+        text: `${what} Read it with read_artifact before you change it.`,
+        turn: false,
+        notice: {
+          kind: "artifact_version",
+          data: { artifact: artifact.id, version: number },
+        },
+      });
+    };
 
     // An earlier version becomes the newest, as a version of its own.
     routes.post(
@@ -564,13 +590,13 @@ export const server = defineServer(
 
       const batch = Bun.randomUUIDv7();
 
-      const told = sessions.send(sessionId, {
+      const sent = sessions.send(sessionId, {
         text: noticeText(waiting, (person) => personName(person, null)),
         turn: true,
         notice: { kind: "artifact_comments", data: { batch } },
       });
 
-      if (told === "gone") {
+      if (sent === "gone") {
         log("comment threads not told", { session: sessionId });
 
         return;
@@ -799,23 +825,6 @@ export const server = defineServer(
       },
     );
 
-    // A person's own version reaches the Session as a notice without a
-    // turn, so Pi reads it before it next changes the artifact.
-    const told = (artifact: Row, number: number, what: string): void => {
-      if (artifact.session_id === null) {
-        return;
-      }
-
-      sessions.send(artifact.session_id, {
-        text: `${what} Read it with read_artifact before you change it.`,
-        turn: false,
-        notice: {
-          kind: "artifact_version",
-          data: { artifact: artifact.id, version: number },
-        },
-      });
-    };
-
     // A person's edit of a Markdown artifact is a version of its own. One
     // built on an older version than the latest is refused, so they choose.
     routes.post(
@@ -842,19 +851,24 @@ export const server = defineServer(
           throw new BadRequest("Only Markdown artifacts are edited here.");
         }
 
-        if (body.base !== undefined && body.base < last.number) {
+        const stored = await blobs.put(new TextEncoder().encode(body.text));
+        const latest = versionOf(artifact);
+
+        if (body.base !== undefined) {
+          based(body.base, latest);
+        }
+
+        if (body.base !== undefined && body.base < latest.number) {
           throw new HttpError(
             409,
-            `${byOf(last.author)} saved version ${String(last.number)} while you were editing.`,
+            `${byOf(latest.author)} saved version ${String(latest.number)} while you were editing.`,
             "stale",
           );
         }
 
-        const stored = await blobs.put(new TextEncoder().encode(body.text));
-
         const number = addVersion(
           artifact.id,
-          last.name,
+          latest.name,
           stored.hash,
           stored.size,
           `user:${caller.person.id}`,
@@ -980,6 +994,10 @@ export const server = defineServer(
           }
 
           const latest = versionOf(artifact);
+
+          if (body.base !== undefined) {
+            based(body.base, latest);
+          }
 
           if (body.base !== undefined && body.base < latest.number) {
             throw new HttpError(

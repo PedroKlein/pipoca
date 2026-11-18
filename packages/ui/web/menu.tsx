@@ -120,7 +120,7 @@ export function Menu({
           className={cn(
             "absolute z-30 flex flex-col",
             items.some(({ description }) => description !== undefined)
-              ? "min-w-64"
+              ? "w-max max-w-[min(22rem,calc(100vw-2rem))] min-w-64"
               : "min-w-48",
             side === "below" ? "top-full mt-1" : "bottom-full mb-1",
             { start: "left-0", end: "right-0", stretch: "inset-x-0" }[align],

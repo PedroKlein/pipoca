@@ -29,7 +29,6 @@ import { artifacts as plugin } from "../plugin";
 import type { ArtifactSummary, ArtifactView } from "../src/artifacts";
 import {
   audienceLabel,
-  byline,
   CloseButton,
   headerClass,
   headings,
@@ -37,6 +36,7 @@ import {
   type Mode,
   shellClass,
   Title,
+  versionChoices,
 } from "./chrome";
 import {
   artifactHref,
@@ -502,7 +502,13 @@ function Shown({
           artifact={artifact}
           mode={mode}
           titleId={titleId}
-          onDone={toPage}
+          onDone={(saved) => {
+            if (saved !== undefined) {
+              setSaid(`Saved as version ${String(saved)}`);
+            }
+
+            toPage();
+          }}
           onClose={onClose}
         />
       </div>
@@ -667,15 +673,9 @@ function versionItems(
   onCompare: () => void,
 ): MenuItem[] {
   return [
-    ...[...artifact.history].reverse().map((each) => ({
-      label: `Version ${String(each.number)}`,
-      ...(each.number === artifact.versions && { badge: "latest" }),
-      description: byline(each, now),
-      checked: each.number === shown,
-      run: () => {
-        onVersion(each.number === artifact.versions ? undefined : each.number);
-      },
-    })),
+    ...versionChoices(artifact, now, shown, (number) => {
+      onVersion(number === artifact.versions ? undefined : number);
+    }),
     ...(artifact.versions > 1
       ? [
           {

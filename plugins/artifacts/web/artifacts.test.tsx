@@ -315,6 +315,21 @@ function typeInto(field: HTMLTextAreaElement | null, text: string): void {
   });
 }
 
+// Answers the confirm dialog with this title.
+function asking(page: HTMLElement, title: string, answer: string): void {
+  const dialog = [...page.querySelectorAll("dialog")].find(
+    (each) => each.querySelector("h2")?.textContent === title,
+  );
+
+  if (dialog === undefined) {
+    throw new Error(`no dialog “${title}”`);
+  }
+
+  [...dialog.querySelectorAll("button")]
+    .find((each) => each.textContent === answer)
+    ?.click();
+}
+
 function menuItems(page: HTMLElement): HTMLButtonElement[] {
   return [
     ...page.querySelectorAll<HTMLButtonElement>("[role=menu] [role^=menuitem]"),
@@ -524,9 +539,15 @@ test("compare opens inside the viewer with both versions side by side or as a so
 
   await drawn(() => asked.some(({ url }) => url.endsWith("/view?v=3")));
 
+  // The older side offers only versions before the newer one.
   act(() => {
     named(page, "Older version")?.click();
   });
+
+  expect(menuItems(page).map((each) => each.textContent)).toEqual([
+    "Version 2Pi · just now",
+    "Version 1Pi · just now · “first draft”",
+  ]);
 
   act(() => {
     item(page, "Version 1")?.click();
@@ -537,11 +558,24 @@ test("compare opens inside the viewer with both versions side by side or as a so
   );
 
   act(() => {
+    named(page, "Newer version")?.click();
+  });
+
+  expect(menuItems(page).map((each) => each.textContent)).toEqual([
+    "Version 3 latestPi · just now",
+    "Version 2Pi · just now",
+  ]);
+
+  act(() => {
+    named(page, "Newer version")?.click();
+  });
+
+  act(() => {
     named(page, "Source diff")?.click();
   });
 
   await drawn(
-    () => page.querySelector("[aria-label=Changes]")?.textContent !== "",
+    () => page.querySelector("[aria-label=Changes][aria-busy=false]") !== null,
   );
 
   expect(
@@ -550,11 +584,15 @@ test("compare opens inside the viewer with both versions side by side or as a so
     ),
   ).toEqual(["  same", "- version 1", "+ version 3", "  "]);
 
+  // Escape steps back out of compare, and not out of the viewer.
   act(() => {
-    named(page, "Back to version 3")?.click();
+    named(page, "Back to version 3")?.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+    );
   });
 
   expect(page.textContent).not.toContain("Comparing two versions");
+  expect(location.hash).toBe("#session-1?artifact=a1");
 
   act(() => {
     versionMenu(page)?.click();
@@ -572,6 +610,36 @@ test("compare opens inside the viewer with both versions side by side or as a so
 
   expect(page.textContent).not.toContain("Comparing two versions");
   expect(versionMenu(page)?.textContent).toBe("Version 1 of 3");
+});
+
+test("pictures compare side by side only", async () => {
+  const asked: Served[] = [];
+
+  const page = renderPart(
+    web,
+    "overlay",
+    {},
+    {
+      hash: "#session-1?artifact=a1",
+      fetch: serving(
+        { ...artifact({ kind: "image", versions: 2 }), ...viewed(2) },
+        asked,
+      ),
+    },
+  );
+
+  await opened(asked);
+
+  act(() => {
+    versionMenu(page)?.click();
+  });
+
+  act(() => {
+    item(page, "Compare versions…")?.click();
+  });
+
+  expect(page.querySelectorAll("section iframe")).toHaveLength(2);
+  expect(named(page, "Source diff")).toBeUndefined();
 });
 
 test("a Markdown artifact is edited beside its preview, saved as a version on the one it started from, and a version saved meanwhile asks first", async () => {
@@ -606,6 +674,16 @@ test("a Markdown artifact is edited beside its preview, saved as a version on th
           }
         }
 
+        if (url.endsWith("/versions")) {
+          asked.push({
+            url,
+            method: "POST",
+            body: JSON.parse(init?.body as string) as unknown,
+          });
+
+          return Response.json({ version: 4 });
+        }
+
         return serving(shown, asked)(url, init);
       },
     },
@@ -628,7 +706,11 @@ test("a Markdown artifact is edited beside its preview, saved as a version on th
 
   expect(page.textContent).toContain("Markdown · Only you · editing version 2");
   expect(page.querySelector("iframe")?.getAttribute("title")).toBe("Preview");
-  expect(page.querySelector("iframe")?.getAttribute("sandbox")).toBe("");
+
+  // Same origin only to keep its scroll: it runs no scripts.
+  expect(page.querySelector("iframe")?.getAttribute("sandbox")).toBe(
+    "allow-same-origin",
+  );
 
   const save = (): HTMLButtonElement | undefined =>
     named(page, "Save as version 3");
@@ -651,10 +733,7 @@ test("a Markdown artifact is edited beside its preview, saved as a version on th
   await drawn(() => named(page, "Discard") !== undefined);
 
   act(() => {
-    buttons(page)
-      .filter((each) => each.textContent === "Cancel")
-      .at(-1)
-      ?.click();
+    asking(page, "Discard your changes?", "Cancel");
   });
 
   await drawn(() => named(page, "Discard") === undefined);
@@ -675,22 +754,38 @@ test("a Markdown artifact is edited beside its preview, saved as a version on th
     base: 2,
   });
 
+  // Until the newer version loads, the bar says what the server said.
+  expect(page.querySelector("[role=alert]")?.textContent).toBe(
+    "Pi saved version 3 while you were editing.Open the latestSave anyway",
+  );
+
+  expect(save()).toBeUndefined();
+
   shown = { ...artifact({ kind: "markdown", versions: 3 }), ...viewed(3) };
 
   act(() => {
     changed("artifacts.artifacts");
   });
 
-  await drawn(
-    () =>
-      page
-        .querySelector("[role=alert]")
-        ?.textContent.includes("Pi saved version 3 while you were editing.") ===
-      true,
+  await drawn(() => named(page, "Open version 3") !== undefined);
+
+  expect(page.querySelector("[role=alert]")?.textContent).toBe(
+    "Pi saved version 3 while you were editing.Open version 3Save anyway as version 4",
   );
 
   expect(source()?.value).toBe("same\nmine\n");
-  expect(named(page, "Open version 3")).toBeDefined();
+
+  act(() => {
+    named(page, "Open version 3")?.click();
+  });
+
+  await drawn(() => named(page, "Discard") !== undefined);
+
+  act(() => {
+    asking(page, "Open version 3 and discard your changes?", "Cancel");
+  });
+
+  await drawn(() => named(page, "Discard") === undefined);
 
   await act(async () => {
     named(page, "Save anyway as version 4")?.click();
@@ -707,6 +802,10 @@ test("a Markdown artifact is edited beside its preview, saved as a version on th
   await drawn(() => source() === null);
 
   expect(location.hash).toBe("#session-1?artifact=a1");
+
+  expect(page.querySelector("[role=status]")?.textContent).toBe(
+    "Saved as version 4",
+  );
 });
 
 test("a version a person saved shows in the chat as a row that opens it", async () => {

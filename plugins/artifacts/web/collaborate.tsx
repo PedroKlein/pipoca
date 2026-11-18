@@ -71,11 +71,15 @@ export function Frame({
   readonly onSelect?: (text: string) => void;
   // Text comments quote, which the page marks.
   readonly highlights?: readonly string[];
-  // Words this version took out or put in, compared with another.
-  readonly changes?: {
-    readonly kind: "removed" | "added";
-    readonly spans: readonly (Span & { readonly text: string })[];
-  };
+  // Words this version took out or put in, compared with another, by where
+  // they sit in a page text this long.
+  readonly changes?:
+    | {
+        readonly kind: "removed" | "added";
+        readonly length: number;
+        readonly spans: readonly (Span & { readonly text: string })[];
+      }
+    | undefined;
   // Its size and edge, in place of a bordered box three quarters as tall as
   // the window.
   readonly className?: string;
@@ -122,14 +126,14 @@ export function Frame({
 
   useEffect(highlight, [highlight]);
 
-  const changed = JSON.stringify(changes ?? { kind: "added", spans: [] });
-
   const markChanges = useCallback(() => {
-    frame.current?.contentWindow?.postMessage(
-      { pipoca: "changes", ...(JSON.parse(changed) as object) },
-      "*",
-    );
-  }, [changed]);
+    if (changes !== undefined) {
+      frame.current?.contentWindow?.postMessage(
+        { pipoca: "changes", ...changes },
+        "*",
+      );
+    }
+  }, [changes]);
 
   useEffect(markChanges, [markChanges]);
 

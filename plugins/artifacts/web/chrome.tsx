@@ -1,7 +1,7 @@
 import { ago } from "@pipoca/plugins/web";
-import { Button, Icon, Mark } from "@pipoca/ui";
+import { Button, Icon, Mark, type MenuItem } from "@pipoca/ui";
 import type { ReactElement } from "react";
-import type { ArtifactSummary, Version } from "../src/artifacts";
+import type { ArtifactSummary, ArtifactView, Version } from "../src/artifacts";
 
 // Over a page, or alone in the window from a link.
 export type Mode = "modal" | "window";
@@ -53,11 +53,14 @@ export function Title({
   );
 }
 
-// Focused once the artifact is there, as the placeholder's was.
+// Focused once the artifact is there, as the placeholder's was, unless
+// something else in the header takes focus.
 export function CloseButton({
   onClose,
+  focus = true,
 }: {
   readonly onClose: () => void;
+  readonly focus?: boolean;
 }): ReactElement {
   return (
     <Button
@@ -65,7 +68,7 @@ export function CloseButton({
       size="sm"
       iconOnly
       aria-label="Close"
-      autoFocus
+      autoFocus={focus}
       onClick={onClose}
       className="max-sm:absolute max-sm:top-2.5 max-sm:right-3"
     >
@@ -88,6 +91,28 @@ export function byline(version: Version, now: number): string {
             : version.note,
         ]),
   ].join(" · ");
+}
+
+// Its versions as a menu, newest first, with the one shown checked.
+export function versionChoices(
+  artifact: ArtifactView,
+  now: number,
+  shown: number,
+  choose: (version: number) => void,
+  offered: (version: number) => boolean = () => true,
+): MenuItem[] {
+  return [...artifact.history]
+    .reverse()
+    .filter((each) => offered(each.number))
+    .map((each) => ({
+      label: `Version ${String(each.number)}`,
+      ...(each.number === artifact.versions && { badge: "latest" }),
+      description: byline(each, now),
+      checked: each.number === shown,
+      run: () => {
+        choose(each.number);
+      },
+    }));
 }
 
 export function audienceLabel(artifact: ArtifactSummary): string {

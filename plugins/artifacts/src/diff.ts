@@ -3,8 +3,10 @@ export interface DiffLine {
   readonly text: string;
 }
 
-// Past this many lines a side, comparing would take too long in a request.
+// Past this many changed lines, or words, a side, comparing takes too long
+// and too much memory: the table is the product of both sides.
 const maxLines = 4000;
+const maxWords = 1500;
 
 type Step = "same" | "added" | "removed";
 
@@ -13,6 +15,7 @@ type Step = "same" | "added" | "removed";
 function steps(
   a: readonly string[],
   b: readonly string[],
+  most: number,
 ): readonly Step[] | undefined {
   let head = 0;
 
@@ -33,7 +36,7 @@ function steps(
   const x = a.slice(head, a.length - tail);
   const y = b.slice(head, b.length - tail);
 
-  if (x.length > maxLines || y.length > maxLines) {
+  if (x.length > most || y.length > most) {
     return undefined;
   }
 
@@ -81,15 +84,15 @@ function steps(
   ];
 }
 
-// The lines that changed from before to after. Undefined when either side
-// is too long to compare.
+// The lines that changed from before to after. Undefined when too many
+// changed to compare.
 export function lineDiff(
   before: string,
   after: string,
 ): readonly DiffLine[] | undefined {
   const a = before.split("\n");
   const b = after.split("\n");
-  const found = steps(a, b);
+  const found = steps(a, b, maxLines);
 
   if (found === undefined) {
     return undefined;
@@ -139,8 +142,7 @@ function words(pieces: readonly string[]): Word[] {
 }
 
 // The runs of words only before has, and only after has, by where they sit
-// in each text the pieces make. Undefined when the texts are too long to
-// compare.
+// in each text the pieces make. Undefined when too many changed to compare.
 export function textChanges(
   before: readonly string[],
   after: readonly string[],
@@ -151,6 +153,7 @@ export function textChanges(
   const found = steps(
     a.map(({ text }) => text),
     b.map(({ text }) => text),
+    maxWords,
   );
 
   if (found === undefined) {

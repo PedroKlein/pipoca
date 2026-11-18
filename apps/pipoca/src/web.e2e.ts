@@ -6188,7 +6188,7 @@ test("edits a Markdown artifact beside its preview and compares the versions wit
 
   const source = viewer.getByRole("textbox", { name: "Markdown" });
 
-  await viewer.getByText("editing version 1").waitFor();
+  await viewer.locator("textarea:focus").waitFor();
   expect(await source.inputValue()).toContain("three times");
 
   await source.fill(
@@ -6204,16 +6204,21 @@ test("edits a Markdown artifact beside its preview and compares the versions wit
   await source.press("Escape");
   await page.getByRole("button", { name: "Discard" }).waitFor();
 
-  await page
-    .getByRole("dialog", { name: "Discard your changes?" })
-    .getByRole("button", { name: "Cancel" })
-    .click();
+  const discard = page.getByRole("dialog", { name: "Discard your changes?" });
+
+  await page.keyboard.press("Escape");
+  await discard.waitFor({ state: "hidden" });
+  await viewer.locator("textarea:focus").waitFor();
+  await source.press("Escape");
+  await discard.getByRole("button", { name: "Cancel" }).click();
+  await discard.waitFor({ state: "hidden" });
 
   expect(await viewer.isVisible()).toBe(true);
   expect(await source.inputValue()).toContain("five times");
 
   await viewer.getByRole("button", { name: "Save as version 2" }).click();
   await source.waitFor({ state: "hidden" });
+  await viewer.getByRole("status").getByText("Saved as version 2").waitFor();
 
   await viewer
     .getByRole("button", { name: "Version 2, the latest. Versions" })
@@ -6248,6 +6253,9 @@ test("edits a Markdown artifact beside its preview and compares the versions wit
     .getByText("+ v2 retries five times with a backoff.")
     .waitFor();
 
+  // Escape steps back out of compare, then closes the viewer.
+  await page.keyboard.press("Escape");
+  await viewer.getByText("Comparing two versions").waitFor({ state: "hidden" });
   await page.keyboard.press("Escape");
   await viewer.waitFor({ state: "hidden" });
 

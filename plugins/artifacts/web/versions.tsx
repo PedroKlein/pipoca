@@ -14,6 +14,8 @@ import {
   type ReactElement,
   useDeferredValue,
   useEffect,
+  useMemo,
+  useRef,
   useState,
 } from "react";
 import { artifacts as plugin } from "../plugin";
@@ -28,6 +30,7 @@ import {
   Lead,
   type Mode,
   Title,
+  versionChoices,
 } from "./chrome";
 import { base, Frame } from "./collaborate";
 
@@ -138,16 +141,31 @@ export function Compare({
     `${key}:${how}`,
   );
 
+  const changes = useMemo(
+    () =>
+      marks === undefined || marks === null
+        ? undefined
+        : (["removed", "added"] as const).map((kind) => {
+            const page = kind === "removed" ? marks.before : marks.after;
+
+            return {
+              kind,
+              length: page.length,
+              spans: marks[kind].map((span) => ({
+                ...span,
+                text: page.slice(span.start, span.end),
+              })),
+            };
+          }),
+    [marks],
+  );
+
   const label = (number: number): string =>
     number === artifact.versions
       ? `Version ${String(number)} · latest`
       : `Version ${String(number)}`;
 
-  const picker = (
-    side: "from" | "to",
-    shown: number,
-    other: number,
-  ): ReactElement => (
+  const picker = (side: "from" | "to", shown: number): ReactElement => (
     <Menu
       label={side === "from" ? "Older version" : "Newer version"}
       variant="default"
@@ -159,18 +177,15 @@ export function Compare({
           <Icon name="chevron-down" className="size-3.5" />
         </>
       }
-      items={[...artifact.history]
-        .reverse()
-        .filter((each) => each.number !== other)
-        .map((each) => ({
-          label: `Version ${String(each.number)}`,
-          ...(each.number === artifact.versions && { badge: "latest" }),
-          description: byline(each, now),
-          checked: each.number === shown,
-          run: () => {
-            setPair({ ...pair, [side]: each.number });
-          },
-        }))}
+      items={versionChoices(
+        artifact,
+        now,
+        shown,
+        (number) => {
+          setPair({ ...pair, [side]: number });
+        },
+        (number) => (side === "from" ? number < to : number > from),
+      )}
     />
   );
 
@@ -183,12 +198,20 @@ export function Compare({
   };
 
   return (
-    <>
+    <div
+      className="flex min-h-0 flex-1 flex-col"
+      onKeyDown={(event: KeyboardEvent<HTMLDivElement>) => {
+        if (escapes(event)) {
+          onBack();
+        }
+      }}
+    >
       <header className={headerClass}>
         <Button
           variant="ghost"
           size="sm"
           iconOnly
+          autoFocus
           aria-label={`Back to version ${String(version)}`}
           onClick={onBack}
         >
@@ -200,9 +223,9 @@ export function Compare({
           title={artifact.title}
           line="Comparing two versions"
         />
-        {picker("from", from, to)}
+        {picker("from", from)}
         <Icon name="arrow-right" className="size-3.5 text-fg-dim" />
-        {picker("to", to, from)}
+        {picker("to", to)}
         {text && (
           <Segmented
             label="Show"
@@ -214,16 +237,13 @@ export function Compare({
             onChange={setHow}
           />
         )}
-        {mode === "modal" && <CloseButton onClose={onClose} />}
+        {mode === "modal" && <CloseButton onClose={onClose} focus={false} />}
       </header>
       {how === "side" ? (
         <div className="grid min-h-0 flex-1 grid-cols-2 bg-panel max-md:grid-cols-1">
-          {[
-            { number: from, kind: "removed" as const },
-            { number: to, kind: "added" as const },
-          ].map(({ number, kind }) => (
+          {[from, to].map((number, side) => (
             <section
-              key={kind}
+              key={side}
               aria-label={`Version ${String(number)}`}
               className="flex min-h-0 flex-col border-line not-last:border-r"
             >
@@ -234,19 +254,7 @@ export function Compare({
                 artifact={artifact}
                 version={number}
                 className="min-h-0 flex-1"
-                {...(marks !== undefined &&
-                  marks !== null && {
-                    changes: {
-                      kind,
-                      spans: marks[kind].map((span) => ({
-                        ...span,
-                        text: (kind === "removed"
-                          ? marks.before
-                          : marks.after
-                        ).slice(span.start, span.end),
-                      })),
-                    },
-                  })}
+                changes={changes?.[side]}
               />
             </section>
           ))}
@@ -254,8 +262,27 @@ export function Compare({
       ) : (
         <DiffView lines={lines} />
       )}
-    </>
+    </div>
   );
+}
+
+// Escape steps back out of compare or edit, and not out of a menu or a
+// dialog opened inside them, nor out of the viewer around them.
+function escapes(event: KeyboardEvent<HTMLDivElement>): boolean {
+  const target = event.target as Element;
+
+  if (
+    event.key !== "Escape" ||
+    event.defaultPrevented ||
+    target.closest("dialog") !== event.currentTarget.closest("dialog") ||
+    event.currentTarget.querySelector("[role=menu]") !== null
+  ) {
+    return false;
+  }
+
+  event.preventDefault();
+
+  return true;
 }
 
 const signs: Readonly<Record<DiffLine["kind"], string>> = {
@@ -285,6 +312,7 @@ function DiffView({
       aria-busy={lines === undefined}
       className="min-h-0 flex-1 overflow-auto bg-panel p-4 font-mono text-mono"
     >
+      {lines === undefined && <span className="text-fg-dim">Loading…</span>}
       {(lines ?? []).map((line, at) => (
         <div
           key={at}
@@ -314,7 +342,8 @@ export function Editor({
   readonly artifact: ArtifactView;
   readonly mode: Mode;
   readonly titleId: string | undefined;
-  readonly onDone: () => void;
+  // With the version it saved, if it saved one.
+  readonly onDone: (saved?: number) => void;
   readonly onClose: () => void;
 }): ReactElement {
   const api = useApi(plugin);
@@ -322,12 +351,17 @@ export function Editor({
   const [original, setOriginal] = useState<string>();
   const [text, setText] = useState<string>();
   const [problem, setProblem] = useState<string>();
-  const [refused, setRefused] = useState(false);
+  const [refused, setRefused] = useState<string>();
+  const [saving, setSaving] = useState(false);
   const [confirm, confirmDialog] = useConfirm();
-  const preview = useDeferredValue(text ?? "");
+  const source = useRef<HTMLTextAreaElement>(null);
+  const preview = useRef<HTMLIFrameElement>(null);
+  const scrolled = useRef(0);
+  const deferred = useDeferredValue(text ?? "");
   const latest = artifact.history.at(-1);
   const name = latest?.name ?? "artifact.md";
-  const stale = refused || artifact.versions > editing;
+  const known = latest !== undefined && artifact.versions > editing;
+  const stale = refused !== undefined || known;
   const changed = text !== undefined && text !== original;
 
   useEffect(() => {
@@ -342,30 +376,41 @@ export function Editor({
     );
   }, [artifact.id, editing]);
 
+  const loaded = original !== undefined;
+
+  useEffect(() => {
+    if (loaded) {
+      source.current?.focus();
+    }
+  }, [loaded]);
+
   const save = async (anyway: boolean): Promise<void> => {
     setProblem(undefined);
+    setSaving(true);
 
     try {
-      await api.post(`artifacts/${artifact.id}/versions`, {
-        text,
-        ...(!anyway && { base: editing }),
-      });
+      const { version } = await api.post<{ version: number }>(
+        `artifacts/${artifact.id}/versions`,
+        { text, ...(!anyway && { base: editing }) },
+      );
 
-      onDone();
+      onDone(version);
     } catch (error) {
+      setSaving(false);
+
       if (isHttpError(error) && error.code === "stale") {
-        setRefused(true);
+        setRefused(error.message);
       } else {
         setProblem(error instanceof Error ? error.message : String(error));
       }
     }
   };
 
-  const leave = async (then: () => void): Promise<void> => {
+  const leave = async (then: () => void, title?: string): Promise<void> => {
     const sure =
       !changed ||
       (await confirm({
-        title: "Discard your changes?",
+        title: title ?? "Discard your changes?",
         description: "What you typed here isn't saved anywhere.",
         confirm: "Discard",
         danger: true,
@@ -379,10 +424,8 @@ export function Editor({
   return (
     <div
       className="flex min-h-0 flex-1 flex-col"
-      onKeyDown={(event: KeyboardEvent) => {
-        if (event.key === "Escape" && !event.defaultPrevented) {
-          // Escape leaves the editor first, not the viewer around it.
-          event.preventDefault();
+      onKeyDown={(event: KeyboardEvent<HTMLDivElement>) => {
+        if (escapes(event)) {
           void leave(onDone);
         }
       }}
@@ -399,34 +442,65 @@ export function Editor({
             `editing version ${String(editing)}`,
           ].join(" · ")}
         />
-        <Button variant="ghost" size="sm" onClick={() => void leave(onDone)}>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => {
+            void leave(onDone);
+          }}
+        >
           Cancel
         </Button>
-        <Button
-          variant="primary"
-          size="sm"
-          disabled={!changed || stale}
-          onClick={() => void save(false)}
-        >
-          Save as version {editing + 1}
-        </Button>
+        {!stale && (
+          <Button
+            variant="primary"
+            size="sm"
+            disabled={!changed || saving}
+            title={changed ? undefined : "Change something to save it"}
+            onClick={() => void save(false)}
+          >
+            Save as version {editing + 1}
+          </Button>
+        )}
         {mode === "modal" && (
-          <CloseButton onClose={() => void leave(onClose)} />
+          <CloseButton onClose={() => void leave(onClose)} focus={false} />
         )}
       </header>
-      {stale && latest !== undefined && (
+      {stale && (
         <div
           role="alert"
           className="flex flex-wrap items-center gap-2 border-b border-line bg-hover px-4.5 py-2 text-label text-fg"
         >
           <span className="flex-1">
-            {latest.by} saved version {latest.number} while you were editing.
+            {known
+              ? `${latest.by} saved version ${String(latest.number)} while you were editing.`
+              : refused}
           </span>
-          <Button variant="ghost" size="sm" onClick={() => void leave(onDone)}>
-            Open version {latest.number}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              void leave(
+                onDone,
+                known
+                  ? `Open version ${String(latest.number)} and discard your changes?`
+                  : "Open the latest version and discard your changes?",
+              );
+            }}
+          >
+            {known
+              ? `Open version ${String(latest.number)}`
+              : "Open the latest"}
           </Button>
-          <Button size="sm" disabled={!changed} onClick={() => void save(true)}>
-            Save anyway as version {artifact.versions + 1}
+          <Button
+            variant="primary"
+            size="sm"
+            disabled={!changed || saving}
+            onClick={() => void save(true)}
+          >
+            {known
+              ? `Save anyway as version ${String(artifact.versions + 1)}`
+              : "Save anyway"}
           </Button>
         </div>
       )}
@@ -437,6 +511,7 @@ export function Editor({
       )}
       <div className="grid min-h-0 flex-1 grid-cols-2 max-md:grid-cols-1">
         <textarea
+          ref={source}
           aria-label="Markdown"
           spellCheck
           value={text ?? ""}
@@ -444,12 +519,22 @@ export function Editor({
           onChange={(event) => {
             setText(event.target.value);
           }}
-          className="size-full min-h-0 resize-none border-line bg-elevated p-6 font-mono text-mono text-fg outline-none md:border-r"
+          className="size-full min-h-0 resize-none border-line bg-elevated p-6 font-mono text-mono text-fg outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-inset md:border-r"
         />
+        {/* Same origin only so the preview keeps its scroll as it redraws: it
+            runs no scripts and loads nothing. */}
         <iframe
+          ref={preview}
           title="Preview"
-          sandbox=""
-          srcDoc={previewed(name, preview)}
+          sandbox="allow-same-origin"
+          srcDoc={previewed(name, deferred)}
+          onLoad={() => {
+            preview.current?.contentWindow?.scrollTo(0, scrolled.current);
+
+            preview.current?.contentWindow?.addEventListener("scroll", () => {
+              scrolled.current = preview.current?.contentWindow?.scrollY ?? 0;
+            });
+          }}
           className="size-full min-h-0 bg-white max-md:hidden"
         />
       </div>

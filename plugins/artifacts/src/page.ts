@@ -42,7 +42,10 @@ addEventListener("message", (event) => {
   const pieces = [];
   let from = 0;
   for (const change of event.data.spans) {
-    let start = text.slice(change.start, change.end) === change.text ? change.start : text.indexOf(change.text, from);
+    // The page's scripts may have changed its text since the viewer read it.
+    // Then only longer runs are found again, where a short word would land
+    // on the wrong spot.
+    const start = text.length === event.data.length && text.slice(change.start, change.end) === change.text ? change.start : change.text.length >= 12 ? text.indexOf(change.text, from) : -1;
     if (start < 0) continue;
     const end = start + change.text.length;
     from = end;
