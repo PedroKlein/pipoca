@@ -14,6 +14,7 @@ import {
   type ReactElement,
   type ReactNode,
   useId,
+  useLayoutEffect,
   useRef,
   useState,
 } from "react";
@@ -32,7 +33,7 @@ import { mentionable, Said, ThreadView, useMentions } from "./thread";
 export type Anchor = Picked | { readonly page: true };
 
 // A thread with the number the page pins it by.
-interface Thread {
+export interface Thread {
   readonly top: Comment;
   readonly replies: readonly Comment[];
   readonly n: number;
@@ -324,10 +325,17 @@ function PinMark({
 
 // The threads beside the page: open or resolved, the drafts not sent to Pi
 // yet with Send for the checked ones, and the one being written.
+// Which threads the list shows. A design doc also rolls up its open
+// questions.
+export type Listed = "open" | "resolved" | "questions";
+
 export function CommentList({
   artifact,
   version,
   threads,
+  shown,
+  onShown,
+  margin,
   loaded,
   anchor,
   active,
@@ -344,6 +352,11 @@ export function CommentList({
   readonly artifact: ArtifactView;
   readonly version: number;
   readonly threads: readonly Thread[];
+  readonly shown: Listed;
+  readonly onShown: (shown: Listed) => void;
+  // In a design doc's margin: how far below the list's top each thread's
+  // passage sits, by thread id, to line its card up beside it.
+  readonly margin?: ReadonlyMap<string, number> | undefined;
   readonly loaded: boolean | "failed";
   // What's being commented on now.
   readonly anchor: Anchor | undefined;
@@ -364,7 +377,6 @@ export function CommentList({
 }): ReactElement {
   const api = useApi(plugin);
   const now = useNow();
-  const [shown, setShown] = useState<"open" | "resolved">("open");
   const [leftOut, setLeftOut] = useState<ReadonlySet<string>>(new Set());
   const [sending, setSending] = useState(false);
   const [problem, setProblem] = useState<string>();
@@ -374,7 +386,22 @@ export function CommentList({
   const [left, setLeft] = useState<string>();
   const open = threads.filter(({ top }) => !top.resolved);
   const resolved = threads.filter(({ top }) => top.resolved);
-  const listed = shown === "open" ? open : resolved;
+  const questions = open.filter(({ top }) => top.kind === "question");
+  const lists = { open, resolved, questions };
+
+  const listed =
+    margin === undefined
+      ? lists[shown]
+      : lists[shown].toSorted(
+          (a, b) => (margin.get(a.top.id) ?? 0) - (margin.get(b.top.id) ?? 0),
+        );
+
+  const root = useRef<HTMLDivElement>(null);
+  const list = useRef<HTMLUListElement>(null);
+
+  useLayoutEffect(() => {
+    lineUp(root.current, list.current, margin);
+  });
 
   const drafts = artifact.askable
     ? open.filter(({ top }) => top.sentBy === null)
@@ -423,7 +450,10 @@ export function CommentList({
           .map(({ name }) => name)}
         onBack={() => {
           // A thread resolved meanwhile isn't listed any more.
-          if (opened.top.resolved === (shown === "resolved")) {
+          if (
+            opened.top.resolved === (shown === "resolved") &&
+            (shown !== "questions" || opened.top.kind === "question")
+          ) {
             setLeft(opened.top.id);
           } else {
             toHeading.current = true;
@@ -441,7 +471,7 @@ export function CommentList({
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div ref={root} className="flex min-h-0 flex-1 flex-col">
       <div className="flex items-center gap-2 border-b border-line px-3.5 py-2.5">
         <h3
           ref={(element) => {
@@ -462,9 +492,17 @@ export function CommentList({
           value={shown}
           options={[
             { value: "open", label: `Open ${String(open.length)}` },
+            ...(artifact.doc === null
+              ? []
+              : [
+                  {
+                    value: "questions" as const,
+                    label: `Questions ${String(questions.length)}`,
+                  },
+                ]),
             { value: "resolved", label: `Resolved ${String(resolved.length)}` },
           ]}
-          onChange={setShown}
+          onChange={onShown}
         />
       </div>
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3">
@@ -509,7 +547,8 @@ export function CommentList({
           </div>
         )}
         <ul
-          aria-label={shown === "open" ? "Open comments" : "Resolved comments"}
+          ref={list}
+          aria-label={listLabels[shown]}
           className="flex flex-col gap-3"
         >
           {listed.map((thread) => (
@@ -583,9 +622,49 @@ function leftOutLine(count: number): string {
     : `The ${String(count)} left out stay drafts`;
 }
 
-function empty(shown: "open" | "resolved", artifact: ArtifactView): string {
+const listLabels: Readonly<Record<Listed, string>> = {
+  open: "Open comments",
+  resolved: "Resolved comments",
+  questions: "Open questions",
+};
+
+// Moves each card down to its passage, or as near as the cards above it
+// let it.
+function lineUp(
+  root: HTMLElement | null,
+  list: HTMLElement | null,
+  margin: ReadonlyMap<string, number> | undefined,
+): void {
+  if (root === null || list === null) {
+    return;
+  }
+
+  const origin = root.getBoundingClientRect().top;
+
+  for (const card of list.children) {
+    if (!(card instanceof HTMLElement)) {
+      continue;
+    }
+
+    card.style.marginTop = "";
+
+    const wanted = margin?.get(card.dataset["thread"] ?? "");
+
+    if (wanted !== undefined) {
+      const at = card.getBoundingClientRect().top - origin;
+
+      card.style.marginTop = `${String(Math.max(0, wanted - at))}px`;
+    }
+  }
+}
+
+function empty(shown: Listed, artifact: ArtifactView): string {
   if (shown === "resolved") {
     return "Nothing resolved yet.";
+  }
+
+  if (shown === "questions") {
+    return "No open questions.";
   }
 
   return artifact.access === "view"
@@ -624,7 +703,10 @@ function ThreadCard({
   const element = top.element !== "";
 
   return (
-    <li className={cn(cardClass, "flex flex-col gap-2 p-3")}>
+    <li
+      data-thread={top.id}
+      className={cn(cardClass, "flex flex-col gap-2 p-3")}
+    >
       <div className="flex min-w-0 items-center gap-2 text-caption text-fg-dim">
         {draft && (
           <Checkbox

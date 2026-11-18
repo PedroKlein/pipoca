@@ -6835,6 +6835,116 @@ test("docks an artifact beside the chat on a wide window, and on a phone keeps i
   }
 });
 
+test("reads a design doc with its status, an outline of its sections and its comments in the margin beside their passages", async () => {
+  const folder = join(root, "design-doc");
+  await mkdir(folder, { recursive: true });
+
+  await writeFile(
+    join(folder, "webhooks.md"),
+    `---\ndoc: design\nstatus: in review\n---\n# Webhooks v2\n\n## Context\n\n${"Filler paragraph.\n\n".repeat(3)}A sender retries for 24 hours.\n\n${"Filler paragraph.\n\n".repeat(20)}## Decision\n\nStore every event.\n`,
+  );
+
+  faux.setResponses([
+    fauxAssistantMessage(
+      [
+        fauxToolCall("publish_artifact", {
+          path: "webhooks.md",
+          title: "Webhooks",
+        }),
+      ],
+      { stopReason: "toolUse" },
+    ),
+    fauxAssistantMessage([fauxText("Published the design")]),
+  ]);
+
+  await page.goto(server.url.href);
+  await page.getByRole("button", { name: "New session" }).click();
+  const form = page.locator("form#create");
+
+  await pickWorkspace(form, folder);
+  await form.getByRole("button", { name: "Start session" }).click();
+  await page.locator("#status", { hasText: "idle" }).waitFor();
+
+  const box = page.locator("#prompt-text");
+  await box.fill("write the design");
+  await box.press("Enter");
+  await page.getByText("Published the design").waitFor();
+
+  const card = page.getByRole("link", { name: /Webhooks/ });
+  const id = ((await card.getAttribute("href")) ?? "").split("/").at(-1) ?? "";
+
+  await page.evaluate(async (artifact) => {
+    await fetch(`/api/ext/artifacts/artifacts/${artifact}/comments`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        version: 1,
+        toPi: false,
+        kind: "question",
+        quote: "24 hours",
+        body: "Too long?",
+      }),
+    });
+  }, id);
+
+  await card.click();
+
+  const viewer = page.getByRole("dialog", { name: "Webhooks" });
+  const frame = viewer.frameLocator("iframe");
+
+  await frame.getByText("Filler paragraph.").first().waitFor();
+  await viewer.getByText("Design doc · ", { exact: false }).waitFor();
+  await viewer.getByRole("button", { name: "Status: In review" }).waitFor();
+
+  // The front matter isn't drawn, and the title isn't a section.
+  expect(await frame.getByText("doc: design").count()).toBe(0);
+
+  const outline = viewer.getByRole("navigation", { name: "Outline" });
+
+  expect(await outline.getByRole("button").allTextContents()).toEqual([
+    "Context1 open",
+    "Decision",
+    "Open questions1 open",
+  ]);
+
+  await viewer.getByRole("button", { name: /^Comment/ }).click();
+
+  const thread = viewer.getByRole("listitem").filter({ hasText: "Too long?" });
+  const passage = frame.locator("mark", { hasText: "24 hours" });
+
+  await thread.waitFor();
+
+  // Its card sits level with its passage, also once the page scrolls.
+  const level = async (): Promise<void> => {
+    await until(
+      async () => {
+        const [beside, mark] = await Promise.all([
+          thread.boundingBox(),
+          passage.boundingBox(),
+        ]);
+
+        return Math.abs((beside?.y ?? 0) - (mark?.y ?? 1000));
+      },
+      (apart) => apart < 40,
+    );
+  };
+
+  await level();
+  await frame.locator("body").evaluate(() => {
+    scrollBy(0, 120);
+  });
+
+  await level();
+
+  await outline.getByRole("button", { name: "Decision" }).click();
+  await frame.getByText("Store every event.").waitFor();
+
+  await until(
+    async () => frame.locator("body").evaluate(() => scrollY),
+    (y) => y > 300,
+  );
+});
+
 test("edits a Markdown artifact beside its preview and compares the versions with the changed words marked", async () => {
   const folder = join(root, "plan");
   await mkdir(folder, { recursive: true });

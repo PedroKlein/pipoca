@@ -1613,3 +1613,118 @@ test("a line diff takes what was taken out before what was put in, and compares 
     textChanges([words], [common.map((each) => `${each}!`).join(" ")]),
   ).toBeUndefined();
 });
+
+test("an artifact is a design doc by its front matter, its meta tag or a person's mark, with a status and reviewers who approve or ask for changes", async () => {
+  const setup = await setUp();
+  const { t, cwd, part } = setup;
+  const { id } = await shared(setup);
+
+  const doc = async (who = "ana") =>
+    (await t.as(who).get<ArtifactView>(`artifacts/${id}`)).doc;
+
+  const sent = async (
+    who: string,
+    method: string,
+    path: string,
+    body: unknown,
+  ): Promise<number> =>
+    (
+      await t.as(who).raw(`artifacts/${id}/${path}`, {
+        method,
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      })
+    ).status;
+
+  expect(await doc()).toBeNull();
+
+  // Marked by a person who steers it, as a design doc in draft.
+  expect(await sent("bo", "PUT", "doc", { type: "design" })).toBe(404);
+  expect(await sent("ana", "PUT", "doc", { type: "design" })).toBe(200);
+
+  expect(await doc()).toEqual({
+    type: "design",
+    status: "draft",
+    marked: "person",
+    reviewers: [],
+  });
+
+  // Asking for review moves a draft to In review; reviewers are people who
+  // can see it.
+  expect(await sent("ana", "PUT", "reviewers", { reviewers: ["Zed"] })).toBe(
+    400,
+  );
+
+  expect(
+    await sent("ana", "PUT", "reviewers", { reviewers: ["Bo", "Cy"] }),
+  ).toBe(200);
+
+  expect(await doc("bo")).toEqual({
+    type: "design",
+    status: "review",
+    marked: "person",
+    reviewers: [
+      { name: "Bo", you: true, verdict: null },
+      { name: "Cy", you: false, verdict: null },
+    ],
+  });
+
+  // Only reviewers give a verdict, and can change it.
+  expect(await sent("ana", "PUT", "review", { verdict: "approved" })).toBe(403);
+  expect(await sent("bo", "PUT", "review", { verdict: "changes" })).toBe(200);
+  expect(await sent("bo", "PUT", "review", { verdict: "approved" })).toBe(200);
+  expect(await sent("cy", "PUT", "review", { verdict: "changes" })).toBe(200);
+  expect(await sent("cy", "PUT", "review", { verdict: "maybe" })).toBe(422);
+
+  expect((await doc())?.reviewers).toEqual([
+    { name: "Bo", you: false, verdict: "approved" },
+    { name: "Cy", you: false, verdict: "changes" },
+  ]);
+
+  expect(await sent("bo", "PUT", "status", { status: "decided" })).toBe(404);
+  expect(await sent("ana", "PUT", "status", { status: "decided" })).toBe(200);
+  expect((await doc())?.status).toBe("decided");
+
+  // Unmarked, it's a plain artifact again.
+  expect(await sent("ana", "PUT", "doc", { type: null })).toBe(200);
+  expect(await doc()).toBeNull();
+
+  // Pi marks a Markdown file by its front matter, which the page leaves out.
+  await writeFile(
+    join(cwd, "spec.md"),
+    "---\ndoc: spec\nstatus: in review\n---\n# Webhooks\n\nRetry for a day.\n",
+  );
+
+  const spec = (
+    (await part.tool("publish_artifact", { path: "spec.md" })).details as {
+      id: string;
+    }
+  ).id;
+
+  expect(
+    (await t.as("ana").get<ArtifactView>(`artifacts/${spec}`)).doc,
+  ).toEqual({ type: "spec", status: "review", marked: "file", reviewers: [] });
+
+  const page = await (
+    await t.as("ana").raw(`artifacts/${spec}/view`, { method: "GET" })
+  ).text();
+
+  expect(page).toContain("<h1>Webhooks</h1>");
+  expect(page).not.toContain("doc: spec");
+
+  // And an HTML page by its meta tag.
+  await writeFile(
+    join(cwd, "plan.html"),
+    '<!doctype html><meta content="plan" name="pipoca:doc"><h1>Plan</h1>',
+  );
+
+  const plan = (
+    (await part.tool("publish_artifact", { path: "plan.html" })).details as {
+      id: string;
+    }
+  ).id;
+
+  expect(
+    (await t.as("ana").get<ArtifactView>(`artifacts/${plan}`)).doc,
+  ).toEqual({ type: "plan", status: "draft", marked: "file", reviewers: [] });
+});

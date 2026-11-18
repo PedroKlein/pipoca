@@ -654,6 +654,7 @@ test("an artifact opens over the page with what can be done with it, and closes 
     "Copy link",
     "Copy link to version 3",
     "Pin to sidebar",
+    "Mark as design doc",
     "Go to the Session",
     "Delete artifact…",
   ]);
@@ -1652,6 +1653,7 @@ function viewed(versions: number) {
     access: "steer",
     shares: [],
     pinned: false,
+    doc: null,
   };
 }
 
@@ -2658,6 +2660,7 @@ function frameOf(page: HTMLElement): {
     pipoca?: string;
     pins?: unknown;
     on?: boolean;
+    section?: number;
   }[];
 } {
   const frame = page.querySelector<HTMLIFrameElement>("iframe[src*='/view']");
@@ -4108,4 +4111,304 @@ test("the + menu attaches an artifact as text that names its id and version for 
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 10));
   });
+});
+
+// What a screen reader reads of it, word by word.
+function readOut(element: Element): string {
+  const copy = element.cloneNode(true) as Element;
+
+  for (const hidden of copy.querySelectorAll("[aria-hidden=true]")) {
+    hidden.remove();
+  }
+
+  return [...copy.childNodes]
+    .map((each) => each.textContent?.trim() ?? "")
+    .filter((each) => each !== "")
+    .join(" ");
+}
+
+function designDoc(doc: object = {}) {
+  return {
+    ...artifact({ title: "Webhooks v2", owner: "Team", audience: "team" }),
+    ...viewed(1),
+    doc: {
+      type: "design",
+      status: "review",
+      marked: "file",
+      reviewers: [],
+      ...doc,
+    },
+  };
+}
+
+const questions = [
+  thread({
+    id: "q1",
+    version: 1,
+    kind: "question",
+    quote: "24 hours",
+    body: "Too long?",
+  }),
+  thread({
+    id: "q2",
+    version: 1,
+    kind: "question",
+    body: "Per endpoint?",
+    resolved: true,
+  }),
+  thread({ id: "c1", version: 1, quote: "in order", body: "Per merchant" }),
+];
+
+test("a design doc says so, shows its status and reviewers, and a reviewer approves or asks for changes", async () => {
+  const asked: Served[] = [];
+
+  const page = renderPart(
+    web,
+    "overlay",
+    {},
+    {
+      hash: "#session-1?artifact=a1",
+      fetch: serving(
+        designDoc({
+          reviewers: [
+            { name: "Ana", you: false, verdict: "approved" },
+            { name: "Rui", you: false, verdict: "changes" },
+            { name: "Bo", you: true, verdict: null },
+          ],
+        }),
+        asked,
+        { comments: () => questions },
+      ),
+    },
+  );
+
+  await opened(asked);
+  await drawn(() => page.textContent.includes("open question"));
+
+  expect(page.querySelector("dialog[open] h2 + span")?.textContent).toStartWith(
+    "Design doc · ",
+  );
+
+  expect(page.querySelector("[aria-label='Status: In review']")).not.toBeNull();
+
+  const bar = page.querySelector<HTMLElement>("[aria-label=Review]");
+
+  expect([...(bar?.querySelectorAll("li") ?? [])].map(readOut)).toEqual([
+    "Ana Approved",
+    "Rui Changes asked",
+    "You Not yet",
+  ]);
+
+  expect(bar?.textContent).toContain("1 open question · 1 resolved");
+
+  const approve = bar === null ? undefined : named(bar, "Approve");
+
+  expect(approve?.getAttribute("aria-pressed")).toBe("false");
+
+  act(() => {
+    approve?.click();
+  });
+
+  await drawn(() => asked.some(({ method }) => method === "PUT"));
+
+  expect(asked.filter(({ method }) => method === "PUT")).toEqual([
+    {
+      url: "/api/ext/artifacts/artifacts/a1/review",
+      method: "PUT",
+      body: { verdict: "approved" },
+    },
+  ]);
+
+  // Someone who isn't reviewing gives no verdict.
+  const other = renderPart(
+    web,
+    "overlay",
+    {},
+    { fetch: serving({ ...designDoc(), access: "comment" }, []) },
+  );
+
+  await drawn(() => other.querySelector("[aria-label=Review]") !== null);
+  expect(named(other, "Approve")).toBeUndefined();
+  expect(named(other, "Add reviewer")).toBeUndefined();
+  expect(other.querySelector("[aria-label='Status: In review']")?.tagName).toBe(
+    "SPAN",
+  );
+});
+
+test("whoever steers a design doc sets its status and reviewers, and marks or unmarks it", async () => {
+  const asked: Served[] = [];
+  // What the server has now, changed as the test goes.
+  const shown: object = {
+    ...artifact({ title: "Plan" }),
+    ...viewed(1),
+    doc: null,
+  };
+
+  const page = renderPart(
+    web,
+    "overlay",
+    {},
+    {
+      hash: "#session-1?artifact=a1",
+      fetch: serving(shown, asked, { people: ["Bo", "Rui"] }),
+    },
+  );
+
+  await opened(asked);
+
+  const puts = (): Served[] => asked.filter(({ method }) => method === "PUT");
+
+  act(() => {
+    named(page, "More")?.click();
+  });
+
+  act(() => {
+    item(page, "Mark as design doc")?.click();
+  });
+
+  await drawn(() => puts().length === 1);
+  expect(puts()[0]).toMatchObject({
+    url: "/api/ext/artifacts/artifacts/a1/doc",
+    body: { type: "design" },
+  });
+
+  Object.assign(
+    shown,
+    designDoc({
+      status: "draft",
+      marked: "person",
+      reviewers: [{ name: "Bo", you: false, verdict: null }],
+    }),
+  );
+
+  act(() => {
+    changed("artifacts.artifacts");
+  });
+
+  await drawn(() => page.querySelector("[aria-label=Review]") !== null);
+
+  act(() => {
+    named(page, "Status: Draft")?.click();
+  });
+
+  act(() => {
+    item(page, "Decided")?.click();
+  });
+
+  await drawn(() => puts().length === 2);
+  expect(puts()[1]).toMatchObject({
+    url: "/api/ext/artifacts/artifacts/a1/status",
+    body: { status: "decided" },
+  });
+
+  act(() => {
+    named(page, "Add reviewer")?.click();
+  });
+
+  expect(menuItems(page).map(readOut)).toEqual(["Rui"]);
+
+  act(() => {
+    menuItems(page)
+      .find((each) => readOut(each) === "Rui")
+      ?.click();
+  });
+
+  await drawn(() => puts().length === 3);
+  expect(puts()[2]).toMatchObject({
+    url: "/api/ext/artifacts/artifacts/a1/reviewers",
+    body: { reviewers: ["Bo", "Rui"] },
+  });
+
+  act(() => {
+    named(page, "Take Bo off the review")?.click();
+  });
+
+  await drawn(() => puts().length === 4);
+  expect(puts()[3]).toMatchObject({ body: { reviewers: [] } });
+
+  act(() => {
+    named(page, "More")?.click();
+  });
+
+  act(() => {
+    item(page, "Not a design doc")?.click();
+  });
+
+  await drawn(() => puts().length === 5);
+  expect(puts()[4]).toMatchObject({
+    url: "/api/ext/artifacts/artifacts/a1/doc",
+    body: { type: null },
+  });
+});
+
+test("a design doc's outline lists its sections with their open threads, goes to one, and rolls up open questions", async () => {
+  const asked: Served[] = [];
+
+  const page = renderPart(
+    web,
+    "overlay",
+    {},
+    {
+      hash: "#session-1?artifact=a1",
+      width: 1280,
+      fetch: serving(designDoc(), asked, { comments: () => questions }),
+    },
+  );
+
+  await opened(asked);
+  await drawn(() => page.querySelector("iframe") !== null);
+
+  const frame = frameOf(page);
+
+  frame.tell({
+    pipoca: "outline",
+    sections: [
+      { text: "Webhooks v2", level: 1, threads: [] },
+      { text: "Context", level: 2, threads: [] },
+      { text: "Decision", level: 2, threads: [1, 3] },
+    ],
+    tops: [
+      { n: 1, top: 300 },
+      { n: 3, top: 340 },
+    ],
+  });
+
+  const outline = page.querySelector<HTMLElement>("nav[aria-label=Outline]");
+
+  // The title isn't a section of its own.
+  expect(
+    [...(outline?.querySelectorAll("li") ?? [])].map(
+      (each) => each.textContent,
+    ),
+  ).toEqual(["Context", "Decision2 open", "Open questions1 open"]);
+
+  act(() => {
+    if (outline !== null) {
+      buttons(outline)
+        .find((each) => each.textContent.startsWith("Decision"))
+        ?.click();
+    }
+  });
+
+  expect(frame.told().at(-1)).toEqual({ pipoca: "goto", section: 2 });
+
+  act(() => {
+    if (outline !== null) {
+      buttons(outline)
+        .find((each) => each.textContent.startsWith("Open questions"))
+        ?.click();
+    }
+  });
+
+  await drawn(
+    () => page.querySelector("[aria-label='Open questions']") !== null,
+  );
+
+  expect(
+    [
+      ...page.querySelectorAll(
+        "[aria-label='Open questions'] li button[aria-label^=Comment]",
+      ),
+    ].map((each) => each.getAttribute("aria-label")),
+  ).toEqual(["Comment 1 by Ana"]);
 });

@@ -5,6 +5,7 @@ import { isHttpError, type TypedClient } from "@pipoca/plugins";
 import { artifacts as plugin } from "../plugin";
 import type { ArtifactView } from "../src/artifacts";
 import type { Span } from "../src/diff";
+import type { Outline } from "./doc";
 
 export const base = "/api/ext/artifacts";
 
@@ -71,6 +72,8 @@ export function Frame({
   onPin,
   onEscape,
   onScroll,
+  onOutline,
+  goto,
   changes,
   className,
 }: {
@@ -85,6 +88,10 @@ export function Frame({
   readonly onEscape?: () => void;
   // How far the page scrolled, to keep what sits over it in place.
   readonly onScroll?: (by: { readonly x: number; readonly y: number }) => void;
+  readonly onOutline?: (outline: Outline) => void;
+  // The heading to scroll to, by its place in the outline, each time it's
+  // asked anew.
+  readonly goto?: { readonly section: number } | undefined;
   // Words this version took out or put in, compared with another, by where
   // they sit in a page text this long.
   readonly changes?:
@@ -118,7 +125,19 @@ export function Frame({
         n?: unknown;
         x?: unknown;
         y?: unknown;
+        sections?: unknown;
+        tops?: unknown;
+        scrolled?: unknown;
       } | null;
+
+      if (data?.pipoca === "outline") {
+        onOutline?.({
+          ...outlineOf(data.sections, data.tops),
+          scrolled: typeof data.scrolled === "number" ? data.scrolled : 0,
+        });
+
+        return;
+      }
 
       if (data?.pipoca === "pin" && typeof data.n === "number") {
         onPin?.(data.n);
@@ -171,7 +190,16 @@ export function Frame({
     return () => {
       removeEventListener("message", heard);
     };
-  }, [draft, onEscape, onPick, onPin, onScroll, sessionId, steers]);
+  }, [draft, onEscape, onOutline, onPick, onPin, onScroll, sessionId, steers]);
+
+  useEffect(() => {
+    if (goto !== undefined) {
+      frame.current?.contentWindow?.postMessage(
+        { pipoca: "goto", section: goto.section },
+        "*",
+      );
+    }
+  }, [goto]);
 
   // Pinning redraws the page, so only for pins that changed.
   const pinned = JSON.stringify(pins ?? []);
@@ -217,6 +245,40 @@ export function Frame({
       )}
     />
   );
+}
+
+// What a page said of its headings, kept to what's well formed: the page
+// is the artifact's, not Pipoca's.
+function outlineOf(
+  sections: unknown,
+  tops: unknown,
+): Omit<Outline, "scrolled"> {
+  const numbers = (value: unknown): number[] =>
+    Array.isArray(value)
+      ? value.filter((each): each is number => typeof each === "number")
+      : [];
+
+  return {
+    sections: (Array.isArray(sections) ? sections : []).flatMap(
+      (each: unknown) => {
+        const { text, level, threads } = (each ?? {}) as Record<
+          string,
+          unknown
+        >;
+
+        return typeof text === "string" && typeof level === "number"
+          ? [{ text, level, threads: numbers(threads) }]
+          : [];
+      },
+    ),
+    tops: (Array.isArray(tops) ? tops : []).flatMap((each: unknown) => {
+      const { n, top } = (each ?? {}) as Record<string, unknown>;
+
+      return typeof n === "number" && typeof top === "number"
+        ? [{ n, top }]
+        : [];
+    }),
+  };
 }
 
 function boxOf(value: unknown): Box | undefined {

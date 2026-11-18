@@ -20,7 +20,7 @@ export const session = defineSession(artifacts, (s) => {
   s.tools.define({
     name: "publish_artifact",
     label: "Publish artifact",
-    description: `Publishes a file from your workspace as an artifact people open beside the Session, at a link that stays the same. Without id it makes a new artifact; with the id of one this Session published it adds a version. Works for ${supported}. A page loads scripts only from allowed CDNs and nothing else from the network, so keep everything in the one file.`,
+    description: `Publishes a file from your workspace as an artifact people open beside the Session, at a link that stays the same. Without id it makes a new artifact; with the id of one this Session published it adds a version. Works for ${supported}. A page loads scripts only from allowed CDNs and nothing else from the network, so keep everything in the one file. A design doc, spec or plan people review starts with front matter in Markdown (doc: design, spec or plan, and status: draft, in review or decided) or, in HTML, meta tags named pipoca:doc and pipoca:status.`,
     params: Type.Object({
       path: Type.String({
         description: "The file, from your working directory",

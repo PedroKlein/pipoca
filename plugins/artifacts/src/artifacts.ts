@@ -67,6 +67,96 @@ export interface ArtifactView extends ArtifactSummary {
   readonly askable: boolean;
   readonly shares: readonly Share[];
   readonly pinned: boolean;
+  readonly doc: Doc | null;
+}
+
+export const docTypes = ["design", "spec", "plan"] as const;
+
+export type DocType = (typeof docTypes)[number];
+
+export const docStatuses = ["draft", "review", "decided"] as const;
+
+export type DocStatus = (typeof docStatuses)[number];
+
+export type Verdict = "approved" | "changes";
+
+export interface Reviewer {
+  readonly name: string;
+  readonly you: boolean;
+  readonly verdict: Verdict | null;
+}
+
+// A design doc, spec or plan, which people review (ADR 0081): marked by its
+// file or by a person who steers it.
+export interface Doc {
+  readonly type: DocType;
+  readonly status: DocStatus;
+  readonly marked: "file" | "person";
+  readonly reviewers: readonly Reviewer[];
+}
+
+export interface DocMark {
+  readonly type: DocType;
+  readonly status?: DocStatus;
+}
+
+const statusWords: Readonly<Record<string, DocStatus>> = {
+  draft: "draft",
+  review: "review",
+  "in review": "review",
+  decided: "decided",
+};
+
+// What a file says it is: Markdown front matter such as doc: design and
+// status: in review, or an HTML page's pipoca:doc and pipoca:status meta
+// tags.
+export function docMark(kind: Kind, text: string): DocMark | undefined {
+  const said =
+    kind === "markdown"
+      ? frontMatter(text)
+      : kind === "html"
+        ? metaTags(text)
+        : {};
+  const type = said["doc"]?.replace(/ doc$/, "");
+  const status = statusWords[said["status"] ?? ""];
+
+  if (!docTypes.includes(type as DocType)) {
+    return undefined;
+  }
+
+  return { type: type as DocType, ...(status !== undefined && { status }) };
+}
+
+function frontMatter(text: string): Readonly<Record<string, string>> {
+  const block = /^---\r?\n([\s\S]*?)\r?\n---(\r?\n|$)/.exec(text)?.[1] ?? "";
+
+  return Object.fromEntries(
+    block.split(/\r?\n/).flatMap((line) => {
+      const pair = /^(\w+):\s*(.*?)\s*$/.exec(line);
+
+      return pair === null
+        ? []
+        : [
+            [
+              pair[1] ?? "",
+              (pair[2] ?? "").replace(/^["']|["']$/g, "").toLowerCase(),
+            ],
+          ];
+    }),
+  );
+}
+
+function metaTags(text: string): Readonly<Record<string, string>> {
+  return Object.fromEntries(
+    [...text.slice(0, 20_000).matchAll(/<meta\s[^>]*>/gi)].flatMap(([tag]) => {
+      const name = /\sname=["']pipoca:(\w+)["']/i.exec(tag)?.[1];
+      const content = /\scontent=["']([^"']*)["']/i.exec(tag)?.[1];
+
+      return name === undefined || content === undefined
+        ? []
+        : [[name.toLowerCase(), content.trim().toLowerCase()]];
+    }),
+  );
 }
 
 export const commentKinds = [

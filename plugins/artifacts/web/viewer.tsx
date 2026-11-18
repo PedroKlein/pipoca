@@ -44,9 +44,17 @@ import {
   type Anchor,
   CommentBox,
   CommentList,
+  type Listed,
   pinsOf,
   threadsOf,
 } from "./comments";
+import {
+  docLabel,
+  DocStatusPill,
+  type Outline,
+  OutlineNav,
+  ReviewBar,
+} from "./doc";
 import { useDock, usePhone } from "./dock";
 import { usePresence } from "./presence";
 import { ShareDialog } from "./share";
@@ -436,6 +444,28 @@ function Shown({
   );
 
   const canComment = artifact.access !== "view";
+  const [listed, setListed] = useState<Listed>("open");
+  const [outline, setOutline] = useState<Outline>();
+  const [goto, setGoto] = useState<{ section: number }>();
+  const { doc } = artifact;
+  // Docked or on a phone there's no room beside a doc's page.
+  const roomy = doc !== null && !phone && mode !== "docked";
+
+  const margin = useMemo(
+    () =>
+      roomy && outline !== undefined
+        ? new Map(
+            threads.flatMap(({ top, n }) => {
+              const at = outline.tops.find((each) => each.n === n);
+
+              return at === undefined
+                ? []
+                : [[top.id, at.top - outline.scrolled] as const];
+            }),
+          )
+        : undefined,
+    [roomy, outline, threads],
+  );
 
   // Only while commenting: a page can't open the box on its own.
   const pick = useCallback(
@@ -463,6 +493,10 @@ function Shown({
   }, [setAnchor]);
 
   const follow = useCallback((by: { x: number; y: number }) => {
+    setOutline((was) =>
+      was === undefined ? was : { ...was, scrolled: was.scrolled + by.y },
+    );
+
     setHeld((was) =>
       was === undefined
         ? was
@@ -551,6 +585,10 @@ function Shown({
     setBody("compare");
   });
 
+  const put = (path: string, body: object): void => {
+    void acting(async () => api.put(`artifacts/${artifact.id}/${path}`, body));
+  };
+
   const more: MenuItem[] = [
     ...(phone
       ? versions
@@ -586,6 +624,25 @@ function Shown({
             icon: "rotate-ccw" as const,
             run: () => void restore(),
           },
+        ]
+      : []),
+    ...(steers
+      ? [
+          doc === null
+            ? {
+                label: "Mark as design doc",
+                icon: "file-text" as const,
+                run: () => {
+                  put("doc", { type: "design" });
+                },
+              }
+            : {
+                label: `Not a ${docLabel(doc).toLowerCase()}`,
+                icon: "file-text" as const,
+                run: () => {
+                  put("doc", { type: null });
+                },
+              },
         ]
       : []),
     ...(steers && latest && artifact.kind === "markdown"
@@ -677,11 +734,27 @@ function Shown({
           mode={mode}
           titleId={titleId}
           title={artifact.title}
-          line={phone ? versionLine : originLine(artifact, mode)}
+          line={
+            phone
+              ? versionLine
+              : [
+                  ...(doc === null ? [] : [docLabel(doc)]),
+                  originLine(artifact, mode),
+                ].join(" · ")
+          }
         />
         <span role="status" className="text-caption text-fg-dim">
           {said}
         </span>
+        {doc !== null && (
+          <DocStatusPill
+            doc={doc}
+            steers={steers}
+            onStatus={(status) => {
+              put("status", { status });
+            }}
+          />
+        )}
         <Here people={presence.people.map(({ name }) => name)} />
         {!phone && (
           <Menu
@@ -790,12 +863,41 @@ function Shown({
           </Button>
         </div>
       )}
+      {doc !== null && (
+        <ReviewBar
+          doc={doc}
+          threads={threads}
+          people={people ?? []}
+          steers={steers}
+          onReviewers={(reviewers) => {
+            put("reviewers", { reviewers });
+          }}
+          onVerdict={(verdict) => {
+            put("review", { verdict });
+          }}
+        />
+      )}
       {problem !== undefined && (
         <div className="border-b border-line px-4.5 py-2">
           <ErrorText size="caption">{problem}</ErrorText>
         </div>
       )}
       <div className="flex min-h-0 flex-1 bg-panel">
+        {roomy && (
+          <OutlineNav
+            outline={outline}
+            threads={threads}
+            onSection={(section) => {
+              setGoto({ section });
+            }}
+            onQuestions={() => {
+              setListed("questions");
+              setActive(undefined);
+              setSheet(true);
+              setCommenting(true);
+            }}
+          />
+        )}
         <div
           ref={measured}
           className="relative flex min-w-0 flex-1 flex-col overflow-hidden"
@@ -810,6 +912,8 @@ function Shown({
             onPin={showPin}
             onEscape={stopWriting}
             onScroll={follow}
+            onOutline={setOutline}
+            goto={goto}
           />
           {held !== undefined && anchor !== undefined && (
             <CommentBox
@@ -856,6 +960,9 @@ function Shown({
               artifact={artifact}
               version={shown}
               threads={threads}
+              shown={listed}
+              onShown={setListed}
+              margin={margin}
               loaded={comments === "failed" ? "failed" : comments !== undefined}
               anchor={anchor}
               active={active}

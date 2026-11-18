@@ -213,9 +213,12 @@ export function previewed(name: string, text: string): string {
   );
 }
 
+// Front matter says what the file is, for tools, and isn't drawn.
+const frontMatter = /^---\r?\n[\s\S]*?\r?\n---(\r?\n|$)/;
+
 function markdown(text: string, scriptHosts: readonly string[]): string {
   const html = marked
-    .parse(text, { async: false, gfm: true })
+    .parse(text.replace(frontMatter, ""), { async: false, gfm: true })
     .replace(
       /<pre><code class="language-mermaid">([\s\S]*?)<\/code><\/pre>/g,
       '<pre class="mermaid">$1</pre>',

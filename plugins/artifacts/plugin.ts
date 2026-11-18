@@ -120,5 +120,17 @@ alter table artifacts_comments add column element text not null default '';`,
   opened_at integer not null,
   primary key (user_id, artifact_id)
 ) strict, without rowid;`,
+    // 7: design docs (ADR 0081). A person's mark overrides the file's, and
+    // none unmarks it; a status a person sets overrides the file's.
+    `alter table artifacts_artifacts add column doc_type text check (doc_type in ('design', 'spec', 'plan', 'none'));
+alter table artifacts_artifacts add column doc_status text check (doc_status in ('draft', 'review', 'decided'));
+
+create table artifacts_reviewers (
+  artifact_id text not null references artifacts_artifacts (id) on delete cascade,
+  user_id text not null references users (id) on delete cascade,
+  verdict text check (verdict in ('approved', 'changes')),
+  added_at integer not null,
+  primary key (artifact_id, user_id)
+) strict, without rowid;`,
   ],
 });
