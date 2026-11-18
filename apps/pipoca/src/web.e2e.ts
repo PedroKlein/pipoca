@@ -6162,7 +6162,7 @@ test("comments on selected text and on a clicked element, pins them on the page,
 
   await writeFile(
     join(folder, "report.html"),
-    '<h1>Checkout latency</h1><p>The retry waits three times before falling back.</p><div style="display:flex;gap:8px;align-items:flex-end;height:120px"><span title="Nov 2" style="flex:1;height:40%;background:#9db4d8"></span><span title="Nov 3" style="flex:1;height:90%;background:#c2410c"></span></div><button type="button">Retry details</button><div style="height:1600px"></div>',
+    '<h1>Checkout latency</h1><p>The retry waits three times before falling back.</p><div style="display:flex;gap:8px;align-items:flex-end;height:120px"><span title="Nov 2" style="flex:1;height:40%;background:#9db4d8"></span><span title="Nov 3" style="flex:1;height:90%;background:#c2410c"></span></div><p>See <a href="https://example.invalid/runbook">the runbook</a>.</p><span tabindex="0">Retry details</span><div style="height:1600px"></div>',
   );
 
   faux.setResponses([
@@ -6203,8 +6203,8 @@ test("comments on selected text and on a clicked element, pins them on the page,
 
   const box = page.getByRole("form", { name: "New comment" });
 
-  await frame.locator("p").selectText();
-  await frame.locator("p").dispatchEvent("mouseup");
+  await frame.locator("p").first().selectText();
+  await frame.locator("p").first().dispatchEvent("mouseup");
 
   await box
     .getByText("The retry waits three times before falling back.")
@@ -6215,15 +6215,15 @@ test("comments on selected text and on a clicked element, pins them on the page,
   await box.waitFor({ state: "hidden" });
   expect(await viewer.isVisible()).toBe(true);
 
-  await frame.locator("p").selectText();
-  await frame.locator("p").dispatchEvent("mouseup");
+  await frame.locator("p").first().selectText();
+  await frame.locator("p").first().dispatchEvent("mouseup");
   await box.waitFor();
   await frame.locator("h1").press("Escape");
   await box.waitFor({ state: "hidden" });
   expect(await viewer.isVisible()).toBe(true);
 
-  await frame.locator("p").selectText();
-  await frame.locator("p").dispatchEvent("mouseup");
+  await frame.locator("p").first().selectText();
+  await frame.locator("p").first().dispatchEvent("mouseup");
   await box.waitFor();
 
   // The box stays with what it's on when the page scrolls.
@@ -6269,9 +6269,33 @@ test("comments on selected text and on a clicked element, pins them on the page,
   await frame.locator('[data-pipoca-pin="2"]').waitFor();
 
   // Enter picks the part that has focus, for people on a keyboard.
-  await frame.getByRole("button", { name: "Retry details" }).focus();
+  await frame.getByText("Retry details").focus();
   await page.keyboard.press("Enter");
   await box.getByText("On “Retry details”").waitFor();
+  await box.getByRole("button", { name: "Cancel" }).click();
+  await box.waitFor({ state: "hidden" });
+
+  // Selecting with Shift opens the box once Shift is let go, not on the
+  // first arrow.
+  await frame.getByText("Retry details").focus();
+  await frame.locator("h1").selectText();
+  await page.keyboard.down("Shift");
+  await page.keyboard.press("ArrowRight");
+  await page.waitForTimeout(200);
+  expect(await box.isVisible()).toBe(false);
+  await page.keyboard.up("Shift");
+  await box.getByText(/Checkout latency/).waitFor();
+  await box.getByRole("button", { name: "Cancel" }).click();
+  await box.waitFor({ state: "hidden" });
+
+  // Text selected inside a link is commented on, and the link isn't
+  // followed.
+  await frame.locator("a").selectText();
+  await frame.locator("a").dispatchEvent("mouseup");
+  await frame.locator("a").dispatchEvent("click");
+  await box.getByText("the runbook").waitFor();
+  await page.waitForTimeout(200);
+  expect(await frame.locator("h1").textContent()).toBe("Checkout latency");
   await box.getByRole("button", { name: "Cancel" }).click();
   await box.waitFor({ state: "hidden" });
 

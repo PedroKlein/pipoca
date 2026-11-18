@@ -68,6 +68,7 @@ document.addEventListener("click", (event) => {
   if (String(getSelection()).trim() === "") pick(event.target);
 }, true);
 let pins = [];
+let shown = null;
 const pin = () => {
   for (const mark of document.querySelectorAll("mark[data-pipoca]")) mark.replaceWith(...mark.childNodes);
   for (const each of document.querySelectorAll("[data-pipoca-pin]")) each.remove();
@@ -97,7 +98,7 @@ const pin = () => {
       box.dataset.pipocaPin = "";
       around(box, target);
     }
-    if (active) target.scrollIntoView({ block: "nearest" });
+    if (active && n !== shown) target.scrollIntoView({ block: "nearest" });
     if (n === null) continue;
     const r = target.getBoundingClientRect();
     const badge = drawn("display: grid; place-items: center; width: 22px; height: 22px; border-radius: 11px 11px 11px 2px; background: rgb(243, 197, 82); color: rgb(26, 23, 18); font: 600 11px/1 system-ui, sans-serif; pointer-events: auto; cursor: pointer; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);");
@@ -117,6 +118,10 @@ const pin = () => {
     badge.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") open(event); });
   }
 };
+const pinAndShow = () => {
+  pin();
+  shown = pins.find((each) => each.active)?.n ?? null;
+};
 addEventListener("resize", pin);
 addEventListener("message", (event) => {
   if (event.source !== parent) return;
@@ -126,7 +131,7 @@ addEventListener("message", (event) => {
     document.documentElement.style.cursor = commenting ? "crosshair" : "";
   } else if (event.data?.pipoca === "pins") {
     pins = event.data.pins;
-    pin();
+    pinAndShow();
   }
 });
 addEventListener("message", (event) => {

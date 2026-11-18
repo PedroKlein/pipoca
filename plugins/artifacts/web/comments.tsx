@@ -131,12 +131,15 @@ export function CommentBox({
   artifact,
   version,
   anchor,
+  scrolled,
   area,
   onDone,
 }: {
   readonly artifact: ArtifactView;
   readonly version: number;
   readonly anchor: Anchor;
+  // How far the page scrolled since the pick.
+  readonly scrolled: { readonly x: number; readonly y: number };
   // The frame's size, to keep the box inside it.
   readonly area: { readonly width: number; readonly height: number };
   // With the new thread once saved, and whether it went to Pi at once.
@@ -149,7 +152,18 @@ export function CommentBox({
   const [saving, setSaving] = useState(false);
   const [problem, setProblem] = useState<string>();
   const width = area.width === 0 ? 420 : Math.min(420, area.width - 32);
-  const at = placed("rect" in anchor ? anchor.rect : undefined, area, width);
+
+  const at = placed(
+    "rect" in anchor
+      ? {
+          ...anchor.rect,
+          x: anchor.rect.x - scrolled.x,
+          y: anchor.rect.y - scrolled.y,
+        }
+      : undefined,
+    area,
+    width,
+  );
 
   const cancel = (): void => {
     onDone();

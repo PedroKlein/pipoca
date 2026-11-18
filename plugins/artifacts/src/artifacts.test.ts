@@ -550,6 +550,16 @@ test("writing @pi sends a thread at once, for people who can, and Send hands fiv
 
   expect(host.delivered()[3]).toMatchObject({ turn: true });
 
+  // Sending them again, as a second click would, hands Pi nothing new.
+  expect(
+    await t.as("ana").post(`artifacts/${id}/comments/send`, {
+      threads: drafts.map((each) => each.id),
+    }),
+  ).toEqual({ sent: 0 });
+
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(host.delivered()).toHaveLength(4);
+
   expect(
     (await listed())
       .filter((each) => each.sentBy !== null)

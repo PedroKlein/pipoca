@@ -796,9 +796,14 @@ export const server = defineServer(
           throw new BadRequest("Reopen a resolved thread before sending it.");
         }
 
-        ask(toSession, threads, caller.person.id);
+        // Pi already has the threads it was sent, so a repeat sends nothing.
+        const fresh = threads.filter((each) => each.sent_to_pi === 0);
 
-        return { sent: threads.length };
+        if (fresh.length > 0) {
+          ask(toSession, fresh, caller.person.id);
+        }
+
+        return { sent: fresh.length };
       },
     );
 

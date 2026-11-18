@@ -310,8 +310,15 @@ function Shown({
   };
 
   const [commenting, setCommenting] = useState(commentsAtFirst);
+
   // What's being commented on belongs to the version it was picked on.
-  const [held, setHeld] = useState<{ anchor: Anchor; on: number }>();
+  // What's being commented on belongs to the version it was picked on, and
+  // the box follows the page as it scrolls.
+  const [held, setHeld] = useState<{
+    anchor: Anchor;
+    on: number;
+    scrolled: { x: number; y: number };
+  }>();
 
   if (held !== undefined && held.on !== shown) {
     setHeld(undefined);
@@ -321,7 +328,11 @@ function Shown({
 
   const setAnchor = useCallback(
     (next: Anchor | undefined) => {
-      setHeld(next === undefined ? undefined : { anchor: next, on: shown });
+      setHeld(
+        next === undefined
+          ? undefined
+          : { anchor: next, on: shown, scrolled: { x: 0, y: 0 } },
+      );
     },
     [shown],
   );
@@ -385,18 +396,11 @@ function Shown({
 
   const follow = useCallback((by: { x: number; y: number }) => {
     setHeld((was) =>
-      was === undefined || !("rect" in was.anchor)
+      was === undefined
         ? was
         : {
             ...was,
-            anchor: {
-              ...was.anchor,
-              rect: {
-                ...was.anchor.rect,
-                x: was.anchor.rect.x - by.x,
-                y: was.anchor.rect.y - by.y,
-              },
-            },
+            scrolled: { x: was.scrolled.x + by.x, y: was.scrolled.y + by.y },
           },
     );
   }, []);
@@ -713,11 +717,12 @@ function Shown({
             onEscape={stopWriting}
             onScroll={follow}
           />
-          {anchor !== undefined && (
+          {held !== undefined && anchor !== undefined && (
             <CommentBox
               artifact={artifact}
               version={shown}
               anchor={anchor}
+              scrolled={held.scrolled}
               area={area}
               onDone={(done) => {
                 setAnchor(undefined);

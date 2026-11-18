@@ -175,12 +175,19 @@ export function Frame({
     };
   }, [draft, onEscape, onPick, onPin, onScroll, sessionId, steers]);
 
+  // Pinning redraws the page, so only for pins that changed.
+  const pinned = JSON.stringify(pins ?? []);
+
   const tell = useCallback(() => {
     const window = frame.current?.contentWindow;
 
     window?.postMessage({ pipoca: "commenting", on: commenting }, "*");
-    window?.postMessage({ pipoca: "pins", pins: pins ?? [] }, "*");
-  }, [commenting, pins]);
+
+    window?.postMessage(
+      { pipoca: "pins", pins: JSON.parse(pinned) as unknown },
+      "*",
+    );
+  }, [commenting, pinned]);
 
   useEffect(tell, [tell]);
 

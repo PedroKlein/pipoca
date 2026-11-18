@@ -1729,6 +1729,18 @@ test("a comment is written where the person selected or clicked, of the kind the
     "Saved as a draft for Pi. Send it now with @pi, or later with the others.",
   );
 
+  // Scrolling the page moves the box, without pinning the page again.
+  const pinned = (): number =>
+    frame.told().filter((each) => each.pipoca === "pins").length;
+
+  const before = pinned();
+
+  frame.tell({ pipoca: "scroll", x: 0, y: 40 });
+  frame.tell({ pipoca: "scroll", x: 0, y: 40 });
+
+  expect(pinned()).toBe(before);
+  expect(box()).not.toBeNull();
+
   // Escape in the box drops it, and leaves the viewer open.
   act(() => {
     box()
@@ -2053,20 +2065,27 @@ test("drafts for Pi are listed with the page's pins, and the checked ones go to 
 
   await drawn(() => aside()?.textContent.includes("Try later") === true);
 
+  // A second press while the first is on its way sends nothing.
+  act(() => {
+    named(page, "Resolve")?.click();
+  });
+
   await act(async () => {
     named(page, "Resolve")?.click();
     await until(() => asked.some(({ url }) => url.endsWith("/resolve")));
   });
+
+  await drawn(
+    () => page.querySelector("[role=status]")?.textContent === "Resolved",
+  );
+
+  expect(asked.filter(({ url }) => url.endsWith("/resolve"))).toHaveLength(1);
 
   expect(asked.find(({ url }) => url.endsWith("/resolve"))).toEqual({
     url: "/api/ext/artifacts/artifacts/a1/comments/t2/resolve",
     method: "POST",
     body: { resolved: true },
   });
-
-  await drawn(
-    () => page.querySelector("[role=status]")?.textContent === "Resolved",
-  );
 
   act(() => {
     named(page, "Resolved 1")?.click();
