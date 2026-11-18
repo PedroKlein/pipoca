@@ -1,10 +1,11 @@
 const origin = "http://pipoca.internal";
 
-// A path stays under its own routes: dot segments, plain, percent-encoded
-// or spelled with backslashes and tabs the address parser drops, or a "#",
-// would let input such as an id name another route.
+// A path stays under its own routes on this server: dot segments, plain,
+// percent-encoded or spelled with backslashes and the characters the
+// address parser drops, a "#", or a "//" naming another host would let
+// input such as an id name another route.
 export function routeUrl(path: string, base: string): string | undefined {
-  const [pathname = ""] = path.split("?");
+  const [pathname = ""] = path.trim().split("?");
 
   const dotted = pathname.split(/[/\\]/).some((segment) => {
     try {
@@ -18,7 +19,10 @@ export function routeUrl(path: string, base: string): string | undefined {
 
   const url = new URL(path, origin);
 
-  return dotted || path.includes("#") || !url.pathname.startsWith(base)
+  return dotted ||
+    path.includes("#") ||
+    url.origin !== origin ||
+    !url.pathname.startsWith(base)
     ? undefined
     : url.href;
 }

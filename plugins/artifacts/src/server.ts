@@ -1897,11 +1897,17 @@ export const server = defineServer(
         auth: "person",
         query: Type.Object({ session: Type.String({ minLength: 1 }) }),
       },
-      ({ caller, query }) => ({
-        threads: sessions.sees(query.session, caller.person.id)
-          ? untold(query.session).length
-          : 0,
-      }),
+      ({ caller, query }) => {
+        const session = sessions.get(query.session);
+
+        // Only while a turn runs, which they follow.
+        const reading =
+          session?.archivedAt === null &&
+          isBusy(session.status) &&
+          sessions.sees(session.id, caller.person.id);
+
+        return { threads: reading ? untold(query.session).length : 0 };
+      },
     );
 
     routes.get("activity/unread", { auth: "person" }, ({ caller }) => ({

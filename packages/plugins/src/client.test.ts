@@ -25,6 +25,8 @@ test("a path can't climb out of the plugin's routes or cut off the rest of the a
     "artifacts/%2e%2e/projects",
     "artifacts/..\\projects/p1",
     "artifacts/.\t./projects/p1",
+    "artifacts/a1/.. ",
+    "//elsewhere.example/api",
   ]) {
     expect(api.post(path)).rejects.toThrow("isn't a route");
   }

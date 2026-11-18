@@ -16,7 +16,6 @@ export function MenuButton({
       iconOnly
       aria-label="Open sessions"
       onClick={onMenu}
-      className="hidden drawer:inline-flex"
     >
       <Icon name="menu" />
     </Button>

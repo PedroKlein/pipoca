@@ -1175,6 +1175,15 @@ test("threads asked while Pi works go in one notice when its turn ends", async (
   await host.online(true);
 
   expect(host.delivered()).toHaveLength(1);
+  // Archived mid-turn, nothing reads them, so none are said to wait.
+  await host.report([{ type: "status", status: "running" }]);
+  await comment("ana", "Add a date", { toPi: true });
+
+  expect(await waiting("ana")).toEqual({ threads: 1 });
+
+  await host.archive();
+
+  expect(await waiting("ana")).toEqual({ threads: 0 });
 });
 
 test("threads asked in a turn that is cut short still reach Pi, once", async () => {

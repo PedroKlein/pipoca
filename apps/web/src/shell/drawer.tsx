@@ -27,38 +27,60 @@ export function Drawer({
     }
 
     const opener = document.activeElement;
-
-    aside.current
-      ?.querySelector<HTMLElement>("a[href], button:not(:disabled), input")
-      ?.focus();
-
-    // The page and whatever is docked beside it.
-    const behind = [...(aside.current?.parentElement?.children ?? [])].filter(
-      (each): each is HTMLElement =>
-        each instanceof HTMLElement &&
-        each !== aside.current &&
-        each.getAttribute("aria-hidden") !== "true" &&
-        !each.inert,
-    );
-
-    for (const each of behind) {
-      each.inert = true;
-    }
+    const area = aside.current?.parentElement;
 
     const shut = (): void => {
       close.current();
     };
 
     // A docked artifact also makes it a drawer, so the window's width alone
-    // doesn't say when it sits beside the page again.
-    const beside = (): void => {
-      if (
-        aside.current !== null &&
-        getComputedStyle(aside.current).position !== "fixed"
-      ) {
-        shut();
+    // doesn't say when it sits beside the page.
+    const inline = (): boolean =>
+      aside.current !== null &&
+      getComputedStyle(aside.current).position !== "fixed";
+
+    if (inline()) {
+      shut();
+
+      return undefined;
+    }
+
+    aside.current
+      ?.querySelector<HTMLElement>("a[href], button:not(:disabled), input")
+      ?.focus();
+
+    // The page and whatever is docked beside it, also once a dock comes.
+    const hidden = new Set<HTMLElement>();
+
+    const hide = (): void => {
+      for (const each of area?.children ?? []) {
+        if (
+          each instanceof HTMLElement &&
+          each !== aside.current &&
+          each.getAttribute("aria-hidden") !== "true" &&
+          !each.inert
+        ) {
+          each.inert = true;
+          hidden.add(each);
+        }
       }
     };
+
+    const changed = (): void => {
+      if (inline()) {
+        shut();
+      } else {
+        hide();
+      }
+    };
+
+    hide();
+
+    const watch = new MutationObserver(changed);
+
+    if (area !== null && area !== undefined) {
+      watch.observe(area, { childList: true });
+    }
 
     const shutOnEscape = (event: KeyboardEvent): void => {
       if (event.key === "Escape") {
@@ -66,14 +88,15 @@ export function Drawer({
       }
     };
 
-    addEventListener("resize", beside);
+    addEventListener("resize", changed);
     document.addEventListener("keydown", shutOnEscape);
 
     return () => {
-      removeEventListener("resize", beside);
+      watch.disconnect();
+      removeEventListener("resize", changed);
       document.removeEventListener("keydown", shutOnEscape);
 
-      for (const each of behind) {
+      for (const each of hidden) {
         each.inert = false;
       }
 

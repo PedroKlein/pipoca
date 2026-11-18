@@ -6916,6 +6916,11 @@ test("docks an artifact beside the chat on a wide window, and on a phone keeps i
   await box.press("Enter");
   await page.getByText("Published the layouts").waitFor();
 
+  // With the sidebar beside the chat there's no menu to open it.
+  expect(
+    await page.getByRole("button", { name: "Open sessions" }).isVisible(),
+  ).toBe(false);
+
   try {
     await page.getByRole("link", { name: /Layouts/ }).click();
 
