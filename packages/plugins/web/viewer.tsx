@@ -7,10 +7,14 @@ import {
 } from "../src/preview-kind";
 import { Slot } from "./parts";
 
-// Over a page, or alone in the window from a link.
-export type ViewerMode = "modal" | "window";
+// Over a page, docked beside it, or alone in the window from a link.
+export type ViewerMode = "modal" | "docked" | "window";
 
-export const viewerHeadings = { modal: "h2", window: "h1" } as const;
+export const viewerHeadings = {
+  modal: "h2",
+  docked: "h2",
+  window: "h1",
+} as const;
 
 export const viewerShellClass =
   "flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-[inherit] bg-elevated";
@@ -18,18 +22,23 @@ export const viewerShellClass =
 export const viewerHeaderClass =
   "relative flex min-h-14 flex-wrap items-center gap-1.5 border-b border-line py-2.5 pr-3 pl-4.5";
 
-// Alone in the window, the way back into Pipoca.
+// Alone in the window, the way back into Pipoca. Docked or on a phone the
+// title needs the room.
 export function ViewerLead({
   mode,
 }: {
   readonly mode: ViewerMode;
-}): ReactElement {
+}): ReactElement | null {
+  if (mode === "docked") {
+    return null;
+  }
+
   return mode === "window" ? (
     <a href="#" aria-label="Pipoca home">
       <Mark className="size-8" />
     </a>
   ) : (
-    <span className="grid size-8 shrink-0 place-items-center rounded-lg border border-line bg-panel text-fg-dim">
+    <span className="grid size-8 shrink-0 place-items-center rounded-lg border border-line bg-panel text-fg-dim max-sm:hidden">
       <Icon name="file-text" />
     </span>
   );
@@ -49,7 +58,7 @@ export function ViewerTitle({
   const Heading = viewerHeadings[mode];
 
   return (
-    <div className="ml-1.5 flex min-w-50 flex-1 flex-col max-sm:pr-8">
+    <div className="ml-1.5 flex min-w-50 flex-1 flex-col max-sm:min-w-0">
       <Heading
         id={titleId}
         className="truncate text-[15px] font-semibold text-fg-strong"
@@ -78,7 +87,7 @@ export function ViewerClose({
       aria-label="Close"
       autoFocus={focus}
       onClick={onClose}
-      className="max-sm:absolute max-sm:top-2.5 max-sm:right-3"
+      className="max-sm:order-first"
     >
       <Icon name="x" className="size-3.5" />
     </Button>

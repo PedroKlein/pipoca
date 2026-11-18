@@ -6760,6 +6760,81 @@ test("two people chat in a comment thread, seeing who's here, who's typing and e
   }
 }, 60_000);
 
+test("docks an artifact beside the chat on a wide window, and on a phone keeps its actions at the bottom and its comments in a sheet", async () => {
+  const folder = join(root, "artifact-layouts");
+  await mkdir(folder, { recursive: true });
+  await writeFile(join(folder, "report.html"), "<h1>Layouts</h1>");
+
+  faux.setResponses([
+    fauxAssistantMessage(
+      [
+        fauxToolCall("publish_artifact", {
+          path: "report.html",
+          title: "Layouts",
+        }),
+      ],
+      { stopReason: "toolUse" },
+    ),
+    fauxAssistantMessage([fauxText("Published the layouts")]),
+  ]);
+
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto(server.url.href);
+  await page.getByRole("button", { name: "New session" }).click();
+  const form = page.locator("form#create");
+
+  await pickWorkspace(form, folder);
+  await form.getByRole("button", { name: "Start session" }).click();
+  await page.locator("#status", { hasText: "idle" }).waitFor();
+
+  const box = page.locator("#prompt-text");
+  await box.fill("publish the layouts");
+  await box.press("Enter");
+  await page.getByText("Published the layouts").waitFor();
+
+  try {
+    await page.getByRole("link", { name: /Layouts/ }).click();
+
+    const viewer = page.getByRole("dialog", { name: "Layouts" });
+    await viewer.getByRole("button", { name: "Dock beside the page" }).click();
+
+    const docked = page.getByRole("complementary", { name: "Layouts" });
+    await docked.frameLocator("iframe").getByText("Layouts").waitFor();
+
+    // The chat stays usable beside it, and the header keeps to one row.
+    await page.locator("#prompt-text").fill("still here");
+    const header = await docked.locator("header").boundingBox();
+    expect(header?.height).toBeLessThan(64);
+
+    await docked.getByRole("button", { name: "Dock beside the page" }).click();
+    await viewer.waitFor();
+
+    await page.setViewportSize({ width: 390, height: 844 });
+
+    const actions = viewer.getByRole("group", { name: "Artifact actions" });
+    await actions.getByRole("button", { name: "Download" }).waitFor();
+    const bar = await actions.boundingBox();
+    expect(Math.round((bar?.y ?? 0) + (bar?.height ?? 0))).toBeGreaterThan(830);
+
+    await viewer.getByRole("button", { name: /^Comment/ }).click();
+    const sheet = viewer.getByRole("complementary", { name: "Comments" });
+    await sheet.waitFor();
+    const shown = await sheet.boundingBox();
+    expect(shown?.y).toBeGreaterThan(200);
+    expect(Math.round((shown?.y ?? 0) + (shown?.height ?? 0))).toBe(844);
+
+    // The dimmed page shows above the sheet.
+    await viewer
+      .getByRole("button", { name: "Back to the page" })
+      .click({ position: { x: 195, y: 120 } });
+
+    await sheet.waitFor({ state: "hidden" });
+    expect(await viewer.isVisible()).toBe(true);
+  } finally {
+    await page.setViewportSize({ width: 1280, height: 900 });
+  }
+});
+
 test("edits a Markdown artifact beside its preview and compares the versions with the changed words marked", async () => {
   const folder = join(root, "plan");
   await mkdir(folder, { recursive: true });

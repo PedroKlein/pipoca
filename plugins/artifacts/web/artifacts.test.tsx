@@ -1,6 +1,6 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { AttachMenu } from "@pipoca/plugins/web";
-import { renderPart, sessionWith } from "@pipoca/plugins/web/testing";
+import { renderPart, resize, sessionWith } from "@pipoca/plugins/web/testing";
 import { until } from "@pipoca/testing/until";
 import { act } from "react";
 import type { ArtifactSummary, Comment, Presence } from "../src/artifacts";
@@ -400,6 +400,199 @@ async function opened(asked: readonly Served[]): Promise<void> {
   await act(async () => until(() => asked.length >= 1));
   await act(async () => until(() => asked.length >= 2));
 }
+
+test("Dock pins the viewer beside the page, stays chosen for the person, and is offered only on wide windows", async () => {
+  const asked: Served[] = [];
+  const Overlay = web.slots?.overlay;
+  const Dock = web.slots?.dock;
+
+  const both = {
+    both: () => (
+      <>
+        {Overlay !== undefined && <Overlay />}
+        {Dock !== undefined && <Dock />}
+      </>
+    ),
+  };
+
+  const page = renderPart(
+    { ...web, slots: both },
+    "both",
+    {},
+    {
+      hash: "#session-1?artifact=a1",
+      width: 1280,
+      fetch: serving(
+        { ...artifact({ title: "Rollout" }), ...viewed(1) },
+        asked,
+      ),
+    },
+  );
+
+  await opened(asked);
+
+  const dock = (): HTMLButtonElement | undefined =>
+    named(page, "Dock beside the page");
+
+  expect(page.querySelector("dialog[open] h2")?.textContent).toBe("Rollout");
+  expect(dock()?.getAttribute("aria-pressed")).toBe("false");
+
+  act(() => {
+    dock()?.click();
+  });
+
+  await drawn(() => page.querySelector("aside h2")?.textContent === "Rollout");
+
+  expect(page.querySelector("dialog[open]")).toBeNull();
+  expect(page.querySelector("aside")?.getAttribute("aria-labelledby")).toBe(
+    page.querySelector("aside h2")?.id ?? "",
+  );
+  expect(dock()?.getAttribute("aria-pressed")).toBe("true");
+
+  // Another page the person opens docks it too.
+  const later = renderPart(
+    { ...web, slots: both },
+    "both",
+    {},
+    { fetch: serving({ ...artifact({ title: "Rollout" }), ...viewed(1) }, []) },
+  );
+
+  await drawn(() => later.querySelector("aside h2")?.textContent === "Rollout");
+  expect(later.querySelector("dialog[open]")).toBeNull();
+
+  // Pi's card in the chat says where it opens.
+  const card = renderPart(
+    web,
+    "session.toolCall:publish_artifact",
+    {
+      session: sessionWith({}),
+      call: {
+        id: "call-1",
+        name: "publish_artifact",
+        args: { path: "plan.md" },
+        status: "done",
+        result: { text: "", details: { id: "a1" }, failed: false },
+      },
+    },
+    { fetch: serving({ ...artifact({ title: "Rollout" }), ...viewed(1) }, []) },
+  );
+
+  await drawn(() => card.textContent.includes("Rollout"));
+  expect(card.textContent).toContain("Open beside the chat · version 1");
+
+  // Too narrow for both, it opens over the page with no Dock.
+  act(() => {
+    resize(900);
+  });
+
+  await drawn(
+    () => page.querySelector("dialog[open] h2")?.textContent === "Rollout",
+  );
+  expect(page.querySelector("aside")).toBeNull();
+  expect(dock()).toBeUndefined();
+
+  act(() => {
+    resize(1280);
+  });
+
+  await drawn(() => dock()?.getAttribute("aria-pressed") === "true");
+
+  act(() => {
+    dock()?.click();
+  });
+
+  await drawn(
+    () => page.querySelector("dialog[open] h2")?.textContent === "Rollout",
+  );
+});
+
+test("on a phone the viewer moves versions into More, keeps Share and Download at the bottom, and shows comments as a sheet over the page", async () => {
+  const asked: Served[] = [];
+
+  const page = renderPart(
+    web,
+    "overlay",
+    {},
+    {
+      hash: "#session-1?artifact=a1",
+      width: 390,
+      fetch: serving(
+        { ...artifact({ title: "Rollout", versions: 2 }), ...viewed(2) },
+        asked,
+      ),
+    },
+  );
+
+  // The page exists once drawn.
+  const downloads = spyOn(location, "assign").mockImplementation(
+    () => undefined,
+  );
+
+  try {
+    await opened(asked);
+
+    expect(page.querySelector("dialog[open] h2 + span")?.textContent).toBe(
+      "Version 2 · latest",
+    );
+    expect(versionMenu(page)).toBeUndefined();
+
+    act(() => {
+      named(page, "More")?.click();
+    });
+
+    expect(item(page, "Version 1")).toBeDefined();
+    expect(item(page, "Compare versions")).toBeDefined();
+    expect(item(page, "Download")).toBeUndefined();
+
+    act(() => {
+      named(page, "More")?.click();
+    });
+
+    const bar = page.querySelector("[aria-label='Artifact actions']");
+
+    expect(
+      [...(bar?.querySelectorAll("button") ?? [])].map(
+        (each) => each.textContent,
+      ),
+    ).toEqual(["Share", "Download"]);
+
+    act(() => {
+      named(page, "Download")?.click();
+    });
+
+    expect(downloads).toHaveBeenCalledWith(
+      expect.stringMatching(/\/artifacts\/a1\/download\?v=2$/),
+    );
+
+    // The sheet goes, and comment mode stays for picking a passage.
+    commentMode(page);
+
+    await drawn(
+      () => page.querySelector("aside[aria-label=Comments]") !== null,
+    );
+
+    act(() => {
+      named(page, "Back to the page")?.click();
+    });
+
+    expect(page.querySelector("aside[aria-label=Comments]")).toBeNull();
+    expect(
+      buttons(page)
+        .find((each) => each.textContent.startsWith("Comment"))
+        ?.getAttribute("aria-pressed"),
+    ).toBe("true");
+
+    commentMode(page);
+
+    expect(page.querySelector("aside[aria-label=Comments]")).not.toBeNull();
+
+    commentMode(page);
+
+    expect(page.querySelector("aside[aria-label=Comments]")).toBeNull();
+  } finally {
+    downloads.mockRestore();
+  }
+});
 
 test("an artifact opens over the page with what can be done with it, and closes back to the page", async () => {
   const asked: Served[] = [];

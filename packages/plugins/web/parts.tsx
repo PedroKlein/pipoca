@@ -58,6 +58,8 @@ export interface Slots {
   "project.artifacts": { readonly sessions: readonly string[] };
   // Over every page, such as a viewer the address opens (useOverlay).
   overlay: Nothing;
+  // Beside every page, such as a viewer docked by the chat.
+  dock: Nothing;
   "environment.section": EnvironmentSectionProps;
   "template.section": TemplateSectionProps;
   "settings.general": Nothing;

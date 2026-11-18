@@ -47,6 +47,7 @@ import {
   pinsOf,
   threadsOf,
 } from "./comments";
+import { useDock, usePhone } from "./dock";
 import { usePresence } from "./presence";
 import { ShareDialog } from "./share";
 import { Compare, Editor } from "./versions";
@@ -108,35 +109,75 @@ export function ArtifactLink({
 
 // The artifact the address opens over any page, until Esc, Back or Close.
 export function ArtifactOverlay(): ReactElement | null {
-  const { params, open, close } = useOverlay();
+  const { params, close } = useOverlay();
+  const { docked } = useDock();
   const titleId = useId();
   const id = params.get("artifact");
 
-  if (id === null || id === "") {
+  if (docked || id === null || id === "") {
     return null;
   }
 
   return (
     <Dialog key={id} open size="full" onClose={close} labelledBy={titleId}>
-      <Viewer
-        id={id}
-        mode="modal"
-        titleId={titleId}
-        version={Number(params.get("v"))}
-        comments={params.get("comments") === "1"}
-        onVersion={(number) => {
-          open(
-            {
-              artifact: id,
-              ...(number !== undefined && { v: String(number) }),
-              ...(params.get("comments") === "1" && { comments: "1" }),
-            },
-            { replace: true },
-          );
-        }}
-        onClose={close}
-      />
+      <Addressed id={id} mode="modal" titleId={titleId} />
     </Dialog>
+  );
+}
+
+// The same, beside the page while docked.
+export function ArtifactDock(): ReactElement | null {
+  const { params } = useOverlay();
+  const { docked } = useDock();
+  const titleId = useId();
+  const id = params.get("artifact");
+
+  if (!docked || id === null || id === "") {
+    return null;
+  }
+
+  return (
+    <aside
+      key={id}
+      aria-labelledby={titleId}
+      className="flex w-[56%] min-w-0 shrink-0 flex-col border-l border-line bg-elevated"
+    >
+      <Addressed id={id} mode="docked" titleId={titleId} />
+    </aside>
+  );
+}
+
+function Addressed({
+  id,
+  mode,
+  titleId,
+}: {
+  readonly id: string;
+  readonly mode: ViewerMode;
+  readonly titleId: string;
+}): ReactElement {
+  const { params, open, close } = useOverlay();
+  const comments = params.get("comments") === "1";
+
+  return (
+    <Viewer
+      id={id}
+      mode={mode}
+      titleId={titleId}
+      version={Number(params.get("v"))}
+      comments={comments}
+      onVersion={(number) => {
+        open(
+          {
+            artifact: id,
+            ...(number !== undefined && { v: String(number) }),
+            ...(comments && { comments: "1" }),
+          },
+          { replace: true },
+        );
+      }}
+      onClose={close}
+    />
   );
 }
 
@@ -262,7 +303,7 @@ function Placeholder({
         >
           {title}
         </Heading>
-        {mode === "modal" && <ViewerClose onClose={onClose} />}
+        {mode !== "window" && <ViewerClose onClose={onClose} />}
       </header>
       <div className="flex flex-1 flex-col items-center justify-center gap-3 bg-panel p-8 text-center">
         {body !== "" && <p className="text-fg-dim">{body}</p>}
@@ -355,6 +396,13 @@ function Shown({
   const now = useNow();
   const latest = shown === artifact.versions;
   const steers = artifact.access === "steer";
+  const dock = useDock();
+  const phone = usePhone();
+  const compact = phone || mode === "docked";
+
+  // On a phone the comments are a sheet over the page, which can go while
+  // comment mode stays for picking a passage.
+  const [sheet, setSheet] = useState(true);
 
   // Without comments the page still shows.
   const { value: comments, reload } = useLoaded(
@@ -489,19 +537,28 @@ function Shown({
     }
   };
 
+  const download = (): void => {
+    location.assign(
+      `${base}/artifacts/${artifact.id}/download?v=${String(shown)}`,
+    );
+  };
+
+  const versionLine = latest
+    ? `Version ${String(shown)} · latest`
+    : `Version ${String(shown)} of ${String(artifact.versions)}`;
+
+  const versions = versionItems(artifact, shown, now, onVersion, () => {
+    setBody("compare");
+  });
+
   const more: MenuItem[] = [
-    {
-      label: "Download",
-      icon: "download",
-      run: () => {
-        location.assign(
-          `${base}/artifacts/${artifact.id}/download?v=${String(shown)}`,
-        );
-      },
-    },
+    ...(phone
+      ? versions
+      : [{ label: "Download", icon: "download" as const, run: download }]),
     {
       label: "Copy link",
       icon: "link",
+      divided: phone,
       run: () => {
         copy(link());
       },
@@ -620,45 +677,45 @@ function Shown({
           mode={mode}
           titleId={titleId}
           title={artifact.title}
-          line={originLine(artifact, mode)}
+          line={phone ? versionLine : originLine(artifact, mode)}
         />
         <span role="status" className="text-caption text-fg-dim">
           {said}
         </span>
         <Here people={presence.people.map(({ name }) => name)} />
-        <Menu
-          label={
-            latest
-              ? `Version ${String(shown)}, the latest. Versions`
-              : `Version ${String(shown)} of ${String(artifact.versions)}. Versions`
-          }
-          heading="Versions · every publish is kept"
-          variant="default"
-          size="sm"
-          align="end"
-          trigger={
-            <>
-              {latest
-                ? `Version ${String(shown)} · latest`
-                : `Version ${String(shown)} of ${String(artifact.versions)}`}
-              <Icon name="chevron-down" className="size-3.5" />
-            </>
-          }
-          items={versionItems(artifact, shown, now, onVersion, () => {
-            setBody("compare");
-          })}
-        />
+        {!phone && (
+          <Menu
+            label={`${versionLine.replace(" · latest", ", the latest")}. Versions`}
+            heading="Versions · every publish is kept"
+            variant="default"
+            size="sm"
+            align="end"
+            trigger={
+              <>
+                {versionLine}
+                <Icon name="chevron-down" className="size-3.5" />
+              </>
+            }
+            items={versions}
+          />
+        )}
         <Button
           variant={commenting && canComment ? "primary" : "ghost"}
           size="sm"
           aria-pressed={commenting}
           onClick={() => {
-            setCommenting(!commenting);
             setAnchor(undefined);
+            setSheet(true);
+
+            if (!commenting || sheet) {
+              setCommenting(!commenting);
+            }
           }}
         >
           <Icon name="chat" className="size-3.5" />
-          {canComment ? "Comment" : "Comments"}
+          <span className={compact ? "sr-only" : ""}>
+            {canComment ? "Comment" : "Comments"}
+          </span>
           {artifact.openComments > 0 && (
             <span className={commenting && canComment ? "" : "text-fg-dim"}>
               {artifact.openComments}
@@ -666,7 +723,7 @@ function Shown({
             </span>
           )}
         </Button>
-        {steers && (
+        {steers && !phone && (
           <Button
             size="sm"
             onClick={() => {
@@ -674,6 +731,22 @@ function Shown({
             }}
           >
             Share
+          </Button>
+        )}
+        {mode !== "window" && dock.offered && (
+          <Button
+            variant="ghost"
+            size="sm"
+            iconOnly
+            aria-label="Dock beside the page"
+            title={dock.docked ? "Open over the page" : "Dock beside the page"}
+            aria-pressed={dock.docked}
+            className="aria-pressed:bg-hover aria-pressed:text-fg-strong"
+            onClick={() => {
+              dock.setDocked(!dock.docked);
+            }}
+          >
+            <Icon name="panel-right" className="size-3.5" />
           </Button>
         )}
         {mode === "modal" && (
@@ -693,7 +766,7 @@ function Shown({
           </a>
         )}
         <Menu label="More" size="sm" items={more} />
-        {mode === "modal" && <ViewerClose onClose={onClose} />}
+        {mode !== "window" && <ViewerClose onClose={onClose} />}
       </header>
       {!latest && (
         <div className="flex flex-wrap items-center gap-2 border-b border-line bg-hover px-4.5 py-2 text-label text-fg">
@@ -758,11 +831,27 @@ function Shown({
             />
           )}
         </div>
-        {commenting && (
+        {commenting && sheet && phone && (
+          <button
+            type="button"
+            aria-label="Back to the page"
+            className="fixed inset-0 z-10 bg-scrim"
+            onClick={() => {
+              setSheet(false);
+            }}
+          />
+        )}
+        {commenting && sheet && (
           <aside
             aria-label="Comments"
-            className="flex w-[420px] shrink-0 flex-col border-l border-line bg-elevated max-sm:w-full"
+            className="flex w-[420px] shrink-0 flex-col border-l border-line bg-elevated max-sm:fixed max-sm:inset-x-0 max-sm:bottom-0 max-sm:z-10 max-sm:h-[70dvh] max-sm:w-full max-sm:rounded-t-2xl max-sm:border-t max-sm:border-l-0 max-sm:shadow-pop"
           >
+            {phone && (
+              <span
+                aria-hidden
+                className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-line-strong"
+              />
+            )}
             <CommentList
               artifact={artifact}
               version={shown}
@@ -787,6 +876,27 @@ function Shown({
           </aside>
         )}
       </div>
+      {phone && (
+        <div
+          role="group"
+          aria-label="Artifact actions"
+          className="flex gap-3 border-t border-line p-3"
+        >
+          {steers && (
+            <Button
+              className="flex-1"
+              onClick={() => {
+                setSharing(true);
+              }}
+            >
+              Share
+            </Button>
+          )}
+          <Button className="flex-1" onClick={download}>
+            Download
+          </Button>
+        </div>
+      )}
       <ShareDialog
         key={artifact.id}
         artifact={artifact}
