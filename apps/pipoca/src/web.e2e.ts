@@ -5680,6 +5680,15 @@ test("moves focus into the sessions drawer, closes it with Escape and gives focu
   await page.keyboard.press("Escape");
   await page.locator("form#create").waitFor({ state: "hidden" });
 
+  // Escape closed only the dialog: the drawer stays, with focus in it.
+  expect(await page.evaluate("document.querySelector('main').inert")).toBe(
+    true,
+  );
+
+  expect(await page.locator("aside :focus").count()).toBe(1);
+  await page.keyboard.press("Escape");
+  await newSession.waitFor({ state: "hidden" });
+
   await page.setViewportSize({ width: 1280, height: 720 });
 });
 

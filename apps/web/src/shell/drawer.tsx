@@ -85,7 +85,11 @@ export function Drawer({
     }
 
     const shutOnEscape = (event: KeyboardEvent): void => {
-      if (event.key === "Escape") {
+      // A dialog the sidebar opened takes its own Escape.
+      if (
+        event.key === "Escape" &&
+        !(event.target instanceof Element && event.target.closest("dialog"))
+      ) {
         shut();
       }
     };
