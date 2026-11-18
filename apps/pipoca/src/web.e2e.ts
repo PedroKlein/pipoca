@@ -6103,20 +6103,31 @@ test("opens an artifact Pi published, in a sandbox, from its card in the chat", 
   ]);
 
   await viewer.getByRole("button", { name: "Comment", exact: true }).click();
+  await viewer
+    .getByRole("button", { name: "Comment on the whole page" })
+    .click();
 
-  const comment = page.getByRole("form", { name: "Comment" });
+  const comment = page.getByRole("form", { name: "New comment" });
 
   await comment.getByRole("textbox", { name: "Comment" }).fill("Add Q4");
-  await comment.getByRole("button", { name: "Comment" }).click();
+  await comment.locator("button[type=submit]").click();
+  await comment.waitFor({ state: "hidden" });
 
-  await page.getByText("1 resolved").click();
+  await viewer.getByText("1 thread not sent to Pi").waitFor();
+  await viewer.getByRole("button", { name: "Send 1 to Pi" }).click();
+
+  await viewer.getByRole("button", { name: "Resolved 1" }).click();
 
   const resolved = page.getByRole("list", { name: "Resolved comments" });
 
-  await resolved.getByText("Added Q4").waitFor();
-  await resolved.getByText(/^via you/).waitFor();
+  // The thread just written stays open.
   await resolved.getByText("Resolved by Pi").waitFor();
+  await resolved.getByText("Added Q4").waitFor();
+  await resolved.getByText(/via you/).waitFor();
 
+  // In comment mode a click picks what to comment on; out of it, the page
+  // works as itself.
+  await viewer.getByRole("button", { name: /^Comment/, pressed: true }).click();
   await frame.getByRole("button", { name: "Ask Pi" }).click();
 
   await page.getByText("Answered in the thread").waitFor();
@@ -6142,6 +6153,118 @@ test("opens an artifact Pi published, in a sandbox, from its card in the chat", 
   );
 
   await page.locator("#prompt-text:focus").waitFor();
+}, 30_000);
+
+test("comments on selected text and on a clicked element, pins them on the page, and sends the drafts to Pi in one turn", async () => {
+  const folder = join(root, "pinned");
+  await mkdir(folder, { recursive: true });
+
+  await writeFile(
+    join(folder, "report.html"),
+    '<h1>Checkout latency</h1><p>The retry waits three times before falling back.</p><div style="display:flex;gap:8px;align-items:flex-end;height:120px"><span title="Nov 2" style="flex:1;height:40%;background:#9db4d8"></span><span title="Nov 3" style="flex:1;height:90%;background:#c2410c"></span></div>',
+  );
+
+  faux.setResponses([
+    fauxAssistantMessage(
+      [
+        fauxToolCall("publish_artifact", {
+          path: "report.html",
+          title: "Checkout latency",
+        }),
+      ],
+      { stopReason: "toolUse" },
+    ),
+    fauxAssistantMessage([fauxText("Published it")]),
+  ]);
+
+  await page.goto(server.url.href);
+  await page.getByRole("button", { name: "New session" }).click();
+  const form = page.locator("form#create");
+
+  await pickWorkspace(form, folder);
+  await form.getByRole("button", { name: "Start session" }).click();
+  await page.locator("#status", { hasText: "idle" }).waitFor();
+
+  const prompt = page.locator("#prompt-text");
+  await prompt.fill("write it");
+  await prompt.press("Enter");
+  await page.getByText("Published it").waitFor();
+  await page.getByRole("link", { name: /Checkout latency/ }).click();
+
+  const viewer = page.getByRole("dialog", { name: "Checkout latency" });
+  const frame = page.frameLocator(
+    'iframe[title="Checkout latency, version 1"]',
+  );
+
+  await frame.getByText("three times").waitFor();
+  await viewer.getByRole("button", { name: "Comment", exact: true }).click();
+
+  const box = page.getByRole("form", { name: "New comment" });
+
+  await frame.locator("p").evaluate((paragraph) => {
+    const text = paragraph.firstChild as Text;
+    const start = text.data.indexOf("three times");
+    const range = document.createRange();
+
+    range.setStart(text, start);
+    range.setEnd(text, start + "three times".length);
+    getSelection()?.removeAllRanges();
+    getSelection()?.addRange(range);
+    document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+  });
+
+  await box.getByText("three times").waitFor();
+  await box
+    .getByRole("textbox", { name: "Comment" })
+    .fill("Three attempts or three retries?");
+  await box.locator("button[type=submit]").click();
+  await box.waitFor({ state: "hidden" });
+
+  await frame
+    .locator('mark[data-pipoca="1"]', { hasText: "three times" })
+    .waitFor();
+  await frame.locator('[data-pipoca-pin="1"]').waitFor();
+
+  await frame.locator("body").evaluate(() => {
+    getSelection()?.removeAllRanges();
+  });
+
+  await frame.locator('span[title="Nov 3"]').click();
+  await box.getByText("On “Nov 3”").waitFor();
+  await box.getByRole("button", { name: "Question" }).click();
+  await box
+    .getByRole("textbox", { name: "Comment" })
+    .fill("Add the error rate here");
+  await box.locator("button[type=submit]").click();
+  await box.waitFor({ state: "hidden" });
+
+  await frame.locator('[data-pipoca-pin="2"]').waitFor();
+
+  const list = viewer.getByRole("list", { name: "Open comments" });
+
+  await list.getByText("on “Nov 3”").waitFor();
+  await list.getByText("Question").waitFor();
+
+  await frame.locator('[data-pipoca-pin="1"]').click();
+
+  await list
+    .getByRole("button", { name: "Comment 1 by You", expanded: true })
+    .waitFor();
+
+  faux.setResponses([fauxAssistantMessage([fauxText("Looking at both")])]);
+
+  await viewer.getByText("2 threads not sent to Pi").waitFor();
+  await viewer.getByRole("button", { name: "Send 2 to Pi" }).click();
+  await viewer.getByText("Sent to Pi by you").first().waitFor();
+  await page.keyboard.press("Escape");
+  await viewer.waitFor({ state: "hidden" });
+
+  await page
+    .getByText("You sent 2 comment threads on Checkout latency")
+    .waitFor();
+  await page.getByText("Looking at both").waitFor();
+
+  expect(await page.getByText("Looking at both").count()).toBe(1);
 }, 30_000);
 
 test("edits a Markdown artifact beside its preview and compares the versions with the changed words marked", async () => {

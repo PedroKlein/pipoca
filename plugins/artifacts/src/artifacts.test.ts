@@ -359,6 +359,115 @@ test("a thread sent to Pi reaches its Session as a notice that names it, not as 
   }
 });
 
+test("a comment has a kind and sits on text, an element or the whole page, and Pi reads which", async () => {
+  const setup = await setUp();
+  const { t, part } = setup;
+  const { id, listed } = await shared(setup);
+
+  const question = await t
+    .as("bo")
+    .post<{ id: string }>(`artifacts/${id}/comments`, {
+      version: 1,
+      body: "Three attempts or three retries?",
+      quote: "three times",
+      kind: "question",
+      toPi: false,
+    });
+
+  const bar = await t
+    .as("ana")
+    .post<{ id: string }>(`artifacts/${id}/comments`, {
+      version: 1,
+      body: "Add the error rate",
+      quote: "Nov 3 bar",
+      element: "body > div:nth-of-type(1) > span:nth-of-type(4)",
+      toPi: false,
+    });
+
+  expect(await listed()).toMatchObject([
+    {
+      id: question.id,
+      kind: "question",
+      quote: "three times",
+      element: "",
+      sentBy: null,
+    },
+    {
+      id: bar.id,
+      kind: "comment",
+      quote: "Nov 3 bar",
+      element: "body > div:nth-of-type(1) > span:nth-of-type(4)",
+    },
+  ]);
+
+  expect(
+    (
+      await t.as("bo").raw(`artifacts/${id}/comments`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          version: 1,
+          body: "x",
+          kind: "rant",
+          toPi: false,
+        }),
+      })
+    ).status,
+  ).toBe(422);
+
+  expect(await part.tool("read_artifact_comments", { id })).toMatchObject({
+    text: expect.stringContaining(
+      `Bo asks on version 1, thread ${question.id}, about “<comment_text>three times</comment_text>”: <comment_text>Three attempts or three retries?</comment_text>\nAna on version 1, thread ${bar.id}, about the element “<comment_text>Nov 3 bar</comment_text>”: <comment_text>Add the error rate</comment_text>`,
+    ) as unknown,
+  });
+});
+
+test("writing @pi sends a thread at once, for people who can, and Send hands five drafts over in one notice", async () => {
+  const setup = await setUp();
+  const { t, host } = setup;
+  const { id, comment, listed } = await shared(setup);
+
+  expect(await comment("bo", "@pi can you add a date?")).toMatchObject({
+    sentToPi: false,
+  });
+
+  expect(await comment("ana", "Make it blue, @Pi")).toMatchObject({
+    sentToPi: true,
+  });
+
+  await until(() => host.delivered().length === 1);
+
+  expect(await comment("ana", "email @pipeline team")).toMatchObject({
+    sentToPi: false,
+  });
+
+  const drafts = await Promise.all(
+    ["One", "Two", "Three", "Four", "Five"].map(async (body) =>
+      comment("ana", body),
+    ),
+  );
+
+  await t.as("ana").post(`artifacts/${id}/comments/send`, {
+    threads: drafts.map((each) => each.id),
+  });
+
+  await until(() => host.delivered().length === 2);
+
+  expect(
+    drafts.every(
+      (each) => host.delivered()[1]?.text.includes(each.id) === true,
+    ),
+  ).toBe(true);
+
+  expect(host.delivered()[1]).toMatchObject({ turn: true });
+
+  expect(
+    (await listed())
+      .filter((each) => each.sentBy !== null)
+      .map(({ body }) => body),
+  ).toEqual(["Make it blue, @Pi", "One", "Two", "Three", "Four", "Five"]);
+});
+
 test("only people who can act in the Session send threads to Pi", async () => {
   const setup = await setUp();
   const { t, host } = setup;

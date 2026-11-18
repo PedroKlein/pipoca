@@ -80,16 +80,29 @@ export interface ArtifactView extends ArtifactSummary {
   readonly pinned: boolean;
 }
 
+export const commentKinds = [
+  "comment",
+  "question",
+  "decision",
+  "suggestion",
+] as const;
+
+export type CommentKind = (typeof commentKinds)[number];
+
 export interface Comment {
   readonly id: string;
+  readonly kind: CommentKind;
   readonly version: number;
   // The comment it replies to.
   readonly parent: string | null;
   // A person, or for Pi's reply the person who sent Pi the thread.
   readonly author: string;
   readonly byPi: boolean;
-  // The text it's about, as the person selected it.
+  // The text it's about, as the person selected it, or what names the
+  // element it's on.
   readonly quote: string;
+  // The element it's on, as a selector in its version, or empty.
+  readonly element: string;
   readonly body: string;
   // On a thread: who last sent it to Pi, or null.
   readonly sentBy: string | null;

@@ -21,12 +21,13 @@ import {
   type MouseEvent,
   type ReactElement,
   type ReactNode,
+  useCallback,
   useEffect,
   useId,
   useState,
 } from "react";
 import { artifacts as plugin } from "../plugin";
-import type { ArtifactSummary, ArtifactView } from "../src/artifacts";
+import type { ArtifactSummary, ArtifactView, Comment } from "../src/artifacts";
 import {
   audienceLabel,
   CloseButton,
@@ -38,13 +39,14 @@ import {
   Title,
   versionChoices,
 } from "./chrome";
+import { artifactHref, base, Frame, loadArtifact } from "./collaborate";
 import {
-  artifactHref,
-  base,
-  Comments,
-  Frame,
-  loadArtifact,
-} from "./collaborate";
+  type Anchor,
+  CommentBox,
+  CommentList,
+  pinsOf,
+  threadsOf,
+} from "./comments";
 import { ShareDialog } from "./share";
 import { Compare, Editor } from "./versions";
 
@@ -307,7 +309,9 @@ function Shown({
   };
 
   const [commenting, setCommenting] = useState(commentsAtFirst);
-  const [quote, setQuote] = useState("");
+  const [anchor, setAnchor] = useState<Anchor>();
+  const [active, setActive] = useState<string>();
+  const [measured, area] = useSize();
   const [sharing, setSharing] = useState(false);
   const [problem, setProblem] = useState<string>();
   const [said, setSaid] = useState<string>();
@@ -316,21 +320,38 @@ function Shown({
   const latest = shown === artifact.versions;
   const steers = artifact.access === "steer";
 
-  // Marks are a nicety: without them the page still shows.
-  const { value: quotes } = useLoaded(
+  // Pins are a nicety: without them the page still shows.
+  const { value: comments, reload } = useLoaded(
     async () =>
       api
-        .get<{ comments: { quote: string; parent: string | null }[] }>(
-          `artifacts/${artifact.id}/comments`,
-        )
-        .then(({ comments }) =>
-          comments
-            .filter((each) => each.parent === null && each.quote !== "")
-            .map((each) => each.quote),
-        )
-        .catch((): string[] => []),
-    `${artifact.id}:quotes`,
+        .get<{ comments: Comment[] }>(`artifacts/${artifact.id}/comments`)
+        .then(({ comments: all }) => all)
+        .catch((): Comment[] => []),
+    `${artifact.id}:comments`,
     { changes: ["artifacts"] },
+  );
+
+  const threads = threadsOf(comments ?? []);
+  const canComment = artifact.access !== "view";
+
+  const pick = useCallback(
+    (picked: Anchor) => {
+      if (canComment) {
+        setAnchor(picked);
+        setActive(undefined);
+        setCommenting(true);
+      }
+    },
+    [canComment],
+  );
+
+  const showPin = useCallback(
+    (n: number) => {
+      setActive(threads.find((each) => each.n === n)?.top.id);
+      setAnchor(undefined);
+      setCommenting(true);
+    },
+    [threads],
   );
 
   useEffect(() => {
@@ -551,17 +572,18 @@ function Shown({
           })}
         />
         <Button
-          variant="ghost"
+          variant={commenting ? "primary" : "ghost"}
           size="sm"
           aria-pressed={commenting}
           onClick={() => {
             setCommenting(!commenting);
+            setAnchor(undefined);
           }}
         >
           <Icon name="chat" className="size-3.5" />
           Comment
           {artifact.openComments > 0 && (
-            <span className="text-fg-dim">
+            <span className={commenting ? "" : "text-fg-dim"}>
               {artifact.openComments}
               <span className="sr-only"> open</span>
             </span>
@@ -624,30 +646,52 @@ function Shown({
         </div>
       )}
       <div className="flex min-h-0 flex-1 bg-panel">
-        <div className="flex min-w-0 flex-1 flex-col overflow-y-auto">
+        <div
+          ref={measured}
+          className="relative flex min-w-0 flex-1 flex-col overflow-hidden"
+        >
           <Frame
             artifact={artifact}
             version={shown}
-            highlights={quotes ?? []}
+            commenting={commenting && canComment}
+            pins={pinsOf(threads, shown, active, anchor)}
             className="min-h-0 flex-1"
-            onSelect={(text) => {
-              setQuote(text);
-              setCommenting(true);
-            }}
+            onPick={pick}
+            onPin={showPin}
           />
+          {anchor !== undefined && (
+            <CommentBox
+              artifact={artifact}
+              version={shown}
+              anchor={anchor}
+              area={area}
+              onDone={(id) => {
+                setAnchor(undefined);
+
+                if (id !== undefined) {
+                  setActive(id);
+                  reload();
+                }
+              }}
+            />
+          )}
         </div>
         {commenting && (
           <aside
             aria-label="Comments"
-            className="flex w-[340px] shrink-0 flex-col gap-4 overflow-y-auto border-l border-line bg-elevated p-4 max-sm:w-full"
+            className="flex w-[340px] shrink-0 flex-col border-l border-line bg-elevated max-sm:w-full"
           >
-            <Comments
+            <CommentList
               artifact={artifact}
               version={shown}
-              quote={quote}
-              onQuoted={() => {
-                setQuote("");
+              threads={threads}
+              anchor={anchor}
+              active={active}
+              onActive={setActive}
+              onWholePage={() => {
+                setAnchor({ page: true });
               }}
+              onChanged={reload}
             />
           </aside>
         )}
@@ -704,4 +748,37 @@ function originLine(artifact: ArtifactSummary, mode: Mode): string {
     : [...from.map((each) => `From ${each}`), audienceLabel(artifact)].join(
         " · ",
       );
+}
+
+// An element's size as it changes, such as the frame the comment box sits
+// in.
+function useSize(): readonly [
+  (element: HTMLDivElement | null) => void,
+  { readonly width: number; readonly height: number },
+] {
+  const [element, setElement] = useState<HTMLDivElement | null>(null);
+  const [size, setSize] = useState({ width: 0, height: 0 });
+
+  useEffect(() => {
+    if (element === null || typeof ResizeObserver === "undefined") {
+      return undefined;
+    }
+
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry !== undefined) {
+        setSize({
+          width: entry.contentRect.width,
+          height: entry.contentRect.height,
+        });
+      }
+    });
+
+    observer.observe(element);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [element]);
+
+  return [setElement, size] as const;
 }

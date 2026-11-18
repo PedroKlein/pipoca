@@ -1,30 +1,114 @@
 import { marked } from "marked";
 
 // Every page but a picture or PDF tells the artifact page what the person
-// selected, to quote it in a comment, marks the text comments quote, and
-// when compared marks the words one version changed, by where they sit in
-// the page's text.
+// selected or, in comment mode, clicked, to comment on it. It pins the
+// threads on the text or element they're on, and when compared marks the
+// words one version changed, by where they sit in the page's text. What it
+// draws is marked data-pipoca-ui and stays out of the way of the page.
 export const selection = `<script>(() => {
-document.addEventListener("mouseup", () => { const text = String(getSelection()).trim(); if (text !== "") parent.postMessage({ pipoca: "selection", text: text.slice(0, 2000) }, "*"); });
-addEventListener("message", (event) => {
-  if (event.source !== parent || event.data?.pipoca !== "highlight") return;
+const rectOf = (r) => ({ x: r.left, y: r.top, width: r.width, height: r.height });
+const tell = () => {
+  const picked = getSelection();
+  const text = String(picked).trim();
+  if (text === "" || picked.rangeCount === 0) return;
+  parent.postMessage({ pipoca: "selection", text: text.slice(0, 2000), rect: rectOf(picked.getRangeAt(0).getBoundingClientRect()) }, "*");
+};
+document.addEventListener("mouseup", tell);
+document.addEventListener("keyup", (event) => { if (event.shiftKey) tell(); });
+const drawn = (look) => {
+  const box = document.createElement("div");
+  box.dataset.pipocaUi = "";
+  box.setAttribute("style", "position: absolute; z-index: 2147483646; box-sizing: border-box; pointer-events: none; " + look);
+  document.body.append(box);
+  return box;
+};
+const around = (box, element) => {
+  const r = element.getBoundingClientRect();
+  Object.assign(box.style, { left: r.left + scrollX - 3 + "px", top: r.top + scrollY - 3 + "px", width: r.width + 6 + "px", height: r.height + 6 + "px", display: "block" });
+};
+const pickable = (element) => element instanceof Element && element !== document.body && element !== document.documentElement && element.closest("[data-pipoca-ui]") === null;
+const selectorOf = (element) => {
+  const path = [];
+  for (let at = element; at !== null && at !== document.body; at = at.parentElement) {
+    const same = [...(at.parentElement?.children ?? [])].filter((each) => each.tagName === at.tagName);
+    path.unshift(at.tagName.toLowerCase() + ":nth-of-type(" + String(same.indexOf(at) + 1) + ")");
+  }
+  return ["body", ...path].join(" > ");
+};
+const labelOf = (element) => (element.getAttribute("aria-label") ?? element.getAttribute("title") ?? element.getAttribute("alt") ?? element.textContent ?? "").trim().replace(/\\s+/g, " ").slice(0, 80) || element.tagName.toLowerCase();
+let commenting = false;
+let hover;
+document.addEventListener("mousemove", (event) => {
+  if (!commenting || !pickable(event.target)) return;
+  hover ??= drawn("border: 2px dashed rgb(232, 176, 74); border-radius: 4px;");
+  around(hover, event.target);
+});
+document.documentElement.addEventListener("mouseleave", () => {
+  if (hover !== undefined) hover.style.display = "none";
+});
+document.addEventListener("click", (event) => {
+  if (!commenting || !pickable(event.target) || String(getSelection()).trim() !== "") return;
+  event.preventDefault();
+  event.stopPropagation();
+  parent.postMessage({ pipoca: "element", selector: selectorOf(event.target), label: labelOf(event.target), rect: rectOf(event.target.getBoundingClientRect()) }, "*");
+}, true);
+let pins = [];
+const pin = () => {
   for (const mark of document.querySelectorAll("mark[data-pipoca]")) mark.replaceWith(...mark.childNodes);
+  for (const each of document.querySelectorAll("[data-pipoca-pin]")) each.remove();
   document.body.normalize();
-  event.data.quotes.forEach((quote, at) => {
-    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-    for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
-      const start = node.data.indexOf(quote);
-      if (start < 0 || node.parentElement?.closest("script, style") != null) continue;
-      const range = document.createRange();
-      range.setStart(node, start);
-      range.setEnd(node, start + quote.length);
-      const mark = document.createElement("mark");
-      mark.dataset.pipoca = String(at + 1);
-      mark.title = "Comment " + String(at + 1);
-      range.surroundContents(mark);
-      break;
+  for (const { n, quote, selector, active } of pins) {
+    let target = null;
+    if (selector !== "") {
+      try { target = document.querySelector(selector); } catch { target = null; }
+    } else if (quote !== "") {
+      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+      for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+        const start = node.data.indexOf(quote);
+        if (start < 0 || node.parentElement?.closest("script, style, [data-pipoca-ui]") != null) continue;
+        const range = document.createRange();
+        range.setStart(node, start);
+        range.setEnd(node, start + quote.length);
+        target = document.createElement("mark");
+        target.dataset.pipoca = n === null ? "draft" : String(n);
+        target.setAttribute("style", "color: inherit; border-radius: 2px; background: " + (n === null ? "rgba(84, 132, 230, 0.28)" : active ? "rgba(243, 197, 82, 0.6)" : "rgba(243, 197, 82, 0.35)") + ";");
+        range.surroundContents(target);
+        break;
+      }
     }
-  });
+    if (target === null) continue;
+    if (selector !== "" && (active || n === null)) {
+      const box = drawn("border: 2px solid " + (n === null ? "rgb(84, 132, 230)" : "rgb(243, 197, 82)") + "; border-radius: 3px;");
+      box.dataset.pipocaPin = "";
+      around(box, target);
+    }
+    if (active) target.scrollIntoView({ block: "nearest" });
+    if (n === null) continue;
+    const r = target.getBoundingClientRect();
+    const badge = drawn("display: grid; place-items: center; width: 22px; height: 22px; border-radius: 11px 11px 11px 2px; background: rgb(243, 197, 82); color: rgb(26, 23, 18); font: 600 11px/1 system-ui, sans-serif; pointer-events: auto; cursor: pointer; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);");
+    badge.dataset.pipocaPin = String(n);
+    badge.title = "Comment " + String(n);
+    badge.textContent = String(n);
+    badge.style.left = (selector === "" ? r.right - 8 : r.left + 18) + scrollX + "px";
+    badge.style.top = r.top + scrollY - 20 + "px";
+    badge.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      parent.postMessage({ pipoca: "pin", n }, "*");
+    });
+  }
+};
+addEventListener("resize", pin);
+addEventListener("message", (event) => {
+  if (event.source !== parent) return;
+  if (event.data?.pipoca === "commenting") {
+    commenting = event.data.on === true;
+    if (!commenting && hover !== undefined) hover.style.display = "none";
+    document.documentElement.style.cursor = commenting ? "crosshair" : "";
+  } else if (event.data?.pipoca === "pins") {
+    pins = event.data.pins;
+    pin();
+  }
 });
 addEventListener("message", (event) => {
   if (event.source !== parent || event.data?.pipoca !== "changes") return;

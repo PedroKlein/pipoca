@@ -19,6 +19,7 @@ import {
   type ArtifactView,
   type Batch,
   type Comment,
+  type CommentKind,
   bytes,
   kindOf,
   type Published,
@@ -54,7 +55,9 @@ interface CommentRow {
   readonly version: number;
   readonly parent_id: string | null;
   readonly author_user_id: string | null;
+  readonly kind: CommentKind;
   readonly quote: string;
+  readonly element: string;
   readonly body: string;
   readonly sent_to_pi: number;
   readonly sent_by_user_id: string | null;
@@ -479,11 +482,13 @@ export const server = defineServer(
 
     const toComment = (each: CommentRow, reader: string | null): Comment => ({
       id: each.id,
+      kind: each.kind,
       version: each.version,
       parent: each.parent_id,
       author: personName(each.author_user_id, reader),
       byPi: each.by_pi === 1,
       quote: each.quote,
+      element: each.element,
       body: each.body,
       sentBy:
         each.sent_to_pi === 1 ? personName(each.sent_by_user_id, reader) : null,
@@ -694,6 +699,15 @@ export const server = defineServer(
           version: Type.Integer({ minimum: 1 }),
           body: Type.String({ minLength: 1, maxLength: 10_000 }),
           quote: Type.Optional(Type.String({ maxLength: 2000 })),
+          element: Type.Optional(Type.String({ maxLength: 1000 })),
+          kind: Type.Optional(
+            Type.Union([
+              Type.Literal("comment"),
+              Type.Literal("question"),
+              Type.Literal("decision"),
+              Type.Literal("suggestion"),
+            ]),
+          ),
           parent: Type.Optional(Type.String({ minLength: 1 })),
           toPi: Type.Boolean(),
         }),
@@ -718,21 +732,26 @@ export const server = defineServer(
           throw listens.refused;
         }
 
+        // Writing @pi asks Pi, for people who can; for others it's a word.
+        const named = /(^|\s)@pi\b/i.test(body.body);
+
         const toSession =
-          (body.toPi || follows) && "session" in listens
+          (body.toPi || named || follows) && "session" in listens
             ? listens.session
             : undefined;
 
         const id = Bun.randomUUIDv7();
 
         store.run(
-          "insert into artifacts_comments (id, artifact_id, version, parent_id, author_user_id, quote, body, created_at) values (?, ?, ?, ?, ?, ?, ?, ?)",
+          "insert into artifacts_comments (id, artifact_id, version, parent_id, author_user_id, kind, quote, element, body, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
           id,
           artifact.id,
           found.number,
           parent?.id ?? null,
           caller.person.id,
+          body.kind ?? "comment",
           body.quote ?? "",
+          body.element ?? "",
           body.body,
           clock.now(),
         );
