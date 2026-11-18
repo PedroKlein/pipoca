@@ -123,54 +123,61 @@ export function ActivityPage(): ReactElement {
               "divide-y divide-line overflow-hidden p-0",
             )}
           >
-            {items.map((item) => (
-              <li key={item.id}>
-                <button
-                  type="button"
-                  aria-describedby={`${item.id}-detail`}
-                  onClick={() => {
-                    if (!item.read) {
-                      void api.post("activity/read", { ids: [item.id] });
-                    }
+            {items.map((item) => {
+              const { said, rest } = detail(item, now);
 
-                    open({
-                      artifact: item.artifact,
-                      comments: "1",
-                      ...(item.thread !== null && { thread: item.thread }),
-                    });
-                  }}
-                  className="flex w-full cursor-pointer items-start gap-3 px-4 py-3.5 text-left hover:bg-hover"
-                >
-                  <span
-                    aria-hidden="true"
-                    className={cn(
-                      "mt-3 size-1.5 shrink-0 rounded-full",
-                      item.read ? "bg-transparent" : "bg-butter",
-                    )}
-                  />
-                  <Avatar name={item.by} pi={item.byPi} />
-                  <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                    <span className="text-ui text-fg-strong">
-                      {item.read ? (
-                        ""
-                      ) : (
-                        <span className="sr-only">Unread: </span>
-                      )}
-                      {headline(item)}
-                    </span>
+              return (
+                <li key={item.id}>
+                  <button
+                    type="button"
+                    aria-describedby={`${item.id}-detail`}
+                    onClick={() => {
+                      if (!item.read) {
+                        void api.post("activity/read", { ids: [item.id] });
+                      }
+
+                      open({
+                        artifact: item.artifact,
+                        comments: "1",
+                        ...(item.thread !== null && { thread: item.thread }),
+                      });
+                    }}
+                    className="flex w-full cursor-pointer items-start gap-3 px-4 py-3.5 text-left hover:bg-hover"
+                  >
                     <span
-                      id={`${item.id}-detail`}
-                      className="truncate text-caption text-fg-dim"
-                    >
-                      {detail(item, now)}
+                      aria-hidden="true"
+                      className={cn(
+                        "mt-3 size-1.5 shrink-0 rounded-full",
+                        item.read ? "bg-transparent" : "bg-butter",
+                      )}
+                    />
+                    <Avatar name={item.by} pi={item.byPi} />
+                    <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                      <span className="text-ui text-fg-strong">
+                        {item.read ? (
+                          ""
+                        ) : (
+                          <span className="sr-only">Unread: </span>
+                        )}
+                        {headline(item)}
+                      </span>
+                      <span
+                        id={`${item.id}-detail`}
+                        className="flex min-w-0 text-caption text-fg-dim"
+                      >
+                        {said !== "" && (
+                          <span className="truncate">{said}&nbsp;·&nbsp;</span>
+                        )}
+                        <span className="shrink-0">{rest}</span>
+                      </span>
                     </span>
-                  </span>
-                  <span className="shrink-0 rounded-md bg-hover px-2 py-0.5 text-caption text-fg-dim">
-                    {kindLabels[item.kind]}
-                  </span>
-                </button>
-              </li>
-            ))}
+                    <span className="shrink-0 rounded-md bg-hover px-2 py-0.5 text-caption text-fg-dim">
+                      {kindLabels[item.kind]}
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
           </ul>
         )}
         <ActivitySettingsCard />
@@ -179,29 +186,38 @@ export function ActivityPage(): ReactElement {
   );
 }
 
-function detail(item: ActivityItem, now: number): string {
-  const said = item.excerpt === "" ? [] : [`“${item.excerpt}”`];
-
-  const on =
-    item.quote === ""
-      ? []
-      : [
-          `thread on ${item.quote.length > 30 ? `${item.quote.slice(0, 29)}…` : item.quote}`,
-        ];
+// What was written, which gives way on a narrow row, then where and when.
+function detail(
+  item: ActivityItem,
+  now: number,
+): { readonly said: string; readonly rest: string } {
+  const on = item.quote === "" ? [] : [`thread on ${short(item.quote)}`];
 
   const parts: Readonly<Record<ActivityKind, readonly string[]>> = {
-    mention: [...said, ...on],
+    mention: on,
     review: [
       item.doc === null ? "Doc" : docLabels[item.doc],
       `version ${String(item.version)}`,
     ],
-    reply: said,
+    reply: [],
     comment: ["Your artifact"],
   };
 
-  return [...parts[item.kind], ago(new Date(item.at).toISOString(), now)].join(
-    " · ",
-  );
+  const shown = item.kind === "mention" || item.kind === "reply";
+
+  return {
+    said: shown && item.excerpt !== "" ? `“${item.excerpt}”` : "",
+    rest: [...parts[item.kind], ago(new Date(item.at).toISOString(), now)].join(
+      " · ",
+    ),
+  };
+}
+
+// The first few words of what a thread is on.
+function short(quote: string): string {
+  const words = quote.split(/\s+/);
+
+  return words.length > 3 ? `${words.slice(0, 3).join(" ")}…` : quote;
 }
 
 function ActivitySettingsCard(): ReactElement {
@@ -260,9 +276,8 @@ export function ActivityCount(): ReactElement | null {
   const api = useApi(plugin);
 
   const { value } = useLoaded(
-    async () =>
-      api.get<{ items: ActivityItem[]; unread: number }>("activity?view=mine"),
-    "activity:mine",
+    async () => api.get<{ unread: number }>("activity/unread"),
+    "activity:unread",
     { changes: ["artifacts"] },
   );
 

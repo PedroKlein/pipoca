@@ -451,10 +451,13 @@ export const server = defineServer(
           ? null
           : ((await docOf(artifact, person))?.type ?? null);
       },
-      told: (person, what) => {
+      told: (person, { thread, ...what }) => {
         events.emit(
           "activity",
-          { ...what, url: `/#plugin/artifacts/${what.artifact}/comments` },
+          {
+            ...what,
+            url: `/#plugin/artifacts/${what.artifact}/comments${thread === null ? "" : `/${thread}`}`,
+          },
           { to: [owners.of(person)] },
         );
       },
@@ -1203,17 +1206,27 @@ export const server = defineServer(
       tell(session.id);
     });
 
-    // The people a comment names with @, by their whole name.
-    const mentioned = (text: string): string[] =>
-      people
-        .list()
-        .filter((each) =>
-          new RegExp(
+    // The people a comment names with @, by their whole name: the longest
+    // that fits, so @Ana Silva isn't also @Ana.
+    const mentioned = (text: string): string[] => {
+      let left = text;
+
+      return [...people.list()]
+        .sort((one, other) => other.name.length - one.name.length)
+        .filter((each) => {
+          const named = new RegExp(
             `(^|\\s)@${each.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w-])`,
-            "i",
-          ).test(text),
-        )
+            "gi",
+          );
+
+          const found = named.test(left);
+
+          left = left.replace(named, "$1");
+
+          return found;
+        })
         .map((each) => each.id);
+    };
 
     routes.get(
       "artifacts/:id/comments",
@@ -1427,6 +1440,15 @@ export const server = defineServer(
         }
 
         const latest = versionOf(artifact);
+
+        if (kindOf(latest.name) !== "markdown") {
+          throw new HttpError(
+            409,
+            `Version ${String(latest.number)} isn't Markdown, so the edit can't be applied.`,
+            "changed",
+          );
+        }
+
         const text = new TextDecoder().decode(await content(latest));
 
         if (occurrences(text, found.find) !== 1) {
@@ -1861,6 +1883,10 @@ export const server = defineServer(
       async ({ caller, query }) =>
         activity.list(caller.person.id, query.view ?? "mine"),
     );
+
+    routes.get("activity/unread", { auth: "person" }, ({ caller }) => ({
+      unread: activity.unread(caller.person.id),
+    }));
 
     routes.post(
       "activity/read",

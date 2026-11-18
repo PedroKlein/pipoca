@@ -508,11 +508,17 @@ function SuggestedEdit({
       aria-label="Suggested edit"
       className="mt-1 overflow-hidden rounded-lg border border-line text-label"
     >
-      <del className="block bg-failed-tint px-3 py-2 whitespace-pre-wrap text-failed">
+      <del
+        id={`${comment}-out`}
+        className="block bg-failed-tint px-3 py-2 whitespace-pre-wrap text-fg decoration-failed decoration-2"
+      >
         <span className="sr-only">Takes out: </span>
         {edit.find}
       </del>
-      <ins className="block bg-done-tint px-3 py-2 whitespace-pre-wrap text-fg no-underline">
+      <ins
+        id={`${comment}-in`}
+        className="block bg-done-tint px-3 py-2 whitespace-pre-wrap text-fg no-underline"
+      >
         <span className="sr-only">Puts in: </span>
         {edit.replace}
       </ins>
@@ -523,6 +529,7 @@ function SuggestedEdit({
             <Button
               size="sm"
               variant="primary"
+              aria-describedby={`${comment}-out ${comment}-in`}
               disabled={busy}
               onClick={() => {
                 decide(true);
@@ -533,6 +540,7 @@ function SuggestedEdit({
             <Button
               size="sm"
               variant="ghost"
+              aria-describedby={`${comment}-out ${comment}-in`}
               disabled={busy}
               onClick={() => {
                 decide(false);

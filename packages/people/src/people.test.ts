@@ -214,3 +214,38 @@ test("an access token acts as its user until revoked", () => {
     InvalidCredentials,
   );
 });
+
+test("a person's email is an address no one else has, and clearing it takes it off", () => {
+  const { people } = server();
+  const ana = people.createUser("ana", false)?.id ?? "";
+  const bea = people.createUser("bea", false)?.id ?? "";
+
+  expect(
+    people.changeAccount(ana, {
+      displayName: "Ana",
+      email: " ana@example.com ",
+    }),
+  ).toMatchObject({ displayName: "Ana", email: "ana@example.com" });
+
+  expect(() =>
+    people.changeAccount(bea, { displayName: "Bea", email: "ANA@example.com" }),
+  ).toThrow("ANA@example.com is someone else's email");
+
+  expect(() => people.changeAccount(bea, { email: "bea" })).toThrow(
+    "bea isn't an email address",
+  );
+
+  // A refused change changes nothing.
+  expect(people.changeAccount(bea, {})).toMatchObject({
+    displayName: null,
+    email: null,
+  });
+
+  expect(people.changeAccount(ana, { email: "" })).toMatchObject({
+    email: null,
+  });
+
+  expect(people.changeAccount(bea, { email: "ana@example.com" })).toMatchObject(
+    { email: "ana@example.com" },
+  );
+});

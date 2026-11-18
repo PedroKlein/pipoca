@@ -74,6 +74,8 @@ function ArtifactsPage({ path }: PageProps): ReactElement {
       mode="window"
       version={version}
       comments={rest[0] === "comments"}
+      {...(rest[0] === "comments" &&
+        rest[1] !== undefined && { thread: rest[1] })}
       onVersion={(number) => {
         location.replace(artifactHref(id, number));
       }}

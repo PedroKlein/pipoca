@@ -39,9 +39,10 @@ interface ItemRow {
   readonly read_at: number | null;
 }
 
-export interface Told {
+interface Told {
   readonly kind: Exclude<ActivityKind, "comment">;
   readonly artifact: string;
+  readonly thread: string | null;
   readonly headline: string;
   readonly text: string;
 }
@@ -81,6 +82,7 @@ export function activityLog({
     person: string,
     view: "mine" | "following",
   ) => Promise<{ readonly items: ActivityItem[]; readonly unread: number }>;
+  readonly unread: (person: string) => number;
   readonly read: (person: string, ids: readonly string[] | undefined) => void;
   readonly settings: (person: string) => ActivitySettings;
   readonly set: (person: string, topic: ActivityTopic, on: boolean) => void;
@@ -194,6 +196,7 @@ export function activityLog({
         told(person, {
           kind,
           artifact,
+          thread: row.thread_id,
           headline: headline({
             kind,
             by: byPi ? "Pi" : name(actor, person),
@@ -229,6 +232,13 @@ export function activityLog({
             : 0,
       };
     },
+    unread: (person) =>
+      store
+        .all<{ artifact_id: string }>(
+          "select artifact_id from artifacts_activity where user_id = ? and read_at is null",
+          person,
+        )
+        .filter(({ artifact_id }) => sees(artifact_id, person)).length,
     read: (person, ids) => {
       const now = clock.now();
 

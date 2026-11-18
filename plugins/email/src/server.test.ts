@@ -437,7 +437,8 @@ test("a mention or review request is mailed to the person's own address, a reply
   await using t = await started(undefined, {
     people: [
       { id: "ana", name: "Ana", admin: true, email: "ana@example.com" },
-      { id: "bo", name: "Bo" },
+      { id: "bo", name: "Bo", email: "bo@example.com" },
+      { id: "cy", name: "Cy" },
     ],
     plugins: [artifactsServer],
   });
@@ -473,8 +474,33 @@ test("a mention or review request is mailed to the person's own address, a reply
   expect(mail.sent[0]).toContain("Subject: Rui mention on Webhooks");
 
   expect(mail.sent[0]?.replace(/=\r\n/g, "")).toContain(
+    "Open it in Pipoca: http",
+  );
+
+  expect(mail.sent[0]?.replace(/=\r\n/g, "")).toContain(
     "/#plugin/artifacts/a1/comments",
   );
+
+  // What was written stays in Pipoca.
+  expect(mail.sent[0]).not.toContain("Works for me.");
+
+  // A mailbox the team uses reaches everyone with an address.
+  const { mailboxes } = (await t.config()) as {
+    mailboxes: readonly Record<string, unknown>[];
+  };
+
+  await t.editConfig({
+    mailboxes: mailboxes.map((mailbox) => ({ ...mailbox, users: ["team"] })),
+  });
+
+  expect(await t.as("bo").get("activity")).toEqual({ reaches: true });
+  expect(await t.as("cy").get("activity")).toEqual({ reaches: false });
+
+  told("review", "bo");
+
+  await until(() => mail.sent.length > 1);
+
+  expect(mail.sent[1]).toContain("To: bo@example.com");
 });
 
 // A plugin that starts work from mail, as routines do, so its Sessions'

@@ -214,9 +214,7 @@ export interface Batch {
   }[];
 }
 
-export const activityKinds = ["mention", "review", "reply", "comment"] as const;
-
-export type ActivityKind = (typeof activityKinds)[number];
+export type ActivityKind = "mention" | "review" | "reply" | "comment";
 
 // What a person asks to be told of: mentions and review requests, replies
 // in threads they're in, and every comment on their own artifacts.

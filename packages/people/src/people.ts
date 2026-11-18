@@ -156,6 +156,9 @@ export class People {
 
   // The caller checks that a default Environment is the person's own.
   changeAccount(id: string, change: AccountChange): Account | undefined {
+    const email =
+      change.email === undefined ? undefined : this.#ownEmail(id, change.email);
+
     if (change.displayName !== undefined) {
       this.#store.setDisplayName(
         id,
@@ -163,8 +166,8 @@ export class People {
       );
     }
 
-    if (change.email !== undefined) {
-      this.#store.setEmail(id, checkedEmail(change.email) ?? null);
+    if (email !== undefined) {
+      this.#store.setEmail(id, email);
     }
 
     if (change.defaultEnvironment !== undefined) {
@@ -176,6 +179,26 @@ export class People {
 
   people(): readonly Person[] {
     return this.#store.people();
+  }
+
+  // Mail and chat apps reach a person by it, so no two people share one.
+  #ownEmail(id: string, email: string): string | null {
+    const checked = checkedEmail(email);
+
+    if (
+      checked !== undefined &&
+      this.#store
+        .users()
+        .some(
+          (each) =>
+            each.id !== id &&
+            each.email?.toLowerCase() === checked.toLowerCase(),
+        )
+    ) {
+      throw new InvalidCredentials(`${checked} is someone else's email`);
+    }
+
+    return checked ?? null;
   }
 
   active(userId: string): void {

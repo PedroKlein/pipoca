@@ -102,10 +102,16 @@ function fakeSlack() {
     if (method === "users.lookupByEmail") {
       const email = new URL(request.url).searchParams.get("email");
 
+      // Each bot finds only the people in its own workspace.
+      const found =
+        token === "xoxb-team-bot"
+          ? email === "bo@example.com" && "U2"
+          : email === "ana@example.com" && "U1";
+
       return Response.json(
-        email === "ana@example.com"
-          ? { ok: true, user: { id: "U1" } }
-          : { ok: false, error: "users_not_found" },
+        found === false
+          ? { ok: false, error: "users_not_found" }
+          : { ok: true, user: { id: found } },
       );
     }
 
@@ -611,13 +617,32 @@ test("a mention or review request reaches the person in Slack, found by their em
 
   expect(sent.channel).toBe("U1");
 
-  expect(sent.text).toStartWith(
-    "*Rui review on Webhooks*\n> Works for me.\n<http",
-  );
+  // What was written stays in Pipoca.
+  expect(sent.text).toStartWith("*Rui review on Webhooks*\n<http");
 
   expect(sent.text).toEndWith(
     "/#plugin/artifacts/a1/comments|Open it in Pipoca>",
   );
+
+  // A bot that can't find them, then one the team uses that can.
+  await addBot(t, "team-bot");
+
+  const { bots } = (await t.config()) as {
+    bots: readonly Record<string, unknown>[];
+  };
+
+  await t.editConfig({
+    bots: bots.map((bot) => ({
+      ...bot,
+      users: bot["name"] === "team-bot" ? ["team"] : ["ana", "bo"],
+    })),
+  });
+
+  told("mention", "bo");
+
+  await until(() => fake.posted.length > 1);
+
+  expect(fake.posted[1]).toMatchObject({ channel: "U2" });
 });
 
 test("posts a routine run's result in the channel its routine names", async () => {

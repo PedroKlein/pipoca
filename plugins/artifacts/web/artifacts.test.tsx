@@ -1706,7 +1706,7 @@ function viewed(versions: number) {
   };
 }
 
-const slots = { page: web.pages?.[0]?.Page };
+const slots = { page: web.pages?.find(({ path }) => path === "")?.Page };
 
 test("the Artifacts page shows yours, the ones shared with you and the team's, finds them by title or Session, and opens one over the page", async () => {
   const asked: string[] = [];
@@ -3874,6 +3874,19 @@ test("people who only view read a thread but don't react or reply", async () => 
 });
 
 test("Pi's suggested edit shows what goes and what comes, and someone who steers accepts it as the next version or rejects it", async () => {
+  for (const [button, accept, caption] of [
+    ["Accept", true, "Accepted by You as version 6"],
+    ["Reject", false, "Rejected by You"],
+  ] as const) {
+    await decided(button, accept, caption);
+  }
+});
+
+async function decided(
+  button: string,
+  accept: boolean,
+  caption: string,
+): Promise<void> {
   const asked: Served[] = [];
 
   const edit = {
@@ -3884,7 +3897,7 @@ test("Pi's suggested edit shows what goes and what comes, and someone who steers
     saved: null,
   };
 
-  let state: "open" | "accepted" = "open";
+  let state: "open" | "accepted" | "rejected" = "open";
 
   const comments = () => [
     thread({ id: "t1", body: "@pi propose a shorter window", sentBy: "You" }),
@@ -3897,7 +3910,7 @@ test("Pi's suggested edit shows what goes and what comes, and someone who steers
       suggestion:
         state === "open"
           ? { ...edit, state }
-          : { ...edit, state, by: "You", saved: 6 },
+          : { ...edit, state, by: "You", saved: accept ? 6 : null },
     }),
   ];
 
@@ -3921,7 +3934,7 @@ test("Pi's suggested edit shows what goes and what comes, and someone who steers
             ) as unknown,
           });
 
-          state = "accepted";
+          state = accept ? "accepted" : "rejected";
           changed("artifacts.artifacts");
 
           return Response.json({ version: 6 });
@@ -3957,23 +3970,22 @@ test("Pi's suggested edit shows what goes and what comes, and someone who steers
   );
 
   act(() => {
-    named(page, "Accept")?.click();
+    named(page, button)?.click();
   });
 
   await drawn(
-    () =>
-      figure()?.querySelector("figcaption")?.textContent ===
-      "Accepted by You as version 6",
+    () => figure()?.querySelector("figcaption")?.textContent === caption,
   );
 
   expect(asked.find(({ url }) => url.endsWith("/suggestion"))).toMatchObject({
     url: "/api/ext/artifacts/artifacts/a1/comments/t2/suggestion",
     method: "PUT",
-    body: { accept: true },
+    body: { accept },
   });
 
   expect(named(page, "Reject")).toBeUndefined();
-});
+  page.remove();
+}
 
 test("people who can't steer see Pi's suggested edit wait for someone who can", async () => {
   const asked: Served[] = [];
@@ -4808,7 +4820,8 @@ test("Activity lists what's for the person, opens each where it happened and mar
 
   await drawn(() => rows().length === 4);
 
-  const text = (at: number): string => rows()[at]?.textContent ?? "";
+  const text = (at: number): string =>
+    (rows()[at]?.textContent ?? "").replaceAll("\u00a0", " ");
 
   expect(text(0)).toContain(
     "Unread: Rui mentioned you on Webhooks v2 delivery design",

@@ -1985,6 +1985,48 @@ test("Pi suggests an edit to a Markdown artifact in a thread sent to it, and som
     saved: null,
   });
 
+  // Nor once the passage is there twice, or the artifact isn't Markdown.
+  const accept = async (suggestion: string) =>
+    t.as("ana").raw(`artifacts/${id}/comments/${suggestion}/suggestion`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ accept: true }),
+    });
+
+  const third = await comment("ana", "Monday or Tuesday?", { toPi: true });
+
+  await until(() => host.delivered().length === 4);
+
+  await part.tool("suggest_artifact_edit", {
+    thread: third.id,
+    find: "Ship Monday.",
+    replace: "Ship Tuesday.",
+  });
+
+  const pending = (await listed()).filter(({ byPi }) => byPi).at(-1)?.id ?? "";
+
+  await writeFile(
+    join(cwd, "plan.md"),
+    "# Roadmap\n\nShip Monday.\n\nShip Monday.\n",
+  );
+
+  await part.tool("publish_artifact", { path: "plan.md", id });
+
+  expect(await (await accept(pending)).json()).toMatchObject({
+    message: "The text Pi suggested changing isn't in version 4 anymore.",
+  });
+
+  await writeFile(join(cwd, "plan.html"), "<p>Ship Monday.</p>");
+  await part.tool("publish_artifact", { path: "plan.html", id });
+
+  const notMarkdown = await accept(pending);
+
+  expect(notMarkdown.status).toBe(409);
+
+  expect(await notMarkdown.json()).toMatchObject({
+    message: "Version 5 isn't Markdown, so the edit can't be applied.",
+  });
+
   // A suggestion is only on Markdown, and only on text that's there once.
   await writeFile(join(cwd, "page.html"), "<p>hi</p><p>hi</p>");
 
@@ -2126,12 +2168,25 @@ test("people are told of mentions, review requests, replies in their threads and
 
   expect((await told("bo")).items[0]).toMatchObject({ kind: "review" });
 
+  // Asking again, or naming someone whose name only starts the same, tells
+  // nobody twice.
+  await t.as("ana").put(`artifacts/${id}/reviewers`, { reviewers: ["Bo"] });
+  await comment("ana", "Thanks @Bob, and @Bo-team");
+
+  expect(
+    (await told("bo")).items.filter(({ kind }) => kind !== "reply"),
+  ).toMatchObject([{ kind: "review" }]);
+
   // Read one, then all.
   const mine = await told("bo");
 
   expect(mine.unread).toBe(3);
 
-  await t.as("bo").post("activity/read", { ids: [mine.items[0]?.id] });
+  const anas = (await told("ana")).items[0]?.id;
+
+  await t.as("bo").post("activity/read", { ids: [mine.items[0]?.id, anas] });
+
+  expect((await told("ana")).items[0]).toMatchObject({ id: anas, read: false });
 
   expect((await told("bo")).unread).toBe(2);
   expect((await told("bo")).items[0]?.read).toBe(true);
@@ -2167,6 +2222,7 @@ test("people are told of mentions, review requests, replies in their threads and
   const following = await told("bo", "following");
 
   expect(following.items.map(({ excerpt }) => excerpt)).toEqual([
+    "Thanks @Bob, and @Bo-team",
     "Me",
     "",
     "@pi what about Monday?",
@@ -2176,8 +2232,22 @@ test("people are told of mentions, review requests, replies in their threads and
 
   // Someone the artifact is no longer shared with stops seeing its
   // activity.
+  const unread = async (who: string) =>
+    t.as(who).get<{ unread: number }>("activity/unread");
+
+  expect(await unread("cy")).toEqual({ unread: 1 });
+
   await t.as("ana").put(`artifacts/${id}/shares`, { shares: [] });
 
   expect((await told("cy")).items).toEqual([]);
+  expect(await unread("cy")).toEqual({ unread: 0 });
   expect((await told("bo", "following")).items).toEqual([]);
+
+  // Nor are they told of it anymore.
+  const events = t.emitted("artifacts.activity").length;
+
+  await comment("ana", "@Cy are you there?", { parent: bo.id });
+
+  expect(t.emitted("artifacts.activity").length).toBe(events);
+  expect((await told("cy")).items).toEqual([]);
 });

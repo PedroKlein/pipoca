@@ -317,7 +317,8 @@ export const server = defineServer(slack, (context) => {
 
   // A mention or a review request goes to the person as a direct message
   // from a bot they or the team use, which finds them by their email
-  // (ADR 0081). It needs the users:read.email scope.
+  // (ADR 0081). It needs the users:read.email scope. Nothing checks that the
+  // email is theirs, so what was written stays in Pipoca.
   const direct = async (
     owner: Owner,
     message: string,
@@ -371,7 +372,6 @@ export const server = defineServer(slack, (context) => {
 
     const message = [
       `*${fields.headline}*`,
-      ...(fields.text === "" ? [] : [`> ${fields.text}`]),
       `<${link}|Open it in Pipoca>`,
     ].join("\n");
 
