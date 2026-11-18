@@ -312,6 +312,11 @@ function Shown({
   const [commenting, setCommenting] = useState(commentsAtFirst);
   // What's being commented on belongs to the version it was picked on.
   const [held, setHeld] = useState<{ anchor: Anchor; on: number }>();
+
+  if (held !== undefined && held.on !== shown) {
+    setHeld(undefined);
+  }
+
   const anchor = held?.on === shown ? held.anchor : undefined;
 
   const setAnchor = useCallback(
@@ -377,6 +382,29 @@ function Shown({
   const stopWriting = useCallback(() => {
     setAnchor(undefined);
   }, [setAnchor]);
+
+  const follow = useCallback((by: { x: number; y: number }) => {
+    setHeld((was) =>
+      was === undefined || !("rect" in was.anchor)
+        ? was
+        : {
+            ...was,
+            anchor: {
+              ...was.anchor,
+              rect: {
+                ...was.anchor.rect,
+                x: was.anchor.rect.x - by.x,
+                y: was.anchor.rect.y - by.y,
+              },
+            },
+          },
+    );
+  }, []);
+
+  const pins = useMemo(
+    () => pinsOf(threads, shown, active, anchor),
+    [threads, shown, active, anchor],
+  );
 
   useEffect(() => {
     if (said === undefined) {
@@ -596,7 +624,7 @@ function Shown({
           })}
         />
         <Button
-          variant={commenting ? "primary" : "ghost"}
+          variant={commenting && canComment ? "primary" : "ghost"}
           size="sm"
           aria-pressed={commenting}
           onClick={() => {
@@ -605,9 +633,9 @@ function Shown({
           }}
         >
           <Icon name="chat" className="size-3.5" />
-          Comment
+          {canComment ? "Comment" : "Comments"}
           {artifact.openComments > 0 && (
-            <span className={commenting ? "" : "text-fg-dim"}>
+            <span className={commenting && canComment ? "" : "text-fg-dim"}>
               {artifact.openComments}
               <span className="sr-only"> open</span>
             </span>
@@ -678,11 +706,12 @@ function Shown({
             artifact={artifact}
             version={shown}
             commenting={commenting && canComment}
-            pins={pinsOf(threads, shown, active, anchor)}
+            pins={pins}
             className="min-h-0 flex-1"
             onPick={pick}
             onPin={showPin}
             onEscape={stopWriting}
+            onScroll={follow}
           />
           {anchor !== undefined && (
             <CommentBox
@@ -716,6 +745,10 @@ function Shown({
               anchor={anchor}
               active={active}
               saved={saved}
+              onFocused={() => {
+                setSaved(undefined);
+              }}
+              onSaid={setSaid}
               onActive={setActive}
               onWholePage={() => {
                 setAnchor({ page: true });

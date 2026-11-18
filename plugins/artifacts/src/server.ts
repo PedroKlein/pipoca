@@ -724,6 +724,10 @@ export const server = defineServer(
           throw new BadRequest("Reopen a resolved thread before sending it.");
         }
 
+        if (body.element !== undefined && body.quote === undefined) {
+          throw new BadRequest("Name the element in quote.");
+        }
+
         const open = parent === undefined || parent.resolved_at === null;
         const follows = parent?.sent_to_pi === 1 && open;
 
@@ -751,9 +755,10 @@ export const server = defineServer(
           found.number,
           parent?.id ?? null,
           caller.person.id,
-          body.kind ?? "comment",
-          body.quote ?? "",
-          body.element ?? "",
+          // A reply is part of its thread: only the thread sits somewhere.
+          parent === undefined ? (body.kind ?? "comment") : "comment",
+          parent === undefined ? (body.quote ?? "") : "",
+          parent === undefined ? (body.element ?? "") : "",
           body.body,
           clock.now(),
         );

@@ -384,6 +384,35 @@ test("a comment has a kind and sits on text, an element or the whole page, and P
       toPi: false,
     });
 
+  const decision = await t
+    .as("ana")
+    .post<{ id: string }>(`artifacts/${id}/comments`, {
+      version: 1,
+      body: "Keep p95",
+      kind: "decision",
+      toPi: false,
+    });
+
+  const suggestion = await t
+    .as("ana")
+    .post<{ id: string }>(`artifacts/${id}/comments`, {
+      version: 1,
+      body: "Try a log scale",
+      kind: "suggestion",
+      toPi: false,
+    });
+
+  // A reply is part of its thread and sits nowhere of its own.
+  await t.as("bo").post(`artifacts/${id}/comments`, {
+    version: 1,
+    body: "Agreed",
+    parent: decision.id,
+    kind: "question",
+    quote: "elsewhere",
+    element: "body > p:nth-of-type(2)",
+    toPi: false,
+  });
+
   expect(await listed()).toMatchObject([
     {
       id: question.id,
@@ -398,7 +427,32 @@ test("a comment has a kind and sits on text, an element or the whole page, and P
       quote: "Nov 3 bar",
       element: "body > div:nth-of-type(1) > span:nth-of-type(4)",
     },
+    { id: decision.id, kind: "decision" },
+    { id: suggestion.id, kind: "suggestion" },
+    {
+      parent: decision.id,
+      body: "Agreed",
+      kind: "comment",
+      quote: "",
+      element: "",
+    },
   ]);
+
+  // An element is always named, so people and Pi can tell what it is.
+  expect(
+    (
+      await t.as("bo").raw(`artifacts/${id}/comments`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          version: 1,
+          body: "x",
+          element: "body > p:nth-of-type(1)",
+          toPi: false,
+        }),
+      })
+    ).status,
+  ).toBe(400);
 
   expect(
     (
@@ -417,7 +471,13 @@ test("a comment has a kind and sits on text, an element or the whole page, and P
 
   expect(await part.tool("read_artifact_comments", { id })).toMatchObject({
     text: expect.stringContaining(
-      `Bo asks on version 1, thread ${question.id}, about “<comment_text>three times</comment_text>”: <comment_text>Three attempts or three retries?</comment_text>\nAna on version 1, thread ${bar.id}, about the element “<comment_text>Nov 3 bar</comment_text>”: <comment_text>Add the error rate</comment_text>`,
+      `Bo asks on version 1, thread ${question.id}, about “<comment_text>three times</comment_text>”: <comment_text>Three attempts or three retries?</comment_text>\nAna on version 1, thread ${bar.id}, about the element “<comment_text>Nov 3 bar</comment_text>”: <comment_text>Add the error rate</comment_text>\nAna records a decision on version 1, thread ${decision.id}: <comment_text>Keep p95</comment_text>`,
+    ) as unknown,
+  });
+
+  expect(await part.tool("read_artifact_comments", { id })).toMatchObject({
+    text: expect.stringContaining(
+      `Ana suggests on version 1, thread ${suggestion.id}: <comment_text>Try a log scale</comment_text>`,
     ) as unknown,
   });
 });
@@ -460,25 +520,35 @@ test("writing @pi sends a thread at once, for people who can, and Send hands fiv
     sentToPi: false,
   });
 
-  const drafts = await Promise.all(
-    ["One", "Two", "Three", "Four", "Five"].map(async (body) =>
-      comment("ana", body),
-    ),
-  );
+  // In an open thread not sent yet, a reply naming Pi sends the thread.
+  const note = await comment("ana", "Note");
+
+  expect(await comment("ana", "@pi look", { parent: note.id })).toMatchObject({
+    sentToPi: true,
+  });
+
+  await until(() => host.delivered().length === 3);
+  expect(host.delivered()[2]?.text).toContain(note.id);
+
+  const drafts: { id: string }[] = [];
+
+  for (const body of ["One", "Two", "Three", "Four", "Five"]) {
+    drafts.push(await comment("ana", body));
+  }
 
   await t.as("ana").post(`artifacts/${id}/comments/send`, {
     threads: drafts.map((each) => each.id),
   });
 
-  await until(() => host.delivered().length === 3);
+  await until(() => host.delivered().length === 4);
 
   expect(
     drafts.every(
-      (each) => host.delivered()[2]?.text.includes(each.id) === true,
+      (each) => host.delivered()[3]?.text.includes(each.id) === true,
     ),
   ).toBe(true);
 
-  expect(host.delivered()[2]).toMatchObject({ turn: true });
+  expect(host.delivered()[3]).toMatchObject({ turn: true });
 
   expect(
     (await listed())
@@ -487,6 +557,7 @@ test("writing @pi sends a thread at once, for people who can, and Send hands fiv
   ).toEqual([
     "Make it blue, @Pi",
     "first line\n@pi second",
+    "Note",
     "One",
     "Two",
     "Three",

@@ -13,6 +13,8 @@ import {
   type KeyboardEvent,
   type ReactElement,
   type ReactNode,
+  useId,
+  useRef,
   useState,
 } from "react";
 import { artifacts as plugin } from "../plugin";
@@ -28,7 +30,7 @@ import type { Box, Picked, Pin } from "./collaborate";
 export type Anchor = Picked | { readonly page: true };
 
 // A thread with the number the page pins it by.
-export interface Thread {
+interface Thread {
   readonly top: Comment;
   readonly replies: readonly Comment[];
   readonly n: number;
@@ -268,11 +270,23 @@ function hint(artifact: ArtifactView): string {
     : "People who can see this artifact can reply.";
 }
 
-function PinMark({ n }: { readonly n: number }): ReactElement {
+// Pinned threads carry the page's pin; the rest just their number.
+function PinMark({
+  n,
+  pinned,
+}: {
+  readonly n: number;
+  readonly pinned: boolean;
+}): ReactElement {
   return (
     <span
       aria-hidden="true"
-      className="grid size-5.5 shrink-0 place-items-center rounded-[11px_11px_11px_2px] bg-butter text-[11px] font-semibold text-on-butter"
+      className={cn(
+        "grid size-5.5 shrink-0 place-items-center text-[11px] font-semibold",
+        pinned
+          ? "rounded-[11px_11px_11px_2px] bg-butter text-on-butter"
+          : "rounded-full bg-hover text-fg-dim",
+      )}
     >
       {n}
     </span>
@@ -289,6 +303,8 @@ export function CommentList({
   anchor,
   active,
   saved,
+  onFocused,
+  onSaid,
   onActive,
   onWholePage,
   onChanged,
@@ -302,6 +318,9 @@ export function CommentList({
   readonly active: string | undefined;
   // The thread just written, to move focus to.
   readonly saved: string | undefined;
+  readonly onFocused: () => void;
+  // Says what just happened where screen readers hear it.
+  readonly onSaid: (text: string) => void;
   readonly onActive: (id: string | undefined) => void;
   readonly onWholePage: () => void;
   readonly onChanged: () => void;
@@ -312,6 +331,7 @@ export function CommentList({
   const [leftOut, setLeftOut] = useState<ReadonlySet<string>>(new Set());
   const [sending, setSending] = useState(false);
   const [problem, setProblem] = useState<string>();
+  const heading = useRef<HTMLHeadingElement>(null);
   const open = threads.filter(({ top }) => !top.resolved);
   const resolved = threads.filter(({ top }) => top.resolved);
   const listed = shown === "open" ? open : resolved;
@@ -331,7 +351,7 @@ export function CommentList({
         threads: chosen.map(({ top }) => top.id),
       });
 
-      onChanged();
+      settled(`Sent ${String(chosen.length)} to Pi`);
     } catch (error) {
       setProblem(error instanceof Error ? error.message : String(error));
     } finally {
@@ -339,10 +359,23 @@ export function CommentList({
     }
   };
 
+  // The control that did it may be gone, so focus goes back to the top.
+  function settled(text: string): void {
+    onSaid(text);
+    onChanged();
+    heading.current?.focus();
+  }
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex items-center gap-2 border-b border-line px-3.5 py-2.5">
-        <h3 className="flex-1 text-ui font-medium text-fg-strong">Comments</h3>
+        <h3
+          ref={heading}
+          tabIndex={-1}
+          className="flex-1 text-ui font-medium text-fg-strong focus:outline-none"
+        >
+          Comments
+        </h3>
         <Segmented
           label="Show"
           value={shown}
@@ -354,6 +387,11 @@ export function CommentList({
         />
       </div>
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3">
+        {artifact.access === "view" && (
+          <p className="text-caption text-fg-dim">
+            You can read comments here but not add them.
+          </p>
+        )}
         {shown === "open" && drafts.length > 0 && (
           <div className="flex items-center gap-3 rounded-xl bg-butter/25 p-3">
             <div className="flex min-w-0 flex-1 flex-col">
@@ -378,10 +416,17 @@ export function CommentList({
             </Button>
           </div>
         )}
-        <ErrorText size="caption">
-          {problem ??
-            (loaded === "failed" ? "Comments couldn't be loaded." : undefined)}
-        </ErrorText>
+        <ErrorText size="caption">{problem}</ErrorText>
+        {loaded === "failed" && (
+          <div className="flex items-center gap-2">
+            <ErrorText size="caption">
+              Comments couldn&apos;t be loaded.
+            </ErrorText>
+            <Button variant="ghost" size="sm" onClick={onChanged}>
+              Try again
+            </Button>
+          </div>
+        )}
         <ul
           aria-label={shown === "open" ? "Open comments" : "Resolved comments"}
           className="flex flex-col gap-3"
@@ -397,6 +442,8 @@ export function CommentList({
               chosen={!leftOut.has(thread.top.id)}
               expanded={thread.top.id === active}
               focused={thread.top.id === saved}
+              onFocused={onFocused}
+              onSettled={settled}
               onChoose={(yes) => {
                 const next = new Set(leftOut);
 
@@ -451,8 +498,8 @@ export function CommentList({
 
 function leftOutLine(count: number): string {
   return count === 1
-    ? "The one left out stays a note for people"
-    : `The ${String(count)} left out stay notes for people`;
+    ? "The one left out stays a draft"
+    : `The ${String(count)} left out stay drafts`;
 }
 
 function empty(shown: "open" | "resolved", artifact: ArtifactView): string {
@@ -461,7 +508,7 @@ function empty(shown: "open" | "resolved", artifact: ArtifactView): string {
   }
 
   return artifact.access === "view"
-    ? "No comments yet. You can read comments here but not add them."
+    ? "No comments yet."
     : "Select text or click part of the page to comment on it.";
 }
 
@@ -474,6 +521,8 @@ function ThreadCard({
   chosen,
   expanded,
   focused,
+  onFocused,
+  onSettled,
   onChoose,
   onExpand,
   onChanged,
@@ -487,12 +536,16 @@ function ThreadCard({
   readonly chosen: boolean;
   readonly expanded: boolean;
   readonly focused: boolean;
+  readonly onFocused: () => void;
+  readonly onSettled: (text: string) => void;
   readonly onChoose: (yes: boolean) => void;
   readonly onExpand: () => void;
   readonly onChanged: () => void;
 }): ReactElement {
   const api = useApi(plugin);
   const [problem, setProblem] = useState<string>();
+  const [busy, setBusy] = useState(false);
+  const said = useId();
   const { top, replies, n } = thread;
   const pinned = top.quote !== "";
   const element = top.element !== "";
@@ -516,7 +569,7 @@ function ThreadCard({
             }}
           />
         )}
-        {pinned && <PinMark n={n} />}
+        <PinMark n={n} pinned={pinned} />
         <b className="text-label font-medium text-fg-strong">{top.author}</b>
         <span className="min-w-0 flex-1 truncate">
           {element
@@ -530,7 +583,9 @@ function ThreadCard({
       <button
         type="button"
         aria-expanded={expanded}
+        aria-describedby={said}
         autoFocus={focused}
+        onFocus={focused ? onFocused : undefined}
         aria-label={`Comment ${String(n)} by ${top.author}`}
         onClick={onExpand}
         className="flex cursor-pointer flex-col gap-1.5 rounded-md text-left focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
@@ -540,14 +595,12 @@ function ThreadCard({
             {top.quote}
           </span>
         )}
-        <span className="text-label whitespace-pre-wrap text-fg">
+        <span id={said} className="text-label whitespace-pre-wrap text-fg">
           {top.body}
         </span>
       </button>
       {draft && !chosen && (
-        <span className="text-caption text-fg-dim">
-          Left out: a note for people
-        </span>
+        <span className="text-caption text-fg-dim">Left out of this send</span>
       )}
       {top.sentBy !== null && !top.resolved && (
         <span className="text-caption text-fg-dim">
@@ -590,8 +643,10 @@ function ThreadCard({
               <Button
                 variant="ghost"
                 size="sm"
+                disabled={busy}
                 onClick={() => {
                   setProblem(undefined);
+                  setBusy(true);
 
                   void api
                     .post(
@@ -600,11 +655,16 @@ function ThreadCard({
                         resolved: !top.resolved,
                       },
                     )
-                    .then(onChanged)
+                    .then(() => {
+                      onSettled(top.resolved ? "Reopened" : "Resolved");
+                    })
                     .catch((error: unknown) => {
                       setProblem(
                         error instanceof Error ? error.message : String(error),
                       );
+                    })
+                    .finally(() => {
+                      setBusy(false);
                     });
                 }}
               >
@@ -640,6 +700,7 @@ function Reply({
 }): ReactElement {
   const api = useApi(plugin);
   const [body, setBody] = useState("");
+  const [sending, setSending] = useState(false);
   const [problem, setProblem] = useState<string>();
 
   if (thread.resolved) {
@@ -652,7 +713,13 @@ function Reply({
       className="flex flex-col gap-2 border-t border-line pt-2"
       onSubmit={(event) => {
         event.preventDefault();
+
+        if (sending) {
+          return;
+        }
+
         setProblem(undefined);
+        setSending(true);
 
         void api
           .post(`artifacts/${artifact.id}/comments`, {
@@ -667,6 +734,9 @@ function Reply({
           })
           .catch((error: unknown) => {
             setProblem(error instanceof Error ? error.message : String(error));
+          })
+          .finally(() => {
+            setSending(false);
           });
       }}
     >
@@ -683,7 +753,11 @@ function Reply({
       <div className="flex items-center gap-2">
         <span className="flex-1" />
         {children}
-        <Button type="submit" size="sm" disabled={body.trim() === ""}>
+        <Button
+          type="submit"
+          size="sm"
+          disabled={body.trim() === "" || sending}
+        >
           Reply
         </Button>
       </div>

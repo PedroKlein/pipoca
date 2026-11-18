@@ -72,6 +72,7 @@ export function Frame({
   onPick,
   onPin,
   onEscape,
+  onScroll,
   changes,
   className,
 }: {
@@ -84,6 +85,8 @@ export function Frame({
   readonly onPin?: (n: number) => void;
   // Escape pressed in the page while commenting.
   readonly onEscape?: () => void;
+  // How far the page scrolled, to keep what sits over it in place.
+  readonly onScroll?: (by: { readonly x: number; readonly y: number }) => void;
   // Words this version took out or put in, compared with another, by where
   // they sit in a page text this long.
   readonly changes?:
@@ -115,6 +118,8 @@ export function Frame({
         label?: unknown;
         rect?: unknown;
         n?: unknown;
+        x?: unknown;
+        y?: unknown;
       } | null;
 
       if (data?.pipoca === "pin" && typeof data.n === "number") {
@@ -125,6 +130,16 @@ export function Frame({
 
       if (data?.pipoca === "escape") {
         onEscape?.();
+
+        return;
+      }
+
+      if (
+        data?.pipoca === "scroll" &&
+        typeof data.x === "number" &&
+        typeof data.y === "number"
+      ) {
+        onScroll?.({ x: data.x, y: data.y });
 
         return;
       }
@@ -158,20 +173,14 @@ export function Frame({
     return () => {
       removeEventListener("message", heard);
     };
-  }, [draft, onEscape, onPick, onPin, sessionId, steers]);
-
-  const pinned = JSON.stringify(pins ?? []);
+  }, [draft, onEscape, onPick, onPin, onScroll, sessionId, steers]);
 
   const tell = useCallback(() => {
     const window = frame.current?.contentWindow;
 
     window?.postMessage({ pipoca: "commenting", on: commenting }, "*");
-
-    window?.postMessage(
-      { pipoca: "pins", pins: JSON.parse(pinned) as unknown },
-      "*",
-    );
-  }, [commenting, pinned]);
+    window?.postMessage({ pipoca: "pins", pins: pins ?? [] }, "*");
+  }, [commenting, pins]);
 
   useEffect(tell, [tell]);
 

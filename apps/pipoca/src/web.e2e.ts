@@ -6162,7 +6162,7 @@ test("comments on selected text and on a clicked element, pins them on the page,
 
   await writeFile(
     join(folder, "report.html"),
-    '<h1>Checkout latency</h1><p>The retry waits three times before falling back.</p><div style="display:flex;gap:8px;align-items:flex-end;height:120px"><span title="Nov 2" style="flex:1;height:40%;background:#9db4d8"></span><span title="Nov 3" style="flex:1;height:90%;background:#c2410c"></span></div>',
+    '<h1>Checkout latency</h1><p>The retry waits three times before falling back.</p><div style="display:flex;gap:8px;align-items:flex-end;height:120px"><span title="Nov 2" style="flex:1;height:40%;background:#9db4d8"></span><span title="Nov 3" style="flex:1;height:90%;background:#c2410c"></span></div><button type="button">Retry details</button><div style="height:1600px"></div>',
   );
 
   faux.setResponses([
@@ -6224,6 +6224,23 @@ test("comments on selected text and on a clicked element, pins them on the page,
 
   await frame.locator("p").selectText();
   await frame.locator("p").dispatchEvent("mouseup");
+  await box.waitFor();
+
+  // The box stays with what it's on when the page scrolls.
+  const before = (await box.boundingBox())?.y ?? 0;
+  await frame.locator("h1").hover();
+  await page.mouse.wheel(0, 40);
+
+  let after = before;
+
+  for (let tries = 0; tries < 40 && after > before - 30; tries += 1) {
+    await page.waitForTimeout(50);
+    after = (await box.boundingBox())?.y ?? before;
+  }
+
+  expect(after).toBeLessThan(before - 30);
+
+  await page.mouse.wheel(0, -40);
 
   await box
     .getByRole("textbox", { name: "Comment text" })
@@ -6250,6 +6267,13 @@ test("comments on selected text and on a clicked element, pins them on the page,
   await box.waitFor({ state: "hidden" });
 
   await frame.locator('[data-pipoca-pin="2"]').waitFor();
+
+  // Enter picks the part that has focus, for people on a keyboard.
+  await frame.getByRole("button", { name: "Retry details" }).focus();
+  await page.keyboard.press("Enter");
+  await box.getByText("On “Retry details”").waitFor();
+  await box.getByRole("button", { name: "Cancel" }).click();
+  await box.waitFor({ state: "hidden" });
 
   const list = viewer.getByRole("list", { name: "Open comments" });
 

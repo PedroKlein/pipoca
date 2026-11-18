@@ -256,7 +256,11 @@ function serving(
     if (url.endsWith("/comments")) {
       return Response.json(
         init?.method === "POST"
-          ? { id: "new", sentToPi: false }
+          ? {
+              id: "new",
+              sentToPi:
+                typeof init.body === "string" && init.body.includes("@pi"),
+            }
           : { comments: comments() },
       );
     }
@@ -1688,7 +1692,7 @@ test("a comment is written where the person selected or clicked, of the kind the
 
   await opened(asked);
 
-  const frame = frameOf(page);
+  let frame = frameOf(page);
 
   const box = (): HTMLFormElement | null =>
     page.querySelector("form[aria-label='New comment']");
@@ -1742,6 +1746,32 @@ test("a comment is written where the person selected or clicked, of the kind the
   await drawn(() => box() !== null);
   frame.tell({ pipoca: "escape" });
   expect(box()).toBeNull();
+
+  // A comment being written belongs to the version it's on.
+  frame.tell({ pipoca: "selection", text: "three times", rect });
+  await drawn(() => box() !== null);
+
+  act(() => {
+    history.replaceState(null, "", "#session-1?artifact=a1&v=1");
+    dispatchEvent(new HashChangeEvent("hashchange"));
+  });
+
+  await drawn(() => versionMenu(page)?.textContent === "Version 1 of 2");
+
+  expect(box()).toBeNull();
+  expect(page.textContent).not.toContain("You writing…");
+
+  act(() => {
+    history.replaceState(null, "", "#session-1?artifact=a1");
+    dispatchEvent(new HashChangeEvent("hashchange"));
+  });
+
+  await drawn(() => versionMenu(page)?.textContent === "Version 2 · latest");
+
+  expect(box()).toBeNull();
+
+  // The page is drawn again for that version.
+  frame = frameOf(page);
 
   // In comment mode, clicking an element picks it.
   frame.tell({
@@ -1875,6 +1905,7 @@ test("drafts for Pi are listed with the page's pins, and the checked ones go to 
   );
 
   let sends = 0;
+  let resolves = 0;
 
   const page = renderPart(
     web,
@@ -1885,6 +1916,10 @@ test("drafts for Pi are listed with the page's pins, and the checked ones go to 
       fetch: async (url, init) => {
         if (url.endsWith("/send") && (sends += 1) === 1) {
           return Response.json({ error: "Pi is offline" }, { status: 503 });
+        }
+
+        if (url.endsWith("/resolve") && (resolves += 1) === 1) {
+          return Response.json({ error: "Try later" }, { status: 503 });
         }
 
         return serve(url, init);
@@ -1917,11 +1952,9 @@ test("drafts for Pi are listed with the page's pins, and the checked ones go to 
   });
 
   expect(named(page, "Send 2 to Pi")).toBeDefined();
-  expect(aside()?.textContent).toContain("Left out: a note for people");
+  expect(aside()?.textContent).toContain("Left out of this send");
 
-  expect(aside()?.textContent).toContain(
-    "The one left out stays a note for people",
-  );
+  expect(aside()?.textContent).toContain("The one left out stays a draft");
 
   // A pin on the page opens its thread, and the page marks it.
   frame.tell({ pipoca: "pin", n: 3 });
@@ -1932,20 +1965,21 @@ test("drafts for Pi are listed with the page's pins, and the checked ones go to 
   );
 
   await drawn(() =>
-    frame.told().some(
-      (each) =>
-        each.pipoca === "pins" &&
-        JSON.stringify(each.pins) ===
-          JSON.stringify([
-            { n: 1, quote: "three times", selector: "", active: false },
-            {
-              n: 3,
-              quote: "Nov 3",
-              selector: "body > span:nth-of-type(4)",
-              active: true,
-            },
-            { n: 7, quote: "p95", selector: "", active: false },
-          ]),
+    Bun.deepEquals(
+      frame
+        .told()
+        .filter((each) => each.pipoca === "pins")
+        .at(-1)?.pins,
+      [
+        { n: 1, quote: "three times", selector: "", active: false },
+        {
+          n: 3,
+          quote: "Nov 3",
+          selector: "body > span:nth-of-type(4)",
+          active: true,
+        },
+        { n: 7, quote: "p95", selector: "", active: false },
+      ],
     ),
   );
 
@@ -1972,6 +2006,68 @@ test("drafts for Pi are listed with the page's pins, and the checked ones go to 
     threads: ["t1", "t3"],
   });
 
+  // The banner's button is gone once sent, so focus goes to the list's
+  // heading and the header says what happened.
+  await drawn(() => !(aside()?.textContent.includes("Pi is offline") ?? true));
+  expect(page.querySelector("[role=status]")?.textContent).toBe("Sent 2 to Pi");
+  expect(document.activeElement?.textContent).toBe("Comments");
+
+  // A thread takes replies, and can be resolved.
+  act(() => {
+    named(page, "Comment 2 by Rui")?.click();
+  });
+
+  const reply = (): HTMLFormElement | null =>
+    page.querySelector("form[aria-label=Reply]");
+
+  typeInto(reply()?.querySelector("textarea") ?? null, "Agreed");
+
+  // A second press while the first is on its way sends nothing.
+  act(() => {
+    reply()?.requestSubmit();
+  });
+
+  await act(async () => {
+    reply()?.requestSubmit();
+
+    await until(() =>
+      asked.some(
+        ({ method, url }) => method === "POST" && url.endsWith("/comments"),
+      ),
+    );
+  });
+
+  await drawn(() => reply()?.querySelector("textarea")?.value === "");
+
+  expect(
+    asked
+      .filter(
+        ({ method, url }) => method === "POST" && url.endsWith("/comments"),
+      )
+      .map(({ body }) => body),
+  ).toEqual([{ version: 2, body: "Agreed", parent: "t2", toPi: false }]);
+
+  act(() => {
+    named(page, "Resolve")?.click();
+  });
+
+  await drawn(() => aside()?.textContent.includes("Try later") === true);
+
+  await act(async () => {
+    named(page, "Resolve")?.click();
+    await until(() => asked.some(({ url }) => url.endsWith("/resolve")));
+  });
+
+  expect(asked.find(({ url }) => url.endsWith("/resolve"))).toEqual({
+    url: "/api/ext/artifacts/artifacts/a1/comments/t2/resolve",
+    method: "POST",
+    body: { resolved: true },
+  });
+
+  await drawn(
+    () => page.querySelector("[role=status]")?.textContent === "Resolved",
+  );
+
   act(() => {
     named(page, "Resolved 1")?.click();
   });
@@ -1980,7 +2076,7 @@ test("drafts for Pi are listed with the page's pins, and the checked ones go to 
   expect(aside()?.textContent).not.toContain("Attempts or retries?");
 });
 
-test("people who only view read the comments but don't write them, and others can comment on the whole page", async () => {
+test("people who only view read the comments but don't write them", async () => {
   const asked: Served[] = [];
 
   const viewer = renderPart(
@@ -2014,10 +2110,10 @@ test("people who only view read the comments but don't write them, and others ca
 
   expect(viewer.querySelector("form[aria-label='New comment']")).toBeNull();
 
-  await drawn(() =>
-    viewer.textContent.includes(
-      "No comments yet. You can read comments here but not add them.",
-    ),
+  await drawn(() => viewer.textContent.includes("No comments yet."));
+
+  expect(viewer.textContent).toContain(
+    "You can read comments here but not add them.",
   );
 
   expect(named(viewer, "Comment on the whole page")).toBeUndefined();
@@ -2104,10 +2200,40 @@ test("a comment can be on the whole page, for people who can't select", async ()
     named(page, "Comment on the whole page") ?? null,
   );
 
+  // So does Escape.
   act(() => {
     named(page, "Comment on the whole page")?.focus();
     named(page, "Comment on the whole page")?.click();
   });
+
+  const key = (init: KeyboardEventInit): void => {
+    act(() => {
+      box()
+        ?.querySelector("textarea")
+        ?.dispatchEvent(
+          new KeyboardEvent("keydown", { bubbles: true, ...init }),
+        );
+    });
+  };
+
+  key({ key: "Escape" });
+
+  expect(box()).toBeNull();
+
+  expect(document.activeElement).toBe(
+    named(page, "Comment on the whole page") ?? null,
+  );
+
+  act(() => {
+    named(page, "Comment on the whole page")?.focus();
+    named(page, "Comment on the whole page")?.click();
+  });
+
+  // Ctrl+Enter with nothing written sends nothing.
+  key({ key: "Enter", ctrlKey: true });
+  await act(async () => Promise.resolve());
+
+  expect(asked.some(({ method }) => method === "POST")).toBe(false);
 
   typeInto(box()?.querySelector("textarea") ?? null, "Shorter, please");
 
@@ -2121,10 +2247,9 @@ test("a comment can be on the whole page, for people who can't select", async ()
   await drawn(() => box()?.textContent.includes("Disk full") === true);
 
   failing = false;
+  key({ key: "Enter", ctrlKey: true });
 
   await act(async () => {
-    box()?.requestSubmit();
-
     await until(() =>
       asked.some(
         ({ method, url }) => method === "POST" && url.endsWith("/comments"),
@@ -2147,5 +2272,69 @@ test("a comment can be on the whole page, for people who can't select", async ()
 
   expect(page.querySelector("[role=status]")?.textContent).toBe(
     "Comment saved",
+  );
+});
+
+test("a pin opens its thread from the page with the comments closed, and @pi sends a new comment at once", async () => {
+  const asked: Served[] = [];
+
+  const page = renderPart(
+    web,
+    "overlay",
+    {},
+    {
+      hash: "#session-1?artifact=a1",
+      fetch: serving(
+        { ...artifact({ versions: 2 }), ...viewed(2), askable: true },
+        asked,
+        {
+          comments: () => [
+            thread({ id: "t1", quote: "three times", body: "Which one?" }),
+          ],
+        },
+      ),
+    },
+  );
+
+  await opened(asked);
+
+  const frame = frameOf(page);
+
+  expect(page.querySelector("aside[aria-label=Comments]")).toBeNull();
+
+  frame.tell({ pipoca: "pin", n: 1 });
+
+  await drawn(
+    () =>
+      named(page, "Comment 1 by Ana")?.getAttribute("aria-expanded") === "true",
+  );
+
+  await drawn(
+    () =>
+      frame
+        .told()
+        .filter((each) => each.pipoca === "commenting")
+        .at(-1)?.on === true,
+  );
+
+  act(() => {
+    named(page, "Comment on the whole page")?.click();
+  });
+
+  typeInto(
+    page.querySelector("textarea[aria-label='Comment text']"),
+    "@pi add a date",
+  );
+
+  await act(async () => {
+    page
+      .querySelector<HTMLFormElement>("form[aria-label='New comment']")
+      ?.requestSubmit();
+
+    await until(() => asked.some(({ method }) => method === "POST"));
+  });
+
+  await drawn(
+    () => page.querySelector("[role=status]")?.textContent === "Sent to Pi",
   );
 });

@@ -14,11 +14,11 @@ const tell = () => {
   parent.postMessage({ pipoca: "selection", text: text.slice(0, 2000), rect: rectOf(picked.getRangeAt(0).getBoundingClientRect()) }, "*");
 };
 document.addEventListener("mouseup", tell);
-document.addEventListener("keyup", (event) => { if (event.shiftKey) tell(); });
+document.addEventListener("keyup", (event) => { if (event.key === "Shift") tell(); });
 const drawn = (look) => {
   const box = document.createElement("div");
   box.dataset.pipocaUi = "";
-  box.setAttribute("style", "position: absolute; z-index: 2147483646; box-sizing: border-box; pointer-events: none; " + look);
+  box.setAttribute("style", "position: absolute; z-index: 2147483646; box-sizing: border-box; pointer-events: none; user-select: none; " + look);
   document.body.append(box);
   return box;
 };
@@ -36,6 +36,7 @@ const selectorOf = (element) => {
   }
   return ["body", ...path].join(" > ");
 };
+const pick = (element) => parent.postMessage({ pipoca: "element", selector: selectorOf(element), label: labelOf(element), rect: rectOf(element.getBoundingClientRect()) }, "*");
 const labelOf = (element) => (element.getAttribute("aria-label") ?? element.getAttribute("title") ?? element.getAttribute("alt") ?? element.textContent ?? "").trim().replace(/\\s+/g, " ").slice(0, 80) || element.tagName.toLowerCase();
 let commenting = false;
 let hover;
@@ -45,16 +46,26 @@ document.addEventListener("mousemove", (event) => {
   around(hover, event.target);
 });
 document.addEventListener("keydown", (event) => {
-  if (commenting && event.key === "Escape") parent.postMessage({ pipoca: "escape" }, "*");
+  if (!commenting) return;
+  if (event.key === "Escape") parent.postMessage({ pipoca: "escape" }, "*");
+  if (event.key !== "Enter" || !pickable(event.target)) return;
+  event.preventDefault();
+  event.stopPropagation();
+  pick(event.target);
+}, true);
+let scrolled = { x: scrollX, y: scrollY };
+addEventListener("scroll", () => {
+  parent.postMessage({ pipoca: "scroll", x: scrollX - scrolled.x, y: scrollY - scrolled.y }, "*");
+  scrolled = { x: scrollX, y: scrollY };
 });
 document.documentElement.addEventListener("mouseleave", () => {
   if (hover !== undefined) hover.style.display = "none";
 });
 document.addEventListener("click", (event) => {
-  if (!commenting || !pickable(event.target) || String(getSelection()).trim() !== "") return;
+  if (!commenting || !pickable(event.target)) return;
   event.preventDefault();
   event.stopPropagation();
-  parent.postMessage({ pipoca: "element", selector: selectorOf(event.target), label: labelOf(event.target), rect: rectOf(event.target.getBoundingClientRect()) }, "*");
+  if (String(getSelection()).trim() === "") pick(event.target);
 }, true);
 let pins = [];
 const pin = () => {
@@ -95,8 +106,8 @@ const pin = () => {
     badge.tabIndex = 0;
     badge.setAttribute("aria-label", "Comment " + String(n));
     badge.textContent = String(n);
-    badge.style.left = (selector === "" ? r.right - 8 : r.left + 18) + scrollX + "px";
-    badge.style.top = r.top + scrollY - 20 + "px";
+    badge.style.left = Math.min(innerWidth - 26, Math.max(4, selector === "" ? r.right - 4 : r.left + 18)) + scrollX + "px";
+    badge.style.top = Math.max(2, r.top - 24) + scrollY + "px";
     const open = (event) => {
       event.preventDefault();
       event.stopPropagation();
@@ -126,7 +137,7 @@ addEventListener("message", (event) => {
   let text = "";
   const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
   for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
-    if (node.parentElement?.closest("script, style") != null) continue;
+    if (node.parentElement?.closest("script, style, [data-pipoca-ui]") != null) continue;
     nodes.push({ node, start: text.length });
     text += node.data;
   }
