@@ -1613,3 +1613,224 @@ test("a line diff takes what was taken out before what was put in, and compares 
     textChanges([words], [common.map((each) => `${each}!`).join(" ")]),
   ).toBeUndefined();
 });
+
+test("an artifact is a design doc by its front matter, its meta tag or a person's mark, with a status and reviewers who approve or ask for changes", async () => {
+  const setup = await setUp();
+  const { t, cwd, part } = setup;
+  const { id } = await shared(setup);
+
+  const doc = async (who = "ana") =>
+    (await t.as(who).get<ArtifactView>(`artifacts/${id}`)).doc;
+
+  const sent = async (
+    who: string,
+    method: string,
+    path: string,
+    body: unknown,
+  ): Promise<number> =>
+    (
+      await t.as(who).raw(`artifacts/${id}/${path}`, {
+        method,
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      })
+    ).status;
+
+  expect(await doc()).toBeNull();
+
+  // Marked by a person who steers it, as a design doc in draft.
+  expect(await sent("bo", "PUT", "doc", { type: "design" })).toBe(404);
+  expect(await sent("ana", "PUT", "doc", { type: "design" })).toBe(200);
+
+  expect(await doc()).toEqual({
+    type: "design",
+    status: "draft",
+    marked: "person",
+    reviewers: [],
+  });
+
+  // Asking for review moves a draft to In review; reviewers are people who
+  // can see it.
+  expect(await sent("ana", "PUT", "reviewers", { reviewers: ["Zed"] })).toBe(
+    400,
+  );
+
+  expect(
+    await sent("ana", "PUT", "reviewers", { reviewers: ["Bo", "Cy"] }),
+  ).toBe(200);
+
+  expect(await doc("bo")).toEqual({
+    type: "design",
+    status: "review",
+    marked: "person",
+    reviewers: [
+      { name: "Bo", you: true, verdict: null },
+      { name: "Cy", you: false, verdict: null },
+    ],
+  });
+
+  // Only reviewers give a verdict, and can change it.
+  expect(await sent("ana", "PUT", "review", { verdict: "approved" })).toBe(403);
+  expect(await sent("bo", "PUT", "review", { verdict: "changes" })).toBe(200);
+  expect(await sent("bo", "PUT", "review", { verdict: "approved" })).toBe(200);
+  expect(await sent("cy", "PUT", "review", { verdict: "changes" })).toBe(200);
+  expect(await sent("cy", "PUT", "review", { verdict: "maybe" })).toBe(422);
+
+  expect((await doc())?.reviewers).toEqual([
+    { name: "Bo", you: false, verdict: "approved" },
+    { name: "Cy", you: false, verdict: "changes" },
+  ]);
+
+  expect(await sent("bo", "PUT", "status", { status: "decided" })).toBe(404);
+  expect(await sent("ana", "PUT", "status", { status: "decided" })).toBe(200);
+  expect((await doc())?.status).toBe("decided");
+
+  // Only whoever steers it picks reviewers. Keeping one keeps their
+  // verdict, and a decided doc stays decided.
+  expect(await sent("bo", "PUT", "reviewers", { reviewers: [] })).toBe(404);
+
+  expect(
+    await sent("ana", "PUT", "reviewers", { reviewers: ["Bo", "Cy"] }),
+  ).toBe(200);
+
+  expect(await doc()).toMatchObject({
+    status: "decided",
+    reviewers: [{ verdict: "approved" }, { verdict: "changes" }],
+  });
+
+  // Someone it's no longer shared with stops reviewing it, and can't be
+  // asked again.
+  await t.as("ana").put(`artifacts/${id}/shares`, {
+    shares: [{ name: "Bo", role: "comment" }],
+  });
+
+  expect((await doc())?.reviewers.map(({ name }) => name)).toEqual(["Bo"]);
+
+  expect(
+    await sent("ana", "PUT", "reviewers", { reviewers: ["Bo", "Cy"] }),
+  ).toBe(400);
+
+  // Shared again, they aren't asked again.
+  await t.as("ana").put(`artifacts/${id}/shares`, {
+    shares: [
+      { name: "Bo", role: "comment" },
+      { name: "Cy", role: "view" },
+    ],
+  });
+
+  expect((await doc())?.reviewers.map(({ name }) => name)).toEqual(["Bo"]);
+
+  // A new version asks for a new verdict.
+  await writeFile(join(cwd, "plan.md"), "# Plan\n\nShip Monday.\n");
+  await part.tool("publish_artifact", { path: "plan.md", id });
+
+  expect((await doc())?.reviewers).toEqual([
+    { name: "Bo", you: false, verdict: null },
+  ]);
+
+  // Unmarked, it's a plain artifact again.
+  expect(await sent("ana", "PUT", "doc", { type: null })).toBe(200);
+  expect(await doc()).toBeNull();
+
+  // Pi marks a Markdown file by its front matter, which the page leaves out.
+  await writeFile(
+    join(cwd, "spec.md"),
+    "---\ndoc: spec\nstatus: in review\n---\n# Webhooks\n\nRetry for a day.\n",
+  );
+
+  const spec = (
+    (await part.tool("publish_artifact", { path: "spec.md" })).details as {
+      id: string;
+    }
+  ).id;
+
+  expect(
+    (await t.as("ana").get<ArtifactView>(`artifacts/${spec}`)).doc,
+  ).toEqual({ type: "spec", status: "review", marked: "file", reviewers: [] });
+
+  // A person's status beats the file's, and asking no one starts no review.
+  const onSpec = async (method: string, path: string, body: unknown) =>
+    (
+      await t.as("ana").raw(`artifacts/${spec}/${path}`, {
+        method,
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      })
+    ).status;
+
+  expect(await onSpec("PUT", "status", { status: "draft" })).toBe(200);
+  expect(await onSpec("PUT", "reviewers", { reviewers: [] })).toBe(200);
+
+  expect(
+    (await t.as("ana").get<ArtifactView>(`artifacts/${spec}`)).doc?.status,
+  ).toBe("draft");
+
+  // Unmarked by a person, a file's mark no longer counts.
+  expect(await onSpec("PUT", "doc", { type: null })).toBe(200);
+
+  expect(
+    (await t.as("ana").get<ArtifactView>(`artifacts/${spec}`)).doc,
+  ).toBeNull();
+
+  const page = await (
+    await t.as("ana").raw(`artifacts/${spec}/view`, { method: "GET" })
+  ).text();
+
+  expect(page).toContain("<h1>Webhooks</h1>");
+  expect(page).not.toContain("doc: spec");
+
+  // And an HTML page by its meta tag.
+  await writeFile(
+    join(cwd, "plan.html"),
+    '<!doctype html><meta content="plan" name="pipoca:doc"><h1>Plan</h1>',
+  );
+
+  const plan = (
+    (await part.tool("publish_artifact", { path: "plan.html" })).details as {
+      id: string;
+    }
+  ).id;
+
+  expect(
+    (await t.as("ana").get<ArtifactView>(`artifacts/${plan}`)).doc,
+  ).toEqual({ type: "plan", status: "draft", marked: "file", reviewers: [] });
+
+  // Any order and case in the tag or front matter, and only kinds of doc.
+  const marked = async (name: string, text: string) => {
+    await writeFile(join(cwd, name), text);
+
+    const { details } = await part.tool("publish_artifact", { path: name });
+
+    return (
+      await t
+        .as("ana")
+        .get<ArtifactView>(`artifacts/${(details as { id: string }).id}`)
+    ).doc;
+  };
+
+  expect(
+    await marked(
+      "upper.html",
+      // Only a person decides.
+      '<meta name="pipoca:doc" content="Design Doc"><meta name="pipoca:status" content="Decided">',
+    ),
+  ).toMatchObject({ type: "design", status: "draft" });
+
+  expect(
+    await marked(
+      "quoted.md",
+      '---\ndoc: "Plan"\nstatus: "in review"\n---\nText\n',
+    ),
+  ).toMatchObject({ type: "plan", status: "review" });
+
+  expect(await marked("memo.md", "---\ndoc: memo\n---\nText\n")).toBeNull();
+
+  expect(
+    await marked("late.md", "# Notes\n\n---\ndoc: design\n---\n"),
+  ).toBeNull();
+
+  // An unclosed block of Windows lines is read in one pass.
+  expect(
+    await marked("crlf.md", `---\r\na: b\r\n${"x\r\n".repeat(200)}`),
+  ).toBeNull();
+});

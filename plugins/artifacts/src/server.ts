@@ -20,6 +20,14 @@ import {
   type Batch,
   type Comment,
   type CommentKind,
+  type Doc,
+  type DocMark,
+  docMark,
+  type DocStatus,
+  docStatuses,
+  type DocType,
+  docTypes,
+  isText,
   type Reaction,
   reactionEmoji,
   bytes,
@@ -28,6 +36,7 @@ import {
   type Role,
   type Share,
   supported,
+  type Verdict,
   type Version,
 } from "./artifacts";
 import { presences } from "./presence";
@@ -40,6 +49,8 @@ interface Row {
   readonly title: string;
   readonly created_at: number;
   readonly updated_at: number;
+  readonly doc_type: DocType | "none" | null;
+  readonly doc_status: DocStatus | null;
 }
 
 interface VersionRow {
@@ -263,6 +274,12 @@ export const server = defineServer(
           now,
           id,
         );
+
+        // A verdict was on what the doc said before.
+        store.run(
+          "update artifacts_reviewers set verdict = null where artifact_id = ?",
+          id,
+        );
       });
 
       return number;
@@ -345,7 +362,69 @@ export const server = defineServer(
     const byOf = (author: string): string =>
       author.startsWith("user:") ? nameOf(author.slice("user:".length)) : "Pi";
 
-    const view = (artifact: Row, person: string): ArtifactView => ({
+    // What each version's file says it is, read once.
+    const marks = new Map<string, Promise<DocMark | undefined>>();
+
+    const markOf = async (latest: VersionRow): Promise<DocMark | undefined> => {
+      const kind = kindOf(latest.name);
+
+      if (kind === undefined || !isText(kind)) {
+        return undefined;
+      }
+
+      const known =
+        marks.get(latest.hash) ??
+        blobs
+          .bytes(latest.hash)
+          .then((kept) =>
+            kept === undefined
+              ? undefined
+              : docMark(kind, new TextDecoder().decode(kept)),
+          );
+
+      marks.set(latest.hash, known);
+
+      return known;
+    };
+
+    // Someone who can no longer see the doc no longer reviews it.
+    const reviewersOf = (
+      artifact: Row,
+    ): readonly { user_id: string; verdict: Verdict | null }[] =>
+      store
+        .all<{ user_id: string; verdict: Verdict | null }>(
+          "select user_id, verdict from artifacts_reviewers where artifact_id = ? order by added_at, user_id",
+          artifact.id,
+        )
+        .filter(({ user_id }) => sees(artifact, user_id));
+
+    const docOf = async (
+      artifact: Row,
+      person: string,
+    ): Promise<Doc | null> => {
+      const file = await markOf(versionOf(artifact));
+      const type = artifact.doc_type ?? file?.type;
+
+      if (type === undefined || type === "none") {
+        return null;
+      }
+
+      return {
+        type,
+        status: artifact.doc_status ?? file?.status ?? "draft",
+        marked: artifact.doc_type === null ? "file" : "person",
+        reviewers: reviewersOf(artifact).map(({ user_id, verdict }) => ({
+          name: nameOf(user_id),
+          you: user_id === person,
+          verdict,
+        })),
+      };
+    };
+
+    const view = async (
+      artifact: Row,
+      person: string,
+    ): Promise<ArtifactView> => ({
       ...summary(artifact, person),
       history: versions(artifact.id).map((each): Version => ({
         number: each.number,
@@ -365,6 +444,7 @@ export const server = defineServer(
           person,
           artifact.id,
         ) !== undefined,
+      doc: await docOf(artifact, person),
     });
 
     // What a Session's Pi reads: its own artifacts, and the ones the person
@@ -441,7 +521,7 @@ export const server = defineServer(
         auth: "person",
         query: Type.Object({ opened: Type.Optional(Type.Literal("1")) }),
       },
-      ({ caller, params, query }) => {
+      async ({ caller, params, query }) => {
         const artifact = theirs(params.id, caller);
 
         if (query.opened !== undefined) {
@@ -589,7 +669,153 @@ export const server = defineServer(
           }
         });
 
+        for (const { user_id } of store.all<{ user_id: string }>(
+          "select user_id from artifacts_reviewers where artifact_id = ?",
+          artifact.id,
+        )) {
+          if (!sees(artifact, user_id)) {
+            store.run(
+              "delete from artifacts_reviewers where artifact_id = ? and user_id = ?",
+              artifact.id,
+              user_id,
+            );
+          }
+        }
+
         return { shares: shares(artifact.id) };
+      },
+    );
+
+    const steered = (id: string, caller: PersonCaller): Row => {
+      const artifact = theirs(id, caller);
+
+      if (!steers(artifact, caller.person.id)) {
+        throw new NotFound(`no artifact ${id}`);
+      }
+
+      return artifact;
+    };
+
+    routes.put(
+      "artifacts/:id/doc",
+      {
+        auth: "person",
+        body: Type.Object({
+          type: Type.Union([StringEnum(docTypes), Type.Null()]),
+        }),
+        changes: ["artifacts"],
+      },
+      ({ caller, params, body }) => {
+        const artifact = steered(params.id, caller);
+
+        store.run(
+          "update artifacts_artifacts set doc_type = ? where id = ?",
+          body.type ?? "none",
+          artifact.id,
+        );
+
+        return { type: body.type };
+      },
+    );
+
+    routes.put(
+      "artifacts/:id/status",
+      {
+        auth: "person",
+        body: Type.Object({ status: StringEnum(docStatuses) }),
+        changes: ["artifacts"],
+      },
+      ({ caller, params, body }) => {
+        const artifact = steered(params.id, caller);
+
+        store.run(
+          "update artifacts_artifacts set doc_status = ? where id = ?",
+          body.status,
+          artifact.id,
+        );
+
+        return { status: body.status };
+      },
+    );
+
+    // Asking for review moves a draft to In review. A reviewer kept on
+    // keeps their verdict.
+    routes.put(
+      "artifacts/:id/reviewers",
+      {
+        auth: "person",
+        body: Type.Object({
+          reviewers: Type.Array(Type.String({ minLength: 1 }), {
+            maxItems: 50,
+          }),
+        }),
+        changes: ["artifacts"],
+      },
+      async ({ caller, params, body }) => {
+        const artifact = steered(params.id, caller);
+
+        const named = body.reviewers.map((name) => {
+          const person = people.byName(name);
+
+          if (person === undefined || !sees(artifact, person.id)) {
+            throw new BadRequest(`${name} can't see this artifact`);
+          }
+
+          return person.id;
+        });
+
+        const doc = await docOf(artifact, caller.person.id);
+
+        store.transaction(() => {
+          store.run(
+            `delete from artifacts_reviewers where artifact_id = ? and user_id not in (${named.map(() => "?").join(", ")})`,
+            artifact.id,
+            ...named,
+          );
+
+          for (const each of named) {
+            store.run(
+              "insert or ignore into artifacts_reviewers (artifact_id, user_id, added_at) values (?, ?, ?)",
+              artifact.id,
+              each,
+              clock.now(),
+            );
+          }
+
+          if (named.length > 0 && doc?.status === "draft") {
+            store.run(
+              "update artifacts_artifacts set doc_status = 'review' where id = ?",
+              artifact.id,
+            );
+          }
+        });
+
+        return { reviewers: named.length };
+      },
+    );
+
+    routes.put(
+      "artifacts/:id/review",
+      {
+        auth: "person",
+        body: Type.Object({ verdict: StringEnum(["approved", "changes"]) }),
+        changes: ["artifacts"],
+      },
+      ({ caller, params, body }) => {
+        const artifact = theirs(params.id, caller);
+
+        const changed = store.run(
+          "update artifacts_reviewers set verdict = ? where artifact_id = ? and user_id = ?",
+          body.verdict,
+          artifact.id,
+          caller.person.id,
+        );
+
+        if (changed.changes === 0) {
+          throw new Forbidden("only its reviewers review it");
+        }
+
+        return { verdict: body.verdict };
       },
     );
 

@@ -25,6 +25,8 @@ Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 const { createRoot } = await import("react-dom/client");
 
+type Root = ReturnType<typeof createRoot>;
+
 // A plugin's part as the web app draws it, for the plugin's own tests: for a
 // signed-in person, with other plugins' parts filling slots by name.
 function TestShell({
@@ -75,6 +77,10 @@ function TestShell({
   );
 }
 
+// Pages drawn in this test, all taken down together once it ends.
+const mounted = new Set<Root>();
+let realFetch = globalThis.fetch;
+
 // What parts put in a Session's composer, newest last.
 export const drafts: {
   sessionId: string;
@@ -96,6 +102,8 @@ export function renderPart(
     readonly fetch?: (url: string, init?: RequestInit) => Promise<Response>;
     // The address the page is at, such as #s1?artifact=a1.
     readonly hash?: string;
+    // The window's width in pixels, 1024 unless given.
+    readonly width?: number;
   } = {},
 ): HTMLElement {
   const Part = (
@@ -116,8 +124,14 @@ export function renderPart(
     history.replaceState(null, "", o.hash);
   }
 
+  if (o.width !== undefined) {
+    resize(o.width);
+  }
+
   // Set once the page exists, which brings a fetch of its own.
-  const realFetch = globalThis.fetch;
+  if (mounted.size === 0) {
+    realFetch = globalThis.fetch;
+  }
 
   if (o.fetch) {
     const fake = o.fetch;
@@ -138,6 +152,8 @@ export function renderPart(
   document.body.append(container);
   const root = createRoot(container);
 
+  mounted.add(root);
+
   act(() => {
     root.render(
       createElement(TestShell, {
@@ -151,10 +167,17 @@ export function renderPart(
 
   // Inside a test, this runs once the test ends.
   afterAll(async () => {
+    if (mounted.size === 0) {
+      return;
+    }
+
     act(() => {
-      root.unmount();
+      for (const each of mounted) {
+        each.unmount();
+      }
     });
 
+    mounted.clear();
     globalThis.fetch = realFetch;
 
     if (GlobalRegistrator.isRegistered) {
@@ -163,6 +186,15 @@ export function renderPart(
   });
 
   return container;
+}
+
+// Changes the window's width, as a person resizing it does.
+export function resize(width: number): void {
+  const page = Reflect.get(globalThis, "happyDOM") as {
+    readonly setViewport: (size: { readonly width: number }) => void;
+  };
+
+  page.setViewport({ width });
 }
 
 interface ToolResultRow {

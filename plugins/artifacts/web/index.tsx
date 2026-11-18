@@ -20,9 +20,10 @@ import {
 } from "../src/artifacts";
 import { artifactHref, loadArtifact } from "./collaborate";
 import { audienceLabel } from "./chrome";
+import { useDock } from "./dock";
 import { Gallery } from "./gallery";
 import { AttachArtifact, PublishFile, SessionArtifacts } from "./files";
-import { ArtifactLink, ArtifactOverlay, Viewer } from "./viewer";
+import { ArtifactDock, ArtifactLink, ArtifactOverlay, Viewer } from "./viewer";
 
 export const web = defineWeb(plugin, {
   pages: [
@@ -37,6 +38,7 @@ export const web = defineWeb(plugin, {
   settings: { group: "server", form: "auto" },
   slots: {
     overlay: ArtifactOverlay,
+    dock: ArtifactDock,
     "session.header": SessionArtifacts,
     "file.actions": PublishFile,
     "session.attach": AttachArtifact,
@@ -89,6 +91,7 @@ function ArtifactList(): ReactElement {
 // is now, and opens it over the chat.
 function PublishedCard({ call }: ToolCallProps): ReactElement {
   const api = useApi(plugin);
+  const { docked } = useDock();
   const details = call.result?.details as Partial<Published> | undefined;
 
   const published =
@@ -121,7 +124,7 @@ function PublishedCard({ call }: ToolCallProps): ReactElement {
     <FileCardBody
       icon="file-text"
       title={title}
-      detail={cardStatus(call, published, now)}
+      detail={cardStatus(call, published, now, docked)}
       failed={call.status === "failed"}
     />
   );
@@ -320,6 +323,7 @@ function cardStatus(
   call: ToolCallProps["call"],
   published: Published | undefined,
   now: ArtifactSummary | null | undefined,
+  docked: boolean,
 ): string {
   if (call.status === "running") {
     return "Publishing";
@@ -338,9 +342,9 @@ function cardStatus(
   }
 
   return [
-    kindLabel(now.kind),
+    ...(docked ? ["Open beside the chat"] : [kindLabel(now.kind)]),
     `version ${String(now.versions)}`,
-    audienceLabel(now),
+    ...(docked ? [] : [audienceLabel(now)]),
   ].join(" · ");
 }
 

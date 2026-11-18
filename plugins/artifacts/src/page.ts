@@ -1,6 +1,7 @@
 // Every page but a picture or PDF tells the artifact page what the person
 // selected or, in comment mode, clicked, to comment on it. It pins the
-// threads on the text or element they're on, and when compared marks the
+// threads on the text or element they're on, tells its headings and which
+// threads sit under each for a design doc's outline, and when compared marks the
 // words one version changed, by where they sit in the page's text. What it
 // draws is marked data-pipoca-ui and stays out of the way of the page.
 export const selection = `<script>(() => {
@@ -71,6 +72,7 @@ const pin = () => {
   for (const mark of document.querySelectorAll("mark[data-pipoca]")) mark.replaceWith(...mark.childNodes);
   for (const each of document.querySelectorAll("[data-pipoca-pin]")) each.remove();
   document.body.normalize();
+  const placed = [];
   for (const { n, quote, selector, active } of pins) {
     let target = null;
     if (selector !== "") {
@@ -98,6 +100,7 @@ const pin = () => {
     }
     if (active && n !== shown) target.scrollIntoView({ block: "nearest" });
     if (n === null) continue;
+    placed.push({ n, target });
     const r = target.getBoundingClientRect();
     const badge = drawn("display: grid; place-items: center; width: 22px; height: 22px; border-radius: 11px 11px 11px 2px; background: rgb(243, 197, 82); color: rgb(26, 23, 18); font: 600 11px/1 system-ui, sans-serif; pointer-events: auto; cursor: pointer; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);");
     badge.dataset.pipocaPin = String(n);
@@ -115,12 +118,24 @@ const pin = () => {
     badge.addEventListener("click", open);
     badge.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") open(event); });
   }
+  outline(placed);
+};
+const headings = () => [...document.querySelectorAll("h1, h2, h3, h4")].filter((each) => each.closest("[data-pipoca-ui]") === null);
+const outline = (placed) => {
+  const all = headings();
+  const sections = all.map((each) => ({ text: (each.textContent ?? "").trim().replace(/\\s+/g, " ").slice(0, 80), level: Number(each.localName.slice(1)), threads: [] }));
+  for (const { n, target } of placed) {
+    const under = all.findLastIndex((each) => each === target || (each.compareDocumentPosition(target) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0);
+    if (under >= 0) sections[under].threads.push(n);
+  }
+  parent.postMessage({ pipoca: "outline", sections, tops: placed.map(({ n, target }) => ({ n, top: target.getBoundingClientRect().top + scrollY })), scrolled: scrollY }, "*");
 };
 const pinAndShow = () => {
   pin();
   shown = pins.find((each) => each.active)?.n ?? null;
 };
 addEventListener("resize", pin);
+addEventListener("load", pin);
 addEventListener("message", (event) => {
   if (event.source !== parent) return;
   if (event.data?.pipoca === "commenting") {
@@ -130,6 +145,8 @@ addEventListener("message", (event) => {
   } else if (event.data?.pipoca === "pins") {
     pins = event.data.pins;
     pinAndShow();
+  } else if (event.data?.pipoca === "goto") {
+    headings()[event.data.section]?.scrollIntoView({ block: "start", behavior: "smooth" });
   }
 });
 addEventListener("message", (event) => {

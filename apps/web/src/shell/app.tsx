@@ -111,6 +111,11 @@ function Area({ children }: { readonly children: ReactNode }): ReactElement {
   return (
     <div className="flex h-dvh overflow-hidden bg-bg font-sans text-ui text-fg">
       {children}
+      {fillsOf("dock").map(({ plugin, Component }) => (
+        <PluginBoundary key={plugin} name={plugin}>
+          <Component />
+        </PluginBoundary>
+      ))}
     </div>
   );
 }

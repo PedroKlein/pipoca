@@ -237,7 +237,7 @@ export function Compare({
             onChange={setHow}
           />
         )}
-        {mode === "modal" && <ViewerClose onClose={onClose} focus={false} />}
+        {mode !== "window" && <ViewerClose onClose={onClose} focus={false} />}
       </header>
       {how === "side" ? (
         <div className="grid min-h-0 flex-1 grid-cols-2 bg-panel max-md:grid-cols-1">
@@ -474,7 +474,7 @@ export function Editor({
             Save as version {editing + 1}
           </Button>
         )}
-        {mode === "modal" && (
+        {mode !== "window" && (
           <ViewerClose onClose={() => void leave(onClose)} focus={false} />
         )}
       </header>

@@ -213,9 +213,58 @@ export function previewed(name: string, text: string): string {
   );
 }
 
+const frontMatterLines = 50;
+const frontMatterBytes = 8192;
+
+// Markdown's leading key: value block, which says what the file is and
+// isn't drawn. Values come lower case, without quotes. Read line by line,
+// and only so far, as the file may be anyone's.
+export function frontMatter(text: string): {
+  readonly fields: Readonly<Record<string, string>>;
+  readonly body: string;
+} {
+  const none = { fields: {}, body: text };
+  const lines = text.slice(0, frontMatterBytes).split("\n");
+
+  if (lines[0]?.trimEnd() !== "---") {
+    return none;
+  }
+
+  const end = lines.findIndex(
+    (line, at) => at > 0 && at <= frontMatterLines && line.trimEnd() === "---",
+  );
+
+  const block = lines
+    .slice(1, end)
+    .map((line): [string, string] | undefined => {
+      const colon = line.indexOf(":");
+      const key = line.slice(0, colon);
+
+      return colon > 0 && /^\w+$/.test(key)
+        ? [
+            key,
+            line
+              .slice(colon + 1)
+              .trim()
+              .replace(/^["']|["']$/g, "")
+              .toLowerCase(),
+          ]
+        : undefined;
+    });
+
+  if (end < 0 || block[0] === undefined) {
+    return none;
+  }
+
+  return {
+    fields: Object.fromEntries(block.filter((each) => each !== undefined)),
+    body: lines.slice(end + 1).join("\n") + text.slice(frontMatterBytes),
+  };
+}
+
 function markdown(text: string, scriptHosts: readonly string[]): string {
   const html = marked
-    .parse(text, { async: false, gfm: true })
+    .parse(frontMatter(text).body, { async: false, gfm: true })
     .replace(
       /<pre><code class="language-mermaid">([\s\S]*?)<\/code><\/pre>/g,
       '<pre class="mermaid">$1</pre>',

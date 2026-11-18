@@ -1302,7 +1302,9 @@ test("keeps a setup step on home until it's done, and opens it from there", asyn
   await page.getByRole("button", { name: "Show the command" }).click();
 
   const command = page.getByLabel("Join command");
-  await command.filter({ hasText: "PIPOCA_KEY=pck_" }).waitFor();
+
+  // The version pins once the server's health loads.
+  await command.filter({ hasText: "PIPOCA_VERSION=" }).waitFor();
 
   expect(await command.textContent()).toMatch(
     /^curl -fsSL https:\/\/pipoca\.dev\/install\.sh \| PIPOCA_VERSION=\S+ PIPOCA_KEY=pck_\S+ sh -s -- service install agent --server /,
@@ -6759,6 +6761,190 @@ test("two people chat in a comment thread, seeing who's here, who's typing and e
     });
   }
 }, 60_000);
+
+test("docks an artifact beside the chat on a wide window, and on a phone keeps its actions at the bottom and its comments in a sheet", async () => {
+  const folder = join(root, "artifact-layouts");
+  await mkdir(folder, { recursive: true });
+  await writeFile(join(folder, "report.html"), "<h1>Layouts</h1>");
+
+  faux.setResponses([
+    fauxAssistantMessage(
+      [
+        fauxToolCall("publish_artifact", {
+          path: "report.html",
+          title: "Layouts",
+        }),
+      ],
+      { stopReason: "toolUse" },
+    ),
+    fauxAssistantMessage([fauxText("Published the layouts")]),
+  ]);
+
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto(server.url.href);
+  await page.getByRole("button", { name: "New session" }).click();
+  const form = page.locator("form#create");
+
+  await pickWorkspace(form, folder);
+  await form.getByRole("button", { name: "Start session" }).click();
+  await page.locator("#status", { hasText: "idle" }).waitFor();
+
+  const box = page.locator("#prompt-text");
+  await box.fill("publish the layouts");
+  await box.press("Enter");
+  await page.getByText("Published the layouts").waitFor();
+
+  try {
+    await page.getByRole("link", { name: /Layouts/ }).click();
+
+    const viewer = page.getByRole("dialog", { name: "Layouts" });
+    await viewer.getByRole("button", { name: "Dock beside the page" }).click();
+
+    const docked = page.getByRole("complementary", { name: "Layouts" });
+    await docked.frameLocator("iframe").getByText("Layouts").waitFor();
+
+    // The chat stays usable beside it, and the header keeps to one row.
+    await page.locator("#prompt-text").fill("still here");
+    const header = await docked.locator("header").boundingBox();
+    expect(header?.height).toBeLessThan(64);
+
+    await docked.getByRole("button", { name: "Dock beside the page" }).click();
+    await viewer.waitFor();
+
+    await page.setViewportSize({ width: 390, height: 844 });
+
+    const actions = viewer.getByRole("group", { name: "Artifact actions" });
+    await actions.getByRole("button", { name: "Download" }).waitFor();
+    const bar = await actions.boundingBox();
+    expect(Math.round((bar?.y ?? 0) + (bar?.height ?? 0))).toBeGreaterThan(830);
+
+    await viewer.getByRole("button", { name: /^Comment/ }).click();
+    const sheet = viewer.getByRole("complementary", { name: "Comments" });
+    await sheet.waitFor();
+    const shown = await sheet.boundingBox();
+    expect(shown?.y).toBeGreaterThan(200);
+    expect(Math.round((shown?.y ?? 0) + (shown?.height ?? 0))).toBe(844);
+
+    // The dimmed page shows above the sheet.
+    await viewer
+      .getByRole("button", { name: "Back to the page" })
+      .click({ position: { x: 195, y: 120 } });
+
+    await sheet.waitFor({ state: "hidden" });
+    expect(await viewer.isVisible()).toBe(true);
+  } finally {
+    await page.setViewportSize({ width: 1280, height: 900 });
+  }
+}, 30_000);
+
+test("reads a design doc with its status, an outline of its sections and its comments in the margin beside their passages", async () => {
+  const folder = join(root, "design-doc");
+  await mkdir(folder, { recursive: true });
+
+  await writeFile(
+    join(folder, "webhooks.md"),
+    `---\ndoc: design\nstatus: in review\n---\n# Webhooks v2\n\n## Context\n\n${"Filler paragraph.\n\n".repeat(3)}A sender retries for 24 hours.\n\n${"Filler paragraph.\n\n".repeat(20)}## Decision\n\nStore every event.\n`,
+  );
+
+  faux.setResponses([
+    fauxAssistantMessage(
+      [
+        fauxToolCall("publish_artifact", {
+          path: "webhooks.md",
+          title: "Webhooks",
+        }),
+      ],
+      { stopReason: "toolUse" },
+    ),
+    fauxAssistantMessage([fauxText("Published the design")]),
+  ]);
+
+  await page.goto(server.url.href);
+  await page.getByRole("button", { name: "New session" }).click();
+  const form = page.locator("form#create");
+
+  await pickWorkspace(form, folder);
+  await form.getByRole("button", { name: "Start session" }).click();
+  await page.locator("#status", { hasText: "idle" }).waitFor();
+
+  const box = page.locator("#prompt-text");
+  await box.fill("write the design");
+  await box.press("Enter");
+  await page.getByText("Published the design").waitFor();
+
+  const card = page.getByRole("link", { name: /Webhooks/ });
+  const id = ((await card.getAttribute("href")) ?? "").split("/").at(-1) ?? "";
+
+  await page.evaluate(async (artifact) => {
+    await fetch(`/api/ext/artifacts/artifacts/${artifact}/comments`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        version: 1,
+        toPi: false,
+        kind: "question",
+        quote: "24 hours",
+        body: "Too long?",
+      }),
+    });
+  }, id);
+
+  await card.click();
+
+  const viewer = page.getByRole("dialog", { name: "Webhooks" });
+  const frame = viewer.frameLocator("iframe");
+
+  await frame.getByText("Filler paragraph.").first().waitFor();
+  await viewer.getByText("Design doc · ", { exact: false }).waitFor();
+  await viewer.getByRole("button", { name: "Status: In review" }).waitFor();
+
+  // The front matter isn't drawn, and the title isn't a section.
+  expect(await frame.getByText("doc: design").count()).toBe(0);
+
+  const outline = viewer.getByRole("navigation", { name: "Outline" });
+
+  expect(await outline.getByRole("button").allTextContents()).toEqual([
+    "Context1 open",
+    "Decision",
+    "Open questions1 open",
+  ]);
+
+  await viewer.getByRole("button", { name: /^Comment/ }).click();
+
+  const thread = viewer.getByRole("listitem").filter({ hasText: "Too long?" });
+  const passage = frame.locator("mark", { hasText: "24 hours" });
+
+  await thread.waitFor();
+
+  // Its card sits level with its passage, also once the page scrolls.
+  const level = async (): Promise<void> => {
+    await until(
+      async () => {
+        const [beside, mark] = await Promise.all([
+          thread.boundingBox(),
+          passage.boundingBox(),
+        ]);
+
+        return Math.abs((beside?.y ?? 0) - (mark?.y ?? 1000));
+      },
+      (apart) => apart < 40,
+    );
+  };
+
+  await level();
+
+  await frame.locator("body").evaluate("scrollBy(0, 120)");
+
+  await level();
+
+  await outline.getByRole("button", { name: "Decision" }).click();
+  await frame.getByText("Store every event.").waitFor();
+
+  await until(
+    async () => Number(await frame.locator("body").evaluate("scrollY")),
+    (y) => y > 300,
+  );
+}, 30_000);
 
 test("edits a Markdown artifact beside its preview and compares the versions with the changed words marked", async () => {
   const folder = join(root, "plan");
