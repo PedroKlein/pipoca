@@ -62,8 +62,8 @@ export function Drawer({
         aria-hidden="true"
         onClick={onClose}
         className={cn(
-          "fixed inset-0 z-10 bg-scrim backdrop-blur-scrim md:hidden",
-          !open && "hidden",
+          "fixed inset-0 z-10 hidden bg-scrim backdrop-blur-scrim",
+          open && "drawer:block",
         )}
       />
       <aside
@@ -74,11 +74,11 @@ export function Drawer({
           }
         }}
         className={cn(
-          "z-20 w-sidebar shrink-0 border-r border-line max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:w-[min(320px,85vw)] max-md:shadow-pop",
+          "z-20 w-sidebar shrink-0 border-r border-line drawer:fixed drawer:inset-y-0 drawer:left-0 drawer:w-[min(320px,85vw)] drawer:shadow-pop",
           // Showing it at once lets focus move in; hiding it after the slide keeps the slide visible.
           open
-            ? "max-md:motion-safe:transition-[translate]"
-            : "max-md:invisible max-md:-translate-x-full max-md:motion-safe:transition-[translate,visibility]",
+            ? "drawer:motion-safe:transition-[translate]"
+            : "drawer:invisible drawer:-translate-x-full drawer:motion-safe:transition-[translate,visibility]",
         )}
       >
         {children}

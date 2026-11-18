@@ -5278,7 +5278,7 @@ test("opens what Pi's turn saved from the card under its reply, publishes it as 
 
   await page
     .locator('#chat li[data-role="user"]', {
-      hasText: "Attached: the artifact “joined.csv”",
+      hasText: 'Attached: the artifact "joined.csv"',
     })
     .waitFor();
 
@@ -6177,7 +6177,7 @@ test("opens an artifact Pi published, in a sandbox, from its card in the chat", 
 
   await writeFile(
     join(folder, "report.html"),
-    "<h1>Quarterly report</h1><script>document.body.append(String(window.origin))</script><button onclick=\"parent.postMessage({ pipoca: 'draft', text: 'Make the chart blue' }, '*')\">Ask Pi</button>",
+    "<h1>Quarterly report</h1><script>document.body.append(String(window.origin)); parent.postMessage({ pipoca: 'draft', text: 'Unasked' }, '*')</script><button onclick=\"parent.postMessage({ pipoca: 'draft', text: 'Make the chart blue' }, '*')\">Ask Pi</button>",
   );
 
   faux.setResponses([
@@ -6919,6 +6919,20 @@ test("docks an artifact beside the chat on a wide window, and on a phone keeps i
     await page.locator("#prompt-text").fill("still here");
     const header = await docked.locator("header").boundingBox();
     expect(header?.height).toBeLessThan(64);
+
+    // A page that sets no background shows on white, as in a browser.
+    expect(
+      await page.evaluate(
+        "getComputedStyle(document.querySelector('[data-dock] iframe')).backgroundColor",
+      ),
+    ).toBe("rgb(255, 255, 255)");
+
+    // The sidebar steps aside to give the chat room, and comes back over it.
+    const chat = await page.locator("main").boundingBox();
+    expect(chat?.width).toBeGreaterThan(500);
+    await page.getByRole("button", { name: "Open sessions" }).click();
+    await page.getByRole("button", { name: "New session" }).waitFor();
+    await page.keyboard.press("Escape");
 
     await docked.getByRole("button", { name: "Dock beside the page" }).click();
     await viewer.waitFor();

@@ -194,7 +194,8 @@ export function AttachArtifact({
               title: picked.title,
               icon: "file-text",
               detail: `artifact · version ${String(picked.versions)}`,
-              text: `Attached: the artifact “${picked.title}” (${picked.id}), version ${String(picked.versions)}. Read it with read_artifact.`,
+              // Someone else may have named it, so the title goes as data.
+              text: `Attached: the artifact ${JSON.stringify(picked.title)} (${picked.id}), version ${String(picked.versions)}. Read it with read_artifact.`,
             });
           }
         }}

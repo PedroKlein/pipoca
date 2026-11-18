@@ -18,6 +18,8 @@ export function artifactHref(id: string, version?: number): string {
   );
 }
 
+const maxDraft = 4000;
+
 // An artifact as the viewer and the chat's cards load it; the viewer marks
 // it opened. A missing one was deleted or isn't shared with the person.
 export async function loadArtifact(
@@ -25,8 +27,13 @@ export async function loadArtifact(
   id: string,
   { opened = false }: { readonly opened?: boolean } = {},
 ): Promise<ArtifactView | "missing" | "failed"> {
+  // The id comes from an address anyone can write, so it stays one segment
+  // and the answer must be that artifact.
   return api
-    .get<ArtifactView>(`artifacts/${id}${opened ? "?opened=1" : ""}`)
+    .get<ArtifactView>(
+      `artifacts/${encodeURIComponent(id)}${opened ? "?opened=1" : ""}`,
+    )
+    .then((view) => (view.id === id ? view : ("missing" as const)))
     .catch((error: unknown) =>
       isHttpError(error) && error.status === 404 ? "missing" : "failed",
     );
@@ -178,7 +185,15 @@ export function Frame({
         return;
       }
 
-      if (data.pipoca === "draft" && sessionId !== null && steers) {
+      // Only while the person uses the page, so it can't write their
+      // message behind their back.
+      if (
+        data.pipoca === "draft" &&
+        sessionId !== null &&
+        steers &&
+        document.activeElement === frame.current &&
+        data.text.length <= maxDraft
+      ) {
         draft(sessionId, data.text);
       } else if (data.pipoca === "selection" && rect !== undefined) {
         onPick?.({ quote: data.text, rect });
@@ -240,7 +255,7 @@ export function Frame({
         markChanges();
       }}
       className={cn(
-        "w-full shrink-0 bg-white",
+        "w-full shrink-0 bg-canvas",
         className ?? "h-[75vh] rounded-lg border border-line",
       )}
     />

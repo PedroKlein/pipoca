@@ -567,7 +567,7 @@ export function Editor({
               scrolled.current = preview.current?.contentWindow?.scrollY ?? 0;
             });
           }}
-          className="size-full min-h-0 bg-white max-md:hidden"
+          className="size-full min-h-0 bg-canvas max-md:hidden"
         />
       </div>
       {confirmDialog}

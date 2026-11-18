@@ -54,6 +54,10 @@ export function pluginClient(
     path: string,
     init: RequestInit,
   ): Promise<Response> => {
+    if (!routeLike(path)) {
+      throw new Error(`${path} isn't a route`);
+    }
+
     const url = path.startsWith("/") ? path : `${base}${path}`;
 
     return send(
@@ -137,4 +141,15 @@ function parsedOf(text: string): unknown {
   } catch {
     return text;
   }
+}
+
+// An id read from an address can hold "..", "#" or an encoded dot, which
+// would send the call to another route.
+function routeLike(path: string): boolean {
+  const route = path.split("?")[0] ?? "";
+
+  return (
+    !path.includes("#") &&
+    route.split("/").every((segment) => !/^(\.|%2e){1,2}$/i.test(segment))
+  );
 }

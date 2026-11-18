@@ -148,6 +148,7 @@ export function ArtifactDock(): ReactElement | null {
     <aside
       key={id}
       aria-labelledby={titleId}
+      data-dock
       className="flex w-[56%] min-w-0 shrink-0 flex-col border-l border-line bg-elevated"
     >
       <Addressed id={id} mode="docked" titleId={titleId} />

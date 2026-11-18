@@ -51,7 +51,7 @@ export function Header({
           iconOnly
           aria-label="Open sessions"
           onClick={onMenu}
-          className="md:hidden"
+          className="hidden drawer:inline-flex"
         >
           <Icon name="menu" />
         </Button>

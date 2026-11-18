@@ -366,7 +366,7 @@ test("the + menu attaches a Project folder file as text that tells Pi where it i
       title: "p95-history.csv",
       icon: "folder",
       detail: "from project/ · already saved",
-      text: "Attached: p95-history.csv from the Project's shared folder; list_project_files gives its full path.",
+      text: `Attached: "p95-history.csv" from the Project's shared folder; list_project_files gives its full path.`,
     },
   ]);
 });

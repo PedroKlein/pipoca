@@ -16,7 +16,7 @@ export function MenuButton({
       iconOnly
       aria-label="Open sessions"
       onClick={onMenu}
-      className="md:hidden"
+      className="hidden drawer:inline-flex"
     >
       <Icon name="menu" />
     </Button>
@@ -79,7 +79,7 @@ export function PluginFrame({
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
-      <div className="p-2 md:hidden">
+      <div className="hidden p-2 drawer:block">
         <MenuButton onMenu={onMenu} />
       </div>
       <Page id="plugin-page">{children}</Page>

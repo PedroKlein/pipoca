@@ -48,7 +48,10 @@ function useSessionFolder(sessionId: string): SessionFolder | undefined {
   const api = useApi(projects);
 
   return useLoaded(
-    async () => api.get<SessionFolder>(`sessions/${sessionId}/folder`),
+    async () =>
+      api.get<SessionFolder>(
+        `sessions/${encodeURIComponent(sessionId)}/folder`,
+      ),
     `folder:${sessionId}`,
     { changes: ["projects"] },
   ).value;
@@ -175,7 +178,7 @@ function ProjectFileViewer({
   const { open } = useOverlay();
   const now = useNow();
   const publishes = useFilled("file.actions");
-  const base = `projects/${id}`;
+  const base = `projects/${encodeURIComponent(id)}`;
 
   const { value } = useLoaded(
     async () =>
@@ -319,6 +322,6 @@ export function folderAttachment(path: string): Attachment {
     title: path,
     icon: "folder",
     detail: "from project/ · already saved",
-    text: `Attached: ${path} from the Project's shared folder; list_project_files gives its full path.`,
+    text: `Attached: ${JSON.stringify(path)} from the Project's shared folder; list_project_files gives its full path.`,
   };
 }

@@ -238,7 +238,7 @@ export function FileViewer({
             title={source ? `${name}, source` : name}
             src={source ? `${view}&as=text` : view}
             {...(kind !== "pdf" && { sandbox: frameSandbox })}
-            className="min-h-0 w-full flex-1 rounded-lg border border-line bg-white max-sm:rounded-none max-sm:border-0"
+            className="min-h-0 w-full flex-1 rounded-lg border border-line bg-canvas max-sm:rounded-none max-sm:border-0"
           />
         )}
       </div>

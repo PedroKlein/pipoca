@@ -4326,7 +4326,7 @@ test("the + menu attaches an artifact as text that names its id and version for 
       title: "Checkout latency",
       icon: "file-text",
       detail: "artifact · version 4",
-      text: "Attached: the artifact “Checkout latency” (a1), version 4. Read it with read_artifact.",
+      text: 'Attached: the artifact "Checkout latency" (a1), version 4. Read it with read_artifact.',
     },
   ]);
 
