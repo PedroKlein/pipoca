@@ -48,6 +48,8 @@ export interface Slots {
   [link: `link:${string}`]: LinkProps;
   [block: `codeBlock:${string}`]: CodeBlockProps;
   home: HomeProps;
+  // Over every page, such as a viewer the address opens (useOverlay).
+  overlay: Nothing;
   "environment.section": EnvironmentSectionProps;
   "template.section": TemplateSectionProps;
   "settings.general": Nothing;
@@ -62,6 +64,9 @@ export interface WebPage {
   readonly label: string;
   readonly icon?: IconName;
   readonly Page: ComponentType<PageProps>;
+  // Drawn alone in the window, without the sidebar, such as a link to one
+  // artifact.
+  readonly bare?: (path: string) => boolean;
   // In the sidebar. Pinned is for someone who never changed their pins.
   // Items list under the entry, and Live lists work below all the entries,
   // such as active Projects; a hub page's Live shows in the team's sidebar.

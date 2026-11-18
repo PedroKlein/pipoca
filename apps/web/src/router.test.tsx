@@ -69,6 +69,14 @@ test("an address opens its page with the parts it names", () => {
   });
 });
 
+test("what an address shows over its page leaves the page as it is", () => {
+  expect(parse("#s1?artifact=a1&v=2")).toEqual(parse("#s1"));
+
+  expect(parse("#plugin/artifacts?artifact=a1")).toEqual(
+    parse("#plugin/artifacts"),
+  );
+});
+
 test("an address no page has opens home", () => {
   expect(parse("nothing/here")).toEqual({ name: "home", params: {} });
 });

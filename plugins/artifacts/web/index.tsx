@@ -1,8 +1,7 @@
 import {
+  ago,
   defineWeb,
   href,
-  type MountedSession,
-  SessionTab,
   type NavItemsProps,
   type NoticeProps,
   type PageProps,
@@ -10,11 +9,11 @@ import {
   useApi,
   useLoaded,
   useNow,
+  useOverlay,
 } from "@pipoca/plugins/web";
+import { isHttpError } from "@pipoca/plugins";
 import {
   Badge,
-  Button,
-  Card,
   cardClass,
   cn,
   EmptyState,
@@ -24,26 +23,18 @@ import {
   Row,
   Rows,
   Segmented,
-  Select,
   TextInput,
 } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
 import { artifacts as plugin } from "../plugin";
 import {
   type ArtifactSummary,
-  type ArtifactView,
   type Batch,
   kindLabel,
   type Published,
 } from "../src/artifacts";
-import { Frame } from "./collaborate";
-import {
-  ArtifactPage,
-  audienceLabel,
-  galleryLine,
-  ShareDialog,
-  versionHref,
-} from "./page";
+import { artifactHref } from "./collaborate";
+import { ArtifactLink, ArtifactOverlay, audienceLabel, Viewer } from "./viewer";
 
 export const web = defineWeb(plugin, {
   pages: [
@@ -52,16 +43,18 @@ export const web = defineWeb(plugin, {
       label: "Artifacts",
       Page: ArtifactsPage,
       nav: { fills: (path) => path !== "", Items: Pinned },
+      bare: (path) => path !== "",
     },
   ],
   settings: { group: "server", form: "auto" },
   slots: {
-    "session.header": SessionArtifacts,
+    overlay: ArtifactOverlay,
     "session.toolCall:publish_artifact": PublishedCard,
     "notice:artifact_comments": CommentsNotice,
   },
 });
 
+// The gallery, or one artifact alone in the window from a link to it.
 function ArtifactsPage({ path }: PageProps): ReactElement {
   const [id = "", ...rest] = path.split("/");
 
@@ -69,14 +62,21 @@ function ArtifactsPage({ path }: PageProps): ReactElement {
     return <ArtifactList />;
   }
 
-  return rest[0] === "v" ? (
-    <ArtifactPage key={id} id={id} version={Number(rest[1])} />
-  ) : (
-    <ArtifactPage
+  const version = rest[0] === "v" ? Number(rest[1]) : undefined;
+
+  return (
+    <Viewer
       key={id}
       id={id}
-      version={undefined}
-      {...(rest[0] === "comments" && { rail: "comments" as const })}
+      mode="window"
+      version={version}
+      comments={rest[0] === "comments"}
+      onVersion={(number) => {
+        location.replace(artifactHref(id, number));
+      }}
+      onClose={() => {
+        location.hash = href(plugin, "");
+      }}
     />
   );
 }
@@ -159,12 +159,12 @@ function ArtifactList(): ReactElement {
                 key={each.id}
                 title={
                   <span className="flex items-center gap-2">
-                    <a
-                      href={href(plugin, each.id)}
+                    <ArtifactLink
+                      id={each.id}
                       className="text-fg-strong hover:underline"
                     >
                       {each.title}
-                    </a>
+                    </ArtifactLink>
                     {each.openComments > 0 && (
                       <Badge>{plural(each.openComments, "comment")}</Badge>
                     )}
@@ -188,8 +188,10 @@ function ArtifactList(): ReactElement {
   );
 }
 
-// Where Pi published an artifact in the chat.
+// Where Pi published an artifact in the chat. It shows the artifact as it
+// is now, and opens it over the chat.
 function PublishedCard({ call }: ToolCallProps): ReactElement {
+  const api = useApi(plugin);
   const details = call.result?.details as Partial<Published> | undefined;
 
   const published =
@@ -197,19 +199,35 @@ function PublishedCard({ call }: ToolCallProps): ReactElement {
       ? (details as Published)
       : undefined;
 
+  const { value: now } = useLoaded(
+    async () =>
+      published === undefined
+        ? undefined
+        : api
+            .get<ArtifactSummary>(`artifacts/${published.id}`)
+            .catch((error: unknown) => {
+              if (isHttpError(error) && error.status === 404) {
+                return null;
+              }
+
+              throw error;
+            }),
+    published?.id ?? "",
+    { changes: ["artifacts"] },
+  );
+
   const title =
+    now?.title ??
     details?.title ??
     (call.args as { title?: string } | undefined)?.title ??
     "Artifact";
 
-  return (
-    <Card
-      padding="none"
-      aria-label={`Artifact ${title}`}
-      className="flex items-center gap-3 px-3 py-2"
-    >
-      <Icon name="paperclip" className="size-4 shrink-0 text-fg-dim" />
-      <div className="flex min-w-0 flex-1 flex-col">
+  const inside = (
+    <>
+      <span className="grid size-11 shrink-0 place-items-center rounded-lg border border-line bg-panel text-fg-dim">
+        <Icon name="file-text" />
+      </span>
+      <span className="flex min-w-0 flex-1 flex-col">
         <span className="truncate text-label font-medium text-fg-strong">
           {title}
         </span>
@@ -220,18 +238,30 @@ function PublishedCard({ call }: ToolCallProps): ReactElement {
               : "truncate text-caption text-fg-dim"
           }
         >
-          {cardStatus(call, published)}
+          {cardStatus(call, published, now)}
         </span>
-      </div>
-      {published !== undefined && (
-        <a
-          href={href(plugin, published.id)}
-          className="text-label text-accent hover:underline"
-        >
-          Open
-        </a>
-      )}
-    </Card>
+      </span>
+    </>
+  );
+
+  const card = cn(
+    cardClass,
+    "flex max-w-[420px] items-center gap-3 px-3 py-2.5",
+  );
+
+  return published !== undefined && now !== null ? (
+    <ArtifactLink
+      id={published.id}
+      label={`Artifact ${title}`}
+      className={cn(card, "hover:bg-hover")}
+    >
+      {inside}
+      <Icon name="chevron-right" className="text-fg-dim" />
+    </ArtifactLink>
+  ) : (
+    <div aria-label={`Artifact ${title}`} className={card}>
+      {inside}
+    </div>
   );
 }
 
@@ -309,148 +339,23 @@ function CommentsNotice({ data }: NoticeProps): ReactElement {
         </ul>
       </details>
       {first !== undefined && (
-        <a
-          href={href(plugin, `${first.artifact}/comments`)}
+        <ArtifactLink
+          id={first.artifact}
+          comments
           className="absolute top-1.5 right-9 text-fg-dim hover:text-fg"
         >
           Open
-        </a>
+        </ArtifactLink>
       )}
     </div>
-  );
-}
-
-// The Session panel's Artifacts tab: what the Session published, the newest
-// open beside the chat.
-function SessionArtifacts({
-  session,
-}: {
-  readonly session: MountedSession;
-}): ReactElement | null {
-  const api = useApi(plugin);
-  const [picked, setPicked] = useState<string>();
-  const [version, setVersion] = useState<number>();
-  const [sharing, setSharing] = useState(false);
-
-  const { value } = useLoaded(
-    async () =>
-      (
-        await api.get<{ artifacts: ArtifactSummary[] }>(
-          `sessions/${session.id}/artifacts`,
-        )
-      ).artifacts,
-    session.id,
-    { changes: ["artifacts"] },
-  );
-
-  const shownId = picked ?? value?.[0]?.id;
-
-  const { value: shown } = useLoaded(
-    async () =>
-      shownId === undefined
-        ? undefined
-        : api.get<ArtifactView>(`artifacts/${shownId}`),
-    shownId ?? "",
-    { changes: ["artifacts"] },
-  );
-
-  if (value === undefined || value.length === 0) {
-    return null;
-  }
-
-  const number = Math.min(version ?? Infinity, shown?.versions ?? 1);
-
-  return (
-    <SessionTab
-      name="artifacts"
-      order={10}
-      label={`Artifacts ${String(value.length)}`}
-      button={`Artifacts, ${String(value.length)} published`}
-      icon="paperclip"
-    >
-      {shown !== undefined && (
-        <div className="flex flex-col gap-2">
-          <div className="flex flex-wrap items-center gap-2">
-            {value.length > 1 ? (
-              <Select
-                aria-label="Artifact"
-                className="min-w-0 flex-1"
-                value={shownId}
-                onChange={(event) => {
-                  setPicked(event.target.value);
-                  setVersion(undefined);
-                }}
-              >
-                {value.map((each) => (
-                  <option key={each.id} value={each.id}>
-                    {each.title}
-                  </option>
-                ))}
-              </Select>
-            ) : (
-              <span className="min-w-0 flex-1 truncate text-label font-medium text-fg-strong">
-                {shown.title}
-              </span>
-            )}
-            <Select
-              aria-label="Version"
-              value={String(number)}
-              onChange={(event) => {
-                setVersion(Number(event.target.value));
-              }}
-            >
-              {[...shown.history].reverse().map((each) => (
-                <option key={each.number} value={each.number}>
-                  {`Version ${String(each.number)} of ${String(shown.versions)}`}
-                </option>
-              ))}
-            </Select>
-            <a
-              href={href(plugin, `${shown.id}/comments`)}
-              className="text-label text-accent hover:underline"
-            >
-              {`Comments ${String(shown.openComments)}`}
-            </a>
-            {shown.access === "steer" && (
-              <Button
-                variant="ghost"
-                onClick={() => {
-                  setSharing(true);
-                }}
-              >
-                Share
-              </Button>
-            )}
-            <a
-              href={versionHref(shown.id, number, shown.versions)}
-              aria-label="Open on its own page"
-              className="text-fg-dim hover:text-fg"
-            >
-              <Icon name="external-link" className="size-4" />
-            </a>
-          </div>
-          <Frame artifact={shown} version={number} className="h-[70vh]" />
-          <p className="text-caption text-fg-dim">
-            Shown in a sandbox: scripts run, but the page can&apos;t reach
-            Pipoca or your sign-in.
-          </p>
-          <ShareDialog
-            artifact={shown}
-            version={number}
-            open={sharing}
-            onClose={() => {
-              setSharing(false);
-            }}
-          />
-        </div>
-      )}
-    </SessionTab>
   );
 }
 
 // The artifacts the person pinned, under Artifacts in the sidebar.
 function Pinned({ path }: NavItemsProps): ReactElement | null {
   const api = useApi(plugin);
+  const { params } = useOverlay();
+  const shown = params.get("artifact") ?? path?.split("/")[0];
 
   const { value } = useLoaded(
     async () =>
@@ -467,15 +372,13 @@ function Pinned({ path }: NavItemsProps): ReactElement | null {
     <ul aria-label="Pinned artifacts" className="flex flex-col">
       {value.map((each) => (
         <li key={each.id}>
-          <a
-            href={href(plugin, each.id)}
-            aria-current={
-              path?.startsWith(each.id) === true ? "page" : undefined
-            }
+          <ArtifactLink
+            id={each.id}
+            current={shown === each.id}
             className="block truncate rounded-md px-3 py-1 pl-11 text-label text-fg-dim hover:bg-hover hover:text-fg aria-[current=page]:text-fg-strong"
           >
             {each.title}
-          </a>
+          </ArtifactLink>
         </li>
       ))}
     </ul>
@@ -485,6 +388,7 @@ function Pinned({ path }: NavItemsProps): ReactElement | null {
 function cardStatus(
   call: ToolCallProps["call"],
   published: Published | undefined,
+  now: ArtifactSummary | null | undefined,
 ): string {
   if (call.status === "running") {
     return "Publishing";
@@ -494,7 +398,25 @@ function cardStatus(
     return call.result?.text ?? "Not published";
   }
 
-  return published?.kind === undefined
-    ? `Version ${String(published?.version ?? 1)}`
-    : `${kindLabel(published.kind)} · version ${String(published.version)}`;
+  if (now === null) {
+    return "Deleted";
+  }
+
+  if (now === undefined) {
+    return `Version ${String(published?.version ?? 1)}`;
+  }
+
+  return [
+    kindLabel(now.kind),
+    `version ${String(now.versions)}`,
+    audienceLabel(now),
+  ].join(" · ");
+}
+
+function galleryLine(artifact: ArtifactSummary, now: number): string {
+  return [
+    kindLabel(artifact.kind),
+    `v${String(artifact.versions)}`,
+    ago(new Date(artifact.updatedAt).toISOString(), now),
+  ].join(" · ");
 }

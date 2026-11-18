@@ -1,4 +1,11 @@
-import { ago, useApi, useDraft, useLoaded, useNow } from "@pipoca/plugins/web";
+import {
+  ago,
+  href,
+  useApi,
+  useDraft,
+  useLoaded,
+  useNow,
+} from "@pipoca/plugins/web";
 import {
   Badge,
   Button,
@@ -23,6 +30,15 @@ import { type DiffLine, lineDiff } from "../src/diff";
 
 export const base = "/api/ext/artifacts";
 
+// The link that opens an artifact alone in the window, and that people
+// share. A version's link keeps showing that version.
+export function artifactHref(id: string, version?: number): string {
+  return href(
+    plugin,
+    version === undefined ? id : `${id}/v/${String(version)}`,
+  );
+}
+
 const sandbox =
   "allow-scripts allow-popups allow-popups-to-escape-sandbox allow-modals allow-forms";
 
@@ -41,6 +57,8 @@ export function Frame({
   readonly onSelect?: (text: string) => void;
   // Text comments quote, which the page marks.
   readonly highlights?: readonly string[];
+  // Its size and edge, in place of a bordered box three quarters as tall as
+  // the window.
   readonly className?: string;
 }): ReactElement {
   const frame = useRef<HTMLIFrameElement>(null);
@@ -94,8 +112,8 @@ export function Frame({
       {...(artifact.kind !== "pdf" && { sandbox })}
       onLoad={highlight}
       className={cn(
-        "h-[75vh] w-full shrink-0 rounded-lg border border-line bg-white",
-        className,
+        "w-full shrink-0 bg-white",
+        className ?? "h-[75vh] rounded-lg border border-line",
       )}
     />
   );
@@ -117,12 +135,9 @@ async function textOf(id: string, version: number): Promise<string> {
 export function Compare({
   artifact,
   version,
-  narrow = false,
 }: {
   readonly artifact: ArtifactView;
   readonly version: number;
-  // In a rail beside the artifact: one picture above the other.
-  readonly narrow?: boolean;
 }): ReactElement {
   const [against, setAgainst] = useState(Math.max(1, version - 1));
   const text = isText(artifact.kind);
@@ -161,17 +176,9 @@ export function Compare({
       {text ? (
         <DiffView lines={lines} />
       ) : (
-        <div className={cn("grid gap-3", !narrow && "md:grid-cols-2")}>
-          <Frame
-            artifact={artifact}
-            version={against}
-            className={narrow ? "h-60" : "h-[60vh]"}
-          />
-          <Frame
-            artifact={artifact}
-            version={version}
-            className={narrow ? "h-60" : "h-[60vh]"}
-          />
+        <div className="grid gap-3 md:grid-cols-2">
+          <Frame artifact={artifact} version={against} />
+          <Frame artifact={artifact} version={version} />
         </div>
       )}
     </div>

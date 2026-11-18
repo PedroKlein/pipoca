@@ -19,9 +19,17 @@ A [Project](projects.md#the-project-folder) also has a folder its Sessions share
 
 ## Artifacts
 
-Pi publishes a page, a Markdown document, a picture, a PDF or a CSV table with `publish_artifact`, and a change as a new version at the same link (the `artifacts` plugin). The chat shows a card that opens it on its own page: the artifact beside its versions, each with who made it, when and what changed (`publish_artifact` takes a short `note`), a link to copy for any version, a download, and a banner on an earlier version that offers to go back to the latest or restore it. The **Artifacts** tab beside a Session shows the newest one it published, and picks among the others.
+Pi publishes a page, a Markdown document, a picture, a PDF or a CSV table with `publish_artifact`, and a change as a new version at the same link (the `artifacts` plugin). The chat shows a card with the artifact as it is now, which opens it over the chat. **Esc**, **Back** or the close button takes you back, and the address keeps it open when you reload.
 
-The **Artifacts** page lists yours, the ones shared with you and the team's, with a search over titles and Session names, each row saying who opens it and how many comments are open. The pin button keeps an artifact in the sidebar.
+The viewer's header holds:
+
+- The **version** menu, with every version, who made it, when and what changed (`publish_artifact` takes a short `note`), and **Compare versions**. On an earlier version a bar offers to go back to the latest or restore it.
+- **Comment**, which opens the comments beside the artifact, with the number still open.
+- **Share**, for whoever steers the Session.
+- **Open in a new tab**, which shows the artifact alone in the window, without the sidebar. That's the link people share.
+- **More**: download, copy a link to the latest or to this version, pin to the sidebar, restore, edit a Markdown artifact, go to the Session, and delete.
+
+The **Artifacts** page lists yours, the ones shared with you and the team's, with a search over titles and Session names, each row saying who opens it and how many comments are open. A row, a pinned artifact in the sidebar and a comment row in the chat open the same viewer.
 
 ### Who sees it
 
@@ -37,7 +45,7 @@ An artifact runs in a sandbox on an opaque origin, so it can't reach Pipoca or y
 - Pi reads sent threads with `read_artifact_comments`, answers in each thread with `reply_artifact_comment`, shown as "Pi, via" whoever sent it, and resolves the ones it finished with `resolve_artifact_comment`. A later reply from you in a sent thread reaches Pi again, until the thread is resolved. Comment text reaches Pi as data, never as instructions.
 - An archived Session can't be asked. People can still discuss its artifacts.
 - `list_artifacts` says how many comments are open on each.
-- **Compare** shows two versions as a line diff, or side by side for pictures and PDFs.
+- **Compare versions** shows two versions as a line diff, or side by side for pictures and PDFs.
 - Whoever steers the Session can edit a Markdown artifact's source and save it as a new version, and Pi is told to read it before changing it again.
 - A page can ask for a message with `parent.postMessage({ pipoca: "draft", text }, "*")`: it lands in the Session's composer, and you decide whether to send it.
 

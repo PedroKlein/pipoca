@@ -18,29 +18,55 @@ Object.assign(globalThis, {
   },
 });
 
-test("a published artifact shows in the chat as a card that opens it", () => {
-  const page = renderPart(web, "session.toolCall:publish_artifact", {
-    session: sessionWith({}),
-    call: {
-      id: "call-1",
-      name: "publish_artifact",
-      args: { path: "report.md" },
-      status: "done",
-      result: {
-        text: "Published",
-        details: { id: "a1", title: "Sales report", version: 2 },
-        failed: false,
+test("a published artifact shows in the chat as a card of how it is now, which opens it over the chat", async () => {
+  const asked: string[] = [];
+
+  const page = renderPart(
+    web,
+    "session.toolCall:publish_artifact",
+    {
+      session: sessionWith({}),
+      call: {
+        id: "call-1",
+        name: "publish_artifact",
+        args: { path: "report.md" },
+        status: "done",
+        result: {
+          text: "Published",
+          details: { id: "a1", title: "Sales report", version: 2 },
+          failed: false,
+        },
       },
     },
+    {
+      hash: "#session-1",
+      fetch: async (url) => {
+        await Promise.resolve();
+
+        asked.push(url);
+
+        return Response.json(
+          artifact({ title: "Sales report", kind: "markdown", versions: 3 }),
+        );
+      },
+    },
+  );
+
+  await act(async () => until(() => asked.length === 1));
+
+  const card = page.querySelector<HTMLAnchorElement>(
+    "a[aria-label='Artifact Sales report']",
+  );
+
+  expect(card?.textContent).toContain("Markdown · version 3 · Only you");
+  expect(card?.getAttribute("href")).toBe("#plugin/artifacts/a1");
+
+  await act(async () => {
+    card?.click();
+    await until(() => location.hash.includes("?"));
   });
 
-  const card = page.querySelector("[aria-label='Artifact Sales report']");
-
-  expect(card?.textContent).toContain("Version 2");
-
-  expect(card?.querySelector("a")?.getAttribute("href")).toBe(
-    "#plugin/artifacts/a1",
-  );
+  expect(location.hash).toBe("#session-1?artifact=a1");
 });
 
 test("a publish that failed says why, with nothing to open", () => {
@@ -76,6 +102,7 @@ test("threads sent to Pi show in the chat as one row that opens them, with their
       data: { batch: "b1" },
     },
     {
+      hash: "#session-1",
       fetch: async (url) => {
         await Promise.resolve();
 
@@ -129,7 +156,7 @@ test("threads sent to Pi show in the chat as one row that opens them, with their
   expect(page.querySelector("details")?.open).toBe(true);
 
   expect(page.querySelector("a")?.getAttribute("href")).toBe(
-    "#plugin/artifacts/a1/comments",
+    "#plugin/artifacts/a1",
   );
 
   expect(
@@ -140,51 +167,122 @@ test("threads sent to Pi show in the chat as one row that opens them, with their
     "Ana on “three times”Attempts or retries?",
     "Pedro on version 1Add the error rate",
   ]);
+
+  await act(async () => {
+    page.querySelector("a")?.click();
+    await until(() => location.hash.includes("?"));
+  });
+
+  expect(location.hash).toBe("#session-1?artifact=a1&comments=1");
 });
 
-test("the Session panel's Artifacts tab shows the newest artifact the Session published", async () => {
+test("an artifact opens over the page with what can be done with it, and closes back to the page", async () => {
   const summary = artifact({ title: "Checkout latency", versions: 3 });
-
   const asked: string[] = [];
 
   const page = renderPart(
     web,
-    "session.header",
-    { session: sessionWith({}) },
+    "overlay",
+    {},
     {
+      hash: "#session-1?artifact=a1",
       fetch: async (url) => {
         await Promise.resolve();
 
         asked.push(url);
 
         return Response.json(
-          url.endsWith("/sessions/session-1/artifacts")
-            ? { artifacts: [summary] }
-            : { ...summary, ...viewed(3) },
+          url.endsWith("/comments")
+            ? { comments: [] }
+            : { ...summary, ...viewed(3), openComments: 2 },
         );
       },
     },
   );
 
-  // React draws what loaded once each act ends: the list, then the newest.
+  // The artifact loads, and then what its comments quote.
   await act(async () => until(() => asked.length === 1));
   await act(async () => until(() => asked.length === 2));
 
-  act(() => {
-    page
-      .querySelector<HTMLButtonElement>("button[aria-label^=Artifacts]")
-      ?.click();
-  });
+  const dialog = page.querySelector("dialog");
+
+  expect(dialog?.querySelector("h2")?.textContent).toBe("Checkout latency");
+
+  expect(dialog?.textContent).toContain(
+    "From “Why did checkout slow down?” · Only you",
+  );
 
   expect(page.querySelector("iframe")?.getAttribute("title")).toBe(
     "Checkout latency, version 3",
   );
 
+  const button = (label: string): HTMLButtonElement | undefined =>
+    [...page.querySelectorAll<HTMLButtonElement>("button")].find(
+      (each) =>
+        each.getAttribute("aria-label") === label || each.textContent === label,
+    );
+
+  expect(button("Versions")?.textContent).toBe("Version 3 · latest");
+  expect(button("Comment2")).toBeDefined();
+  expect(button("Share")).toBeDefined();
+
   expect(
     page
-      .querySelector("[role=dialog] a[aria-label='Open on its own page']")
+      .querySelector("a[aria-label='Open in a new tab']")
       ?.getAttribute("href"),
   ).toBe("#plugin/artifacts/a1");
+
+  act(() => {
+    button("More")?.click();
+  });
+
+  expect(
+    [...page.querySelectorAll("[role=menu] button")].map(
+      (each) => each.textContent,
+    ),
+  ).toEqual([
+    "Download",
+    "Copy link",
+    "Copy link to version 3",
+    "Pin to sidebar",
+    "Go to the Session",
+    "Delete artifact…",
+  ]);
+
+  act(() => {
+    button("More")?.click();
+    button("Versions")?.click();
+  });
+
+  expect(
+    [...page.querySelectorAll("[role=menu] button")].map(
+      (each) => each.textContent,
+    ),
+  ).toEqual([
+    "Version 3latest · Pi · just now",
+    "Version 2Pi · just now",
+    "Version 1Pi · just now · first draft",
+    "Compare versions…",
+  ]);
+
+  await act(async () => {
+    button("Version 1Pi · just now · first draft")?.click();
+    await until(() => location.hash.includes("v=1"));
+  });
+
+  expect(location.hash).toBe("#session-1?artifact=a1&v=1");
+
+  expect(dialog?.textContent).toContain(
+    "You're viewing version 1. The latest is version 3.",
+  );
+
+  await act(async () => {
+    button("Close")?.click();
+    await until(() => !location.hash.includes("?"));
+  });
+
+  expect(location.hash).toBe("#session-1");
+  expect(page.querySelector("dialog")).toBeNull();
 });
 
 function artifact(o: Partial<ArtifactSummary> = {}): ArtifactSummary {
@@ -214,7 +312,7 @@ function viewed(versions: number) {
       author: "session:session-1",
       by: "Pi",
       note: at === 0 ? "first draft" : "",
-      createdAt: 0,
+      createdAt: Date.now(),
     })),
     access: "steer",
     shares: [],
@@ -224,7 +322,7 @@ function viewed(versions: number) {
 
 const slots = { page: web.pages?.[0]?.Page };
 
-test("the Artifacts page shows yours, the ones shared with you and the team's, and finds them by title or Session", async () => {
+test("the Artifacts page shows yours, the ones shared with you and the team's, finds them by title or Session, and opens one over the page", async () => {
   const asked: string[] = [];
 
   const page = renderPart(
@@ -232,6 +330,7 @@ test("the Artifacts page shows yours, the ones shared with you and the team's, a
     "page",
     { path: "" },
     {
+      hash: "#plugin/artifacts",
       fetch: async (url) => {
         await Promise.resolve();
 
@@ -305,9 +404,19 @@ test("the Artifacts page shows yours, the ones shared with you and the team's, a
   });
 
   expect(titles()).toEqual(["Billing flow"]);
+
+  await act(async () => {
+    page
+      .querySelector<HTMLAnchorElement>("[aria-label=Artifacts] li a")
+      ?.click();
+
+    await until(() => location.hash.includes("?"));
+  });
+
+  expect(location.hash).toBe("#plugin/artifacts?artifact=a2");
 });
 
-test("an earlier version says the link shows the latest, lists every version and restores", async () => {
+test("a link opens the artifact alone in the window, and an earlier version offers the latest and a restore", async () => {
   const asked: { url: string; method: string }[] = [];
 
   const page = renderPart(
@@ -315,6 +424,7 @@ test("an earlier version says the link shows the latest, lists every version and
     "page",
     { path: "a1/v/2" },
     {
+      hash: "#plugin/artifacts/a1/v/2",
       fetch: async (url, init) => {
         await Promise.resolve();
 
@@ -331,29 +441,23 @@ test("an earlier version says the link shows the latest, lists every version and
     },
   );
 
+  // The artifact loads, and then what its comments quote.
+  await act(async () => until(() => asked.length === 1));
   await act(async () => until(() => asked.length === 2));
 
+  expect(web.pages?.[0]?.bare?.("a1/v/2")).toBe(true);
+  expect(web.pages?.[0]?.bare?.("")).toBe(false);
+
   expect(page.textContent).toContain(
-    "You're looking at version 2. People with the link see version 3 unless the link names a version.",
+    "By Ana · from “Why did checkout slow down?”",
   );
 
   expect(page.textContent).toContain(
-    "Ana · from Why did checkout slow down? · Only you",
+    "You're viewing version 2. The latest is version 3.",
   );
 
-  expect(
-    [...page.querySelectorAll("ol[aria-label=Versions] a")].map((each) => [
-      each.getAttribute("href"),
-      each.getAttribute("aria-current"),
-    ]),
-  ).toEqual([
-    ["#plugin/artifacts/a1", null],
-    ["#plugin/artifacts/a1/v/2", "page"],
-    ["#plugin/artifacts/a1/v/1", null],
-  ]);
-
-  expect(page.textContent).toContain("Pi · ");
-  expect(page.textContent).toContain("first draft");
+  expect(page.querySelector("button[aria-label=Close]")).toBeNull();
+  expect(page.querySelector("a[aria-label='Open in a new tab']")).toBeNull();
 
   await act(async () => {
     [...page.querySelectorAll<HTMLButtonElement>("button")]
@@ -367,6 +471,8 @@ test("an earlier version says the link shows the latest, lists every version and
     url: "/api/ext/artifacts/artifacts/a1/restore",
     method: "POST",
   });
+
+  await until(() => location.hash === "#plugin/artifacts/a1");
 });
 
 test("sharing names people and what they can do, and the link opens the latest or one version", async () => {
@@ -398,6 +504,8 @@ test("sharing names people and what they can do, and the link opens the latest o
     },
   );
 
+  // The artifact loads, and then what its comments quote.
+  await act(async () => until(() => asked.length === 1));
   await act(async () => until(() => asked.length === 2));
 
   const button = (label: string): HTMLButtonElement | undefined =>

@@ -15,6 +15,8 @@ const sizes = {
   sm: "w-[min(480px,calc(100vw-32px))]",
   md: "w-[min(600px,calc(100vw-32px))]",
   lg: "w-[min(720px,calc(100vw-32px))]",
+  // Almost the whole window, such as a viewer; all of it on a phone.
+  full: "h-[calc(100dvh-56px)] max-h-none w-[calc(100vw-80px)] max-w-none max-sm:h-dvh max-sm:w-screen max-sm:rounded-none",
 } as const;
 
 // A modal on the browser's own dialog, which traps focus and closes on
