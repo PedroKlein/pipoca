@@ -1685,6 +1685,31 @@ test("an artifact is a design doc by its front matter, its meta tag or a person'
   expect(await sent("ana", "PUT", "status", { status: "decided" })).toBe(200);
   expect((await doc())?.status).toBe("decided");
 
+  // Only whoever steers it picks reviewers. Keeping one keeps their
+  // verdict, and a decided doc stays decided.
+  expect(await sent("bo", "PUT", "reviewers", { reviewers: [] })).toBe(404);
+
+  expect(
+    await sent("ana", "PUT", "reviewers", { reviewers: ["Bo", "Cy"] }),
+  ).toBe(200);
+
+  expect(await doc()).toMatchObject({
+    status: "decided",
+    reviewers: [{ verdict: "approved" }, { verdict: "changes" }],
+  });
+
+  // Someone it's no longer shared with stops reviewing it, and can't be
+  // asked again.
+  await t.as("ana").put(`artifacts/${id}/shares`, {
+    shares: [{ name: "Bo", role: "comment" }],
+  });
+
+  expect((await doc())?.reviewers.map(({ name }) => name)).toEqual(["Bo"]);
+
+  expect(
+    await sent("ana", "PUT", "reviewers", { reviewers: ["Bo", "Cy"] }),
+  ).toBe(400);
+
   // Unmarked, it's a plain artifact again.
   expect(await sent("ana", "PUT", "doc", { type: null })).toBe(200);
   expect(await doc()).toBeNull();
@@ -1704,6 +1729,30 @@ test("an artifact is a design doc by its front matter, its meta tag or a person'
   expect(
     (await t.as("ana").get<ArtifactView>(`artifacts/${spec}`)).doc,
   ).toEqual({ type: "spec", status: "review", marked: "file", reviewers: [] });
+
+  // A person's status beats the file's, and asking no one starts no review.
+  const onSpec = async (method: string, path: string, body: unknown) =>
+    (
+      await t.as("ana").raw(`artifacts/${spec}/${path}`, {
+        method,
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      })
+    ).status;
+
+  expect(await onSpec("PUT", "status", { status: "draft" })).toBe(200);
+  expect(await onSpec("PUT", "reviewers", { reviewers: [] })).toBe(200);
+
+  expect(
+    (await t.as("ana").get<ArtifactView>(`artifacts/${spec}`)).doc?.status,
+  ).toBe("draft");
+
+  // Unmarked by a person, a file's mark no longer counts.
+  expect(await onSpec("PUT", "doc", { type: null })).toBe(200);
+
+  expect(
+    (await t.as("ana").get<ArtifactView>(`artifacts/${spec}`)).doc,
+  ).toBeNull();
 
   const page = await (
     await t.as("ana").raw(`artifacts/${spec}/view`, { method: "GET" })
@@ -1727,4 +1776,37 @@ test("an artifact is a design doc by its front matter, its meta tag or a person'
   expect(
     (await t.as("ana").get<ArtifactView>(`artifacts/${plan}`)).doc,
   ).toEqual({ type: "plan", status: "draft", marked: "file", reviewers: [] });
+
+  // Any order and case in the tag or front matter, and only kinds of doc.
+  const marked = async (name: string, text: string) => {
+    await writeFile(join(cwd, name), text);
+
+    const { details } = await part.tool("publish_artifact", { path: name });
+
+    return (
+      await t
+        .as("ana")
+        .get<ArtifactView>(`artifacts/${(details as { id: string }).id}`)
+    ).doc;
+  };
+
+  expect(
+    await marked(
+      "upper.html",
+      '<meta name="pipoca:doc" content="Design Doc"><meta name="pipoca:status" content="Decided">',
+    ),
+  ).toMatchObject({ type: "design", status: "decided" });
+
+  expect(
+    await marked(
+      "quoted.md",
+      '---\ndoc: "Plan"\nstatus: "in review"\n---\nText\n',
+    ),
+  ).toMatchObject({ type: "plan", status: "review" });
+
+  expect(await marked("memo.md", "---\ndoc: memo\n---\nText\n")).toBeNull();
+
+  expect(
+    await marked("late.md", "# Notes\n\n---\ndoc: design\n---\n"),
+  ).toBeNull();
 });

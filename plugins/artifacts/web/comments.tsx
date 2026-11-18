@@ -333,7 +333,7 @@ export function CommentList({
   artifact,
   version,
   threads,
-  shown,
+  shown: chosenList,
   onShown,
   margin,
   loaded,
@@ -389,6 +389,10 @@ export function CommentList({
   const questions = open.filter(({ top }) => top.kind === "question");
   const lists = { open, resolved, questions };
 
+  // Unmarked meanwhile, a doc's questions are just open threads again.
+  const shown =
+    chosenList === "questions" && artifact.doc === null ? "open" : chosenList;
+
   const listed =
     margin === undefined
       ? lists[shown]
@@ -399,9 +403,11 @@ export function CommentList({
   const root = useRef<HTMLDivElement>(null);
   const list = useRef<HTMLUListElement>(null);
 
+  const order = listed.map(({ top }) => top.id).join(" ");
+
   useLayoutEffect(() => {
     lineUp(root.current, list.current, margin);
-  });
+  }, [margin, order]);
 
   const drafts = artifact.askable
     ? open.filter(({ top }) => top.sentBy === null)
@@ -519,7 +525,7 @@ export function CommentList({
                   ? "1 thread not sent to Pi"
                   : `${String(drafts.length)} threads not sent to Pi`}
               </b>
-              <span className="text-caption text-fg-dim">
+              <span className="text-caption text-fg">
                 {chosen.length === drafts.length
                   ? "Pi handles them in one turn and publishes one version"
                   : leftOutLine(drafts.length - chosen.length)}

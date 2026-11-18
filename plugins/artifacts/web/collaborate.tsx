@@ -247,37 +247,45 @@ export function Frame({
   );
 }
 
-// What a page said of its headings, kept to what's well formed: the page
-// is the artifact's, not Pipoca's.
+const finite = (value: unknown): value is number =>
+  typeof value === "number" && Number.isFinite(value);
+
+const shownSections = 200;
+const shownPins = 500;
+
+// What a page said of its headings, kept to what's well formed and to as
+// many as are drawn: the page is the artifact's, not Pipoca's.
 function outlineOf(
   sections: unknown,
   tops: unknown,
 ): Omit<Outline, "scrolled"> {
   const numbers = (value: unknown): number[] =>
-    Array.isArray(value)
-      ? value.filter((each): each is number => typeof each === "number")
-      : [];
+    Array.isArray(value) ? value.slice(0, shownPins).filter(finite) : [];
 
   return {
-    sections: (Array.isArray(sections) ? sections : []).flatMap(
-      (each: unknown) => {
-        const { text, level, threads } = (each ?? {}) as Record<
-          string,
-          unknown
-        >;
+    sections: (Array.isArray(sections)
+      ? sections.slice(0, shownSections)
+      : []
+    ).flatMap((each: unknown) => {
+      const { text, level, threads } = (each ?? {}) as Record<string, unknown>;
 
-        return typeof text === "string" && typeof level === "number"
-          ? [{ text, level, threads: numbers(threads) }]
-          : [];
-      },
-    ),
-    tops: (Array.isArray(tops) ? tops : []).flatMap((each: unknown) => {
-      const { n, top } = (each ?? {}) as Record<string, unknown>;
-
-      return typeof n === "number" && typeof top === "number"
-        ? [{ n, top }]
+      return typeof text === "string" && finite(level)
+        ? [
+            {
+              text: text.slice(0, 80),
+              level: Math.min(4, Math.max(1, Math.round(level))),
+              threads: numbers(threads),
+            },
+          ]
         : [];
     }),
+    tops: (Array.isArray(tops) ? tops.slice(0, shownPins) : []).flatMap(
+      (each: unknown) => {
+        const { n, top } = (each ?? {}) as Record<string, unknown>;
+
+        return finite(n) && finite(top) ? [{ n, top }] : [];
+      },
+    ),
   };
 }
 

@@ -55,6 +55,7 @@ export function DocStatusPill({
   readonly onStatus: (status: DocStatus) => void;
 }): ReactElement {
   const label = statusLabels[doc.status];
+
   const look = cn(
     "inline-flex h-6 items-center gap-1.5 rounded-full px-2.5 text-caption font-medium whitespace-nowrap before:size-1.5 before:rounded-full before:bg-current",
     statusLooks[doc.status],
@@ -127,6 +128,9 @@ export function ReviewBar({
       className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-line px-4.5 py-2"
     >
       <h3 className="text-label font-medium text-fg-strong">Review</h3>
+      {doc.reviewers.length === 0 && (
+        <span className="text-caption text-fg-dim">No reviewers yet</span>
+      )}
       <ul className="flex flex-wrap items-center gap-3">
         {doc.reviewers.map((reviewer) => (
           <ReviewerChip
@@ -219,7 +223,7 @@ function ReviewerChip({
           size="xs"
           iconOnly
           aria-label={`Take ${reviewer.name} off the review`}
-          className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+          className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100"
           onClick={onRemove}
         >
           <Icon name="x" className="size-3" />
@@ -252,6 +256,7 @@ export function OutlineNav({
   );
 
   const top = Math.min(...sections.map(({ level }) => level));
+
   const questions = threads.filter(
     ({ top: each }) => each.kind === "question" && !each.resolved,
   ).length;

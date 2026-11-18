@@ -213,12 +213,41 @@ export function previewed(name: string, text: string): string {
   );
 }
 
-// Front matter says what the file is, for tools, and isn't drawn.
-const frontMatter = /^---\r?\n[\s\S]*?\r?\n---(\r?\n|$)/;
+// Markdown's leading key: value block, which says what the file is and
+// isn't drawn. Values come lower case, without quotes.
+export function frontMatter(text: string): {
+  readonly fields: Readonly<Record<string, string>>;
+  readonly body: string;
+} {
+  const found =
+    /^---\r?\n(\w+:[^\n]*(?:\r?\n[^\n]*)*?)\r?\n---(?:\r?\n|$)/.exec(text);
+
+  if (found === null) {
+    return { fields: {}, body: text };
+  }
+
+  return {
+    fields: Object.fromEntries(
+      (found[1] ?? "").split(/\r?\n/).flatMap((line) => {
+        const pair = /^(\w+):\s*(.*?)\s*$/.exec(line);
+
+        return pair === null
+          ? []
+          : [
+              [
+                pair[1] ?? "",
+                (pair[2] ?? "").replace(/^["']|["']$/g, "").toLowerCase(),
+              ],
+            ];
+      }),
+    ),
+    body: text.slice(found[0].length),
+  };
+}
 
 function markdown(text: string, scriptHosts: readonly string[]): string {
   const html = marked
-    .parse(text.replace(frontMatter, ""), { async: false, gfm: true })
+    .parse(frontMatter(text).body, { async: false, gfm: true })
     .replace(
       /<pre><code class="language-mermaid">([\s\S]*?)<\/code><\/pre>/g,
       '<pre class="mermaid">$1</pre>',

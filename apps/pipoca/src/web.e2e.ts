@@ -6930,9 +6930,10 @@ test("reads a design doc with its status, an outline of its sections and its com
   };
 
   await level();
-  await frame.locator("body").evaluate(() => {
-    scrollBy(0, 120);
-  });
+
+  await frame
+    .locator("body")
+    .evaluate("(body) => body.ownerDocument.defaultView.scrollBy(0, 120)");
 
   await level();
 
@@ -6940,7 +6941,12 @@ test("reads a design doc with its status, an outline of its sections and its com
   await frame.getByText("Store every event.").waitFor();
 
   await until(
-    async () => frame.locator("body").evaluate(() => scrollY),
+    async () =>
+      Number(
+        await frame
+          .locator("body")
+          .evaluate("(body) => body.ownerDocument.defaultView.scrollY"),
+      ),
     (y) => y > 300,
   );
 });

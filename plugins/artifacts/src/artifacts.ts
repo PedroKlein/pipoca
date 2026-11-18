@@ -1,4 +1,4 @@
-import { type PreviewKind, previewKind } from "@pipoca/plugins";
+import { frontMatter, type PreviewKind, previewKind } from "@pipoca/plugins";
 
 // What an artifact is drawn as, from its file's extension (ADR 0078).
 export type Kind = Exclude<PreviewKind, "text">;
@@ -111,12 +111,15 @@ const statusWords: Readonly<Record<string, DocStatus>> = {
 // status: in review, or an HTML page's pipoca:doc and pipoca:status meta
 // tags.
 export function docMark(kind: Kind, text: string): DocMark | undefined {
-  const said =
-    kind === "markdown"
-      ? frontMatter(text)
-      : kind === "html"
-        ? metaTags(text)
-        : {};
+  const readers: Partial<
+    Record<Kind, (text: string) => Readonly<Record<string, string>>>
+  > = {
+    markdown: (each) => frontMatter(each).fields,
+    html: metaTags,
+  };
+
+  const said = readers[kind]?.(text) ?? {};
+
   const type = said["doc"]?.replace(/ doc$/, "");
   const status = statusWords[said["status"] ?? ""];
 
@@ -125,25 +128,6 @@ export function docMark(kind: Kind, text: string): DocMark | undefined {
   }
 
   return { type: type as DocType, ...(status !== undefined && { status }) };
-}
-
-function frontMatter(text: string): Readonly<Record<string, string>> {
-  const block = /^---\r?\n([\s\S]*?)\r?\n---(\r?\n|$)/.exec(text)?.[1] ?? "";
-
-  return Object.fromEntries(
-    block.split(/\r?\n/).flatMap((line) => {
-      const pair = /^(\w+):\s*(.*?)\s*$/.exec(line);
-
-      return pair === null
-        ? []
-        : [
-            [
-              pair[1] ?? "",
-              (pair[2] ?? "").replace(/^["']|["']$/g, "").toLowerCase(),
-            ],
-          ];
-    }),
-  );
 }
 
 function metaTags(text: string): Readonly<Record<string, string>> {

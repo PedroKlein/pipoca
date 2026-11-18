@@ -380,6 +380,17 @@ export const server = defineServer(
       return marks.get(latest.hash);
     };
 
+    // Someone who can no longer see the doc no longer reviews it.
+    const reviewersOf = (
+      artifact: Row,
+    ): readonly { user_id: string; verdict: Verdict | null }[] =>
+      store
+        .all<{ user_id: string; verdict: Verdict | null }>(
+          "select user_id, verdict from artifacts_reviewers where artifact_id = ? order by added_at, user_id",
+          artifact.id,
+        )
+        .filter(({ user_id }) => sees(artifact, user_id));
+
     const docOf = async (
       artifact: Row,
       person: string,
@@ -395,16 +406,11 @@ export const server = defineServer(
         type,
         status: artifact.doc_status ?? file?.status ?? "draft",
         marked: artifact.doc_type === null ? "file" : "person",
-        reviewers: store
-          .all<{ user_id: string; verdict: Verdict | null }>(
-            "select user_id, verdict from artifacts_reviewers where artifact_id = ? order by added_at, user_id",
-            artifact.id,
-          )
-          .map(({ user_id, verdict }) => ({
-            name: nameOf(user_id),
-            you: user_id === person,
-            verdict,
-          })),
+        reviewers: reviewersOf(artifact).map(({ user_id, verdict }) => ({
+          name: nameOf(user_id),
+          you: user_id === person,
+          verdict,
+        })),
       };
     };
 

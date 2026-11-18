@@ -135,6 +135,7 @@ const pinAndShow = () => {
   shown = pins.find((each) => each.active)?.n ?? null;
 };
 addEventListener("resize", pin);
+addEventListener("load", pin);
 addEventListener("message", (event) => {
   if (event.source !== parent) return;
   if (event.data?.pipoca === "commenting") {

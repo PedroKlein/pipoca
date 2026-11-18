@@ -444,9 +444,11 @@ test("Dock pins the viewer beside the page, stays chosen for the person, and is 
   await drawn(() => page.querySelector("aside h2")?.textContent === "Rollout");
 
   expect(page.querySelector("dialog[open]")).toBeNull();
+
   expect(page.querySelector("aside")?.getAttribute("aria-labelledby")).toBe(
     page.querySelector("aside h2")?.id ?? "",
   );
+
   expect(dock()?.getAttribute("aria-pressed")).toBe("true");
 
   // Another page the person opens docks it too.
@@ -488,6 +490,7 @@ test("Dock pins the viewer beside the page, stays chosen for the person, and is 
   await drawn(
     () => page.querySelector("dialog[open] h2")?.textContent === "Rollout",
   );
+
   expect(page.querySelector("aside")).toBeNull();
   expect(dock()).toBeUndefined();
 
@@ -519,6 +522,11 @@ test("on a phone the viewer moves versions into More, keeps Share and Download a
       fetch: serving(
         { ...artifact({ title: "Rollout", versions: 2 }), ...viewed(2) },
         asked,
+        {
+          comments: () => [
+            thread({ id: "t1", quote: "Rollout", body: "Sooner?" }),
+          ],
+        },
       ),
     },
   );
@@ -534,6 +542,7 @@ test("on a phone the viewer moves versions into More, keeps Share and Download a
     expect(page.querySelector("dialog[open] h2 + span")?.textContent).toBe(
       "Version 2 · latest",
     );
+
     expect(versionMenu(page)).toBeUndefined();
 
     act(() => {
@@ -576,15 +585,47 @@ test("on a phone the viewer moves versions into More, keeps Share and Download a
     });
 
     expect(page.querySelector("aside[aria-label=Comments]")).toBeNull();
+
     expect(
       buttons(page)
         .find((each) => each.textContent.startsWith("Comment"))
         ?.getAttribute("aria-pressed"),
     ).toBe("true");
 
+    // A pin on the page brings its thread up in the sheet.
+    frameOf(page).tell({ pipoca: "pin", n: 1 });
+
+    expect(
+      page.querySelector("aside[aria-label=Comments]")?.textContent,
+    ).toContain("Sooner?");
+
+    act(() => {
+      named(page, "Back to the page")?.click();
+    });
+
     commentMode(page);
 
     expect(page.querySelector("aside[aria-label=Comments]")).not.toBeNull();
+
+    // A plain artifact has no questions to roll up.
+    expect(
+      buttons(page).some((each) => each.textContent.startsWith("Questions")),
+    ).toBe(false);
+
+    act(() => {
+      named(page, "Back to the page")?.click();
+    });
+
+    // Wider again, the list is back beside the page.
+    act(() => {
+      resize(1280);
+    });
+
+    await drawn(
+      () => page.querySelector("aside[aria-label=Comments]") !== null,
+    );
+
+    expect(named(page, "Back to the page")).toBeUndefined();
 
     commentMode(page);
 
@@ -4224,12 +4265,49 @@ test("a design doc says so, shows its status and reviewers, and a reviewer appro
     web,
     "overlay",
     {},
-    { fetch: serving({ ...designDoc(), access: "comment" }, []) },
+    {
+      fetch: serving(
+        {
+          ...designDoc({
+            reviewers: [{ name: "Ana", you: false, verdict: "approved" }],
+          }),
+          access: "comment",
+        },
+        [],
+      ),
+    },
   );
 
   await drawn(() => other.querySelector("[aria-label=Review]") !== null);
   expect(named(other, "Approve")).toBeUndefined();
   expect(named(other, "Add reviewer")).toBeUndefined();
+  expect(named(other, "Take Ana off the review")).toBeUndefined();
+
+  // A reviewer's own verdict shows on its button.
+  const reviewing = renderPart(
+    web,
+    "overlay",
+    {},
+    {
+      fetch: serving(
+        designDoc({
+          reviewers: [{ name: "Bo", you: true, verdict: "changes" }],
+        }),
+        [],
+      ),
+    },
+  );
+
+  await drawn(() => named(reviewing, "Ask for changes") !== undefined);
+
+  expect(
+    named(reviewing, "Ask for changes")?.getAttribute("aria-pressed"),
+  ).toBe("true");
+
+  expect(named(reviewing, "Approve")?.getAttribute("aria-pressed")).toBe(
+    "false",
+  );
+
   expect(other.querySelector("[aria-label='Status: In review']")?.tagName).toBe(
     "SPAN",
   );
@@ -4237,6 +4315,7 @@ test("a design doc says so, shows its status and reviewers, and a reviewer appro
 
 test("whoever steers a design doc sets its status and reviewers, and marks or unmarks it", async () => {
   const asked: Served[] = [];
+
   // What the server has now, changed as the test goes.
   const shown: object = {
     ...artifact({ title: "Plan" }),
@@ -4267,6 +4346,7 @@ test("whoever steers a design doc sets its status and reviewers, and marks or un
   });
 
   await drawn(() => puts().length === 1);
+
   expect(puts()[0]).toMatchObject({
     url: "/api/ext/artifacts/artifacts/a1/doc",
     body: { type: "design" },
@@ -4296,6 +4376,7 @@ test("whoever steers a design doc sets its status and reviewers, and marks or un
   });
 
   await drawn(() => puts().length === 2);
+
   expect(puts()[1]).toMatchObject({
     url: "/api/ext/artifacts/artifacts/a1/status",
     body: { status: "decided" },
@@ -4314,6 +4395,7 @@ test("whoever steers a design doc sets its status and reviewers, and marks or un
   });
 
   await drawn(() => puts().length === 3);
+
   expect(puts()[2]).toMatchObject({
     url: "/api/ext/artifacts/artifacts/a1/reviewers",
     body: { reviewers: ["Bo", "Rui"] },
@@ -4335,6 +4417,7 @@ test("whoever steers a design doc sets its status and reviewers, and marks or un
   });
 
   await drawn(() => puts().length === 5);
+
   expect(puts()[4]).toMatchObject({
     url: "/api/ext/artifacts/artifacts/a1/doc",
     body: { type: null },
@@ -4368,9 +4451,10 @@ test("a design doc's outline lists its sections with their open threads, goes to
       { text: "Decision", level: 2, threads: [1, 3] },
     ],
     tops: [
-      { n: 1, top: 300 },
-      { n: 3, top: 340 },
+      { n: 1, top: 340 },
+      { n: 3, top: 300 },
     ],
+    scrolled: 0,
   });
 
   const outline = page.querySelector<HTMLElement>("nav[aria-label=Outline]");
@@ -4411,4 +4495,34 @@ test("a design doc's outline lists its sections with their open threads, goes to
       ),
     ].map((each) => each.getAttribute("aria-label")),
   ).toEqual(["Comment 1 by Ana"]);
+
+  // In the margin the cards go in the page's order, each moved down to its
+  // passage, with no sheet to put away.
+  act(() => {
+    named(page, "Open 2")?.click();
+  });
+
+  await drawn(
+    () => page.querySelector("[aria-label='Open comments'] li") !== null,
+  );
+
+  const cards = [
+    ...page.querySelectorAll<HTMLElement>("[aria-label='Open comments'] li"),
+  ];
+
+  expect(cards.map((each) => each.dataset["thread"])).toEqual(["c1", "q1"]);
+  expect(cards[0]?.style.marginTop).toBe("300px");
+  expect(named(page, "Back to the page")).toBeUndefined();
+
+  // Docked, there's no room for the outline.
+  act(() => {
+    named(page, "Dock beside the page")?.click();
+  });
+
+  await drawn(() => page.querySelector("dialog[open]") === null);
+  expect(page.querySelector("nav[aria-label=Outline]")).toBeNull();
+
+  act(() => {
+    named(page, "Dock beside the page")?.click();
+  });
 });

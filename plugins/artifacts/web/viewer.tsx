@@ -445,7 +445,10 @@ function Shown({
 
   const canComment = artifact.access !== "view";
   const [listed, setListed] = useState<Listed>("open");
-  const [outline, setOutline] = useState<Outline>();
+  // The page's headings and pins, as the version shown told them.
+  const [outline, setOutline] = useState<Outline & { on: string }>();
+  const page = `${artifact.id}:${String(shown)}`;
+  const told = outline?.on === page ? outline : undefined;
   const [goto, setGoto] = useState<{ section: number }>();
   const { doc } = artifact;
   // Docked or on a phone there's no room beside a doc's page.
@@ -453,18 +456,18 @@ function Shown({
 
   const margin = useMemo(
     () =>
-      roomy && outline !== undefined
+      roomy && told !== undefined
         ? new Map(
             threads.flatMap(({ top, n }) => {
-              const at = outline.tops.find((each) => each.n === n);
+              const at = told.tops.find((each) => each.n === n);
 
               return at === undefined
                 ? []
-                : [[top.id, at.top - outline.scrolled] as const];
+                : [[top.id, at.top - told.scrolled] as const];
             }),
           )
         : undefined,
-    [roomy, outline, threads],
+    [roomy, told, threads],
   );
 
   // Only while commenting: a page can't open the box on its own.
@@ -483,6 +486,7 @@ function Shown({
       setActive(threads.find((each) => each.n === n)?.top.id);
 
       setAnchor(undefined);
+      setSheet(true);
       setCommenting(true);
     },
     [threads, setAnchor],
@@ -585,8 +589,8 @@ function Shown({
     setBody("compare");
   });
 
-  const put = (path: string, body: object): void => {
-    void acting(async () => api.put(`artifacts/${artifact.id}/${path}`, body));
+  const put = (path: string, sent: object): void => {
+    void acting(async () => api.put(`artifacts/${artifact.id}/${path}`, sent));
   };
 
   const more: MenuItem[] = [
@@ -780,7 +784,7 @@ function Shown({
             setAnchor(undefined);
             setSheet(true);
 
-            if (!commenting || sheet) {
+            if (!commenting || sheet || !phone) {
               setCommenting(!commenting);
             }
           }}
@@ -885,7 +889,7 @@ function Shown({
       <div className="flex min-h-0 flex-1 bg-panel">
         {roomy && (
           <OutlineNav
-            outline={outline}
+            outline={told}
             threads={threads}
             onSection={(section) => {
               setGoto({ section });
@@ -912,7 +916,9 @@ function Shown({
             onPin={showPin}
             onEscape={stopWriting}
             onScroll={follow}
-            onOutline={setOutline}
+            onOutline={(next) => {
+              setOutline({ ...next, on: page });
+            }}
             goto={goto}
           />
           {held !== undefined && anchor !== undefined && (
@@ -945,10 +951,13 @@ function Shown({
             }}
           />
         )}
-        {commenting && sheet && (
+        {commenting && (sheet || !phone) && (
           <aside
             aria-label="Comments"
-            className="flex w-[420px] shrink-0 flex-col border-l border-line bg-elevated max-sm:fixed max-sm:inset-x-0 max-sm:bottom-0 max-sm:z-10 max-sm:h-[70dvh] max-sm:w-full max-sm:rounded-t-2xl max-sm:border-t max-sm:border-l-0 max-sm:shadow-pop"
+            className={cn(
+              "flex w-[420px] shrink-0 flex-col border-l border-line max-sm:fixed max-sm:inset-x-0 max-sm:bottom-0 max-sm:z-10 max-sm:h-[70dvh] max-sm:w-full max-sm:rounded-t-2xl max-sm:border-t max-sm:border-l-0 max-sm:shadow-pop",
+              roomy ? "bg-panel" : "bg-elevated",
+            )}
           >
             {phone && (
               <span
@@ -987,7 +996,7 @@ function Shown({
         <div
           role="group"
           aria-label="Artifact actions"
-          className="flex gap-3 border-t border-line p-3"
+          className="flex gap-3 border-t border-line p-3 *:h-11"
         >
           {steers && (
             <Button
