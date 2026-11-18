@@ -240,6 +240,7 @@ test("a file's More menu offers Publish as artifact to whoever steers the Projec
   const items = async (
     fills: Readonly<Record<string, ComponentType<never>>>,
     steers: boolean,
+    name = "notes.md",
   ): Promise<string[]> => {
     let asked = 0;
 
@@ -258,7 +259,7 @@ test("a file's More menu offers Publish as artifact to whoever steers the Projec
               ? {
                   perProjectBytes: 1024,
                   historyDays: 14,
-                  files: [file("notes.md", "Ana")],
+                  files: [file(name, "Ana")],
                 }
               : { writes: [] },
           );
@@ -270,7 +271,7 @@ test("a file's More menu offers Publish as artifact to whoever steers the Projec
 
     act(() => {
       page
-        .querySelector<HTMLButtonElement>('[aria-label="More for notes.md"]')
+        .querySelector<HTMLButtonElement>(`[aria-label="More for ${name}"]`)
         ?.click();
     });
 
@@ -284,6 +285,14 @@ test("a file's More menu offers Publish as artifact to whoever steers the Projec
   expect(await items({}, true)).not.toContain("Publish as artifact…");
   location.hash = "#session-1";
   expect(await items(publish, false)).not.toContain("Publish as artifact…");
+
+  location.hash = "#session-1";
+
+  // Only a file that makes an artifact: a page, document, picture, PDF or
+  // table, not plain text or code.
+  expect(await items(publish, true, "data.json")).not.toContain(
+    "Publish as artifact…",
+  );
 
   location.hash = "#session-1";
 

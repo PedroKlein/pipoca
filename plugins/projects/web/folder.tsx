@@ -22,7 +22,7 @@ import {
   TextInput,
   useConfirm,
 } from "@pipoca/ui";
-import { folderAttachment } from "./files";
+import { folderAttachment, publishable } from "./files";
 import { type ReactElement, useEffect, useRef, useState } from "react";
 import { projects } from "../plugin";
 import { bytes, type FolderFile, type FolderWrite } from "../src/model";
@@ -338,7 +338,7 @@ export function Folder({
                       },
                       // The file's viewer holds the publish button, which
                       // the artifacts plugin draws.
-                      ...(publishes && project.steers
+                      ...(publishes && project.steers && publishable(file.path)
                         ? [
                             {
                               label: "Publish as artifact…",
