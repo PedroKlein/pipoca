@@ -179,6 +179,7 @@ test("keeps the first user's display name beside their username", async () => {
     id: expect.any(String) as string,
     name: "pedro",
     displayName: "Pedro Klein",
+    email: null,
     admin: true,
     defaultEnvironment: null,
   });

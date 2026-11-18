@@ -6435,25 +6435,28 @@ test("Pi suggests an edit in a thread, accepting it saves the next version, and 
   await page.keyboard.press("Escape");
   await viewer.waitFor({ state: "hidden" });
 
-  // Pi's answer is news for the person who asked it.
+  // Pi's answer is news for the person who asked it. Pi's answers in
+  // earlier tests may be unread too.
   const nav = page.locator("#plugin-nav");
   const activity = nav.getByRole("link", { name: /^Activity/ });
 
-  await activity.getByText("1 unread").waitFor();
+  await activity.getByText(/^\d+ unread$/).waitFor();
   await activity.click();
 
-  const row = page.getByRole("list", { name: "Activity" }).getByRole("button", {
-    name: /Pi suggested an edit in a thread you're in/,
-  });
+  const row = (read: string) =>
+    page.getByRole("list", { name: "Activity" }).getByRole("button", {
+      name: new RegExp(`^${read}Pi suggested an edit in a thread you're in`),
+    });
 
-  await row.click();
+  await row("Unread: ").click();
 
   await viewer
     .getByRole("region", { name: "Thread" })
     .getByText("Monday leaves a day for review.")
     .waitFor();
 
-  await activity.getByText("1 unread").waitFor({ state: "detached" });
+  await page.keyboard.press("Escape");
+  await row("").waitFor();
 }, 30_000);
 
 test("comments on selected text and on a clicked element, pins them on the page, and sends the drafts to Pi in one turn", async () => {
