@@ -37,7 +37,7 @@ jobs:
         with:
           bun-version: 1.4.2
       - run: bun install --frozen-lockfile
-      - run: bun test --shard=${{ matrix.shard }}/3
+      - run: bun test --isolate --shard=${{ matrix.shard }}/3
         timeout-minutes: 15
 
   e2e:
