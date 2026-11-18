@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
+    "@pipoca/artifacts": "workspace:*",
     "@pipoca/plugins": "workspace:*",
     "@pipoca/protocol": "workspace:*",
     "@pipoca/ui": "workspace:*",

@@ -48,12 +48,14 @@ export function peopleStore(db: DatabaseSync, clock: Clock): PeopleStore {
   );
 
   const selectUsers = db.prepare(
-    "select id, name, admin from users order by created_at",
+    "select id, name, admin, email from users order by created_at",
   );
 
   const selectAccount = db.prepare(
-    "select id, name, admin, display_name, default_environment_id from users where id = ?",
+    "select id, name, admin, display_name, email, default_environment_id from users where id = ?",
   );
+
+  const updateEmail = db.prepare("update users set email = ? where id = ?");
 
   const updateDisplayName = db.prepare(
     "update users set display_name = ? where id = ?",
@@ -224,13 +226,24 @@ export function peopleStore(db: DatabaseSync, clock: Clock): PeopleStore {
     },
     userById: (id) => userOfRow(selectUserById.get(id) as UserRow | undefined),
     users: () =>
-      (selectUsers.all() as unknown as UserRow[]).flatMap(
-        (row) => userOfRow(row) ?? [],
-      ),
+      (
+        selectUsers.all() as unknown as (UserRow & {
+          readonly email: string | null;
+        })[]
+      ).flatMap((row) => {
+        const found = userOfRow(row);
+
+        if (found === undefined) {
+          return [];
+        }
+
+        return row.email === null ? [found] : [{ ...found, email: row.email }];
+      }),
     account: (id) => {
       const row = selectAccount.get(id) as
         | (UserRow & {
             readonly display_name: string | null;
+            readonly email: string | null;
             readonly default_environment_id: string | null;
           })
         | undefined;
@@ -241,12 +254,16 @@ export function peopleStore(db: DatabaseSync, clock: Clock): PeopleStore {
           name: row.name,
           admin: row.admin === 1,
           displayName: row.display_name,
+          email: row.email,
           defaultEnvironment: row.default_environment_id,
         }
       );
     },
     setDisplayName: (id, name) => {
       updateDisplayName.run(name, id);
+    },
+    setEmail: (id, email) => {
+      updateEmail.run(email, id);
     },
     setDefaultEnvironment: (id, environment) => {
       updateDefaultEnvironment.run(environment, id);

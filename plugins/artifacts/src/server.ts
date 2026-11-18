@@ -1853,7 +1853,9 @@ export const server = defineServer(
       {
         auth: "person",
         query: Type.Object({
-          view: Type.Optional(StringEnum(["mine", "following"])),
+          view: Type.Optional(
+            Type.Union([Type.Literal("mine"), Type.Literal("following")]),
+          ),
         }),
       },
       async ({ caller, query }) =>
@@ -1887,7 +1889,7 @@ export const server = defineServer(
       {
         auth: "person",
         body: Type.Object({
-          topic: StringEnum([...activityTopics]),
+          topic: Type.Union(activityTopics.map((each) => Type.Literal(each))),
           on: Type.Boolean(),
         }),
         changes: ["artifacts"],

@@ -1742,6 +1742,10 @@ test("edits the person's name and what new Sessions start with on General", asyn
 
   const dialog = page.getByRole("dialog", { name: "Edit profile" });
   await dialog.getByLabel("Your name").fill("Pedro K.");
+  await dialog.getByLabel("Email").fill("pedro@");
+  await dialog.getByRole("button", { name: "Save" }).click();
+  await dialog.getByText("pedro@ isn't an email address").waitFor();
+  await dialog.getByLabel("Email").fill("pedro@example.com");
   await dialog.getByRole("button", { name: "Save" }).click();
   await dialog.waitFor({ state: "detached" });
   await you.getByText("Pedro K.").waitFor();
@@ -1790,6 +1794,7 @@ test("edits the person's name and what new Sessions start with on General", asyn
 
   expect(await me()).toMatchObject({
     displayName: "Pedro K.",
+    email: "pedro@example.com",
     defaultEnvironment: environment?.id,
   });
 
@@ -1800,6 +1805,7 @@ test("edits the person's name and what new Sessions start with on General", asyn
     headers: { "content-type": "application/json", cookie },
     body: JSON.stringify({
       displayName: "Pedro Klein",
+      email: "",
       defaultEnvironment: null,
     }),
   });
@@ -6436,11 +6442,9 @@ test("Pi suggests an edit in a thread, accepting it saves the next version, and 
   await activity.getByText("1 unread").waitFor();
   await activity.click();
 
-  const row = page
-    .getByRole("list", { name: "Activity" })
-    .getByRole("button", {
-      name: /Pi suggested an edit in a thread you're in/,
-    });
+  const row = page.getByRole("list", { name: "Activity" }).getByRole("button", {
+    name: /Pi suggested an edit in a thread you're in/,
+  });
 
   await row.click();
 

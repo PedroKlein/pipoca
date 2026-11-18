@@ -285,6 +285,9 @@ alter table runner_models add column reasoning integer check (reasoning in (0, 1
   model text not null,
   primary key (user_id, kind, position)
 ) strict, without rowid;`,
+  // Where a person is told of what asks for them, by mail or a chat app
+  // that finds them by it (ADR 0081).
+  "alter table users add column email text;",
 ];
 
 export const kernelSchema: Schema = { owner: "kernel", sql, migrations };

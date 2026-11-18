@@ -1,8 +1,10 @@
+import { artifacts } from "@pipoca/artifacts/plugin";
 import {
   BadRequest,
   defineServer,
   NotFound,
   type Owner,
+  owners,
   type Session,
   type Static,
   ToolError,
@@ -40,6 +42,8 @@ export const server = defineServer(slack, (context) => {
     tools,
     provide,
     clock,
+    people,
+    urls,
   } = context;
 
   const bots = config.collection("bots");
@@ -311,6 +315,82 @@ export const server = defineServer(slack, (context) => {
     },
   });
 
+  // A mention or a review request goes to the person as a direct message
+  // from a bot they or the team use, which finds them by their email
+  // (ADR 0081). It needs the users:read.email scope.
+  const direct = async (
+    owner: Owner,
+    message: string,
+  ): Promise<string | undefined> => {
+    const id = owners.personId(owner);
+    const address = id === undefined ? undefined : people.get(id)?.email;
+
+    if (address === undefined) {
+      return undefined;
+    }
+
+    for (const bot of [...usable(owner), ...usable("team")]) {
+      const found = await call(
+        context.network.fetch,
+        config.get().api,
+        bot.botToken,
+        `users.lookupByEmail?email=${encodeURIComponent(address)}`,
+      ).catch((failure: unknown) => {
+        log("couldn't find a person in Slack", {
+          bot: bot.name,
+          error: failure instanceof Error ? failure.message : String(failure),
+        });
+
+        return undefined;
+      });
+
+      const user = text((found?.["user"] as Fields | undefined)?.["id"]);
+
+      if (user !== "") {
+        await call(
+          context.network.fetch,
+          config.get().api,
+          bot.botToken,
+          "chat.postMessage",
+          { channel: user, text: message },
+        );
+
+        return bot.name;
+      }
+    }
+
+    return undefined;
+  };
+
+  events.on(artifacts.events.activity, ({ fields, to }) => {
+    if (fields.kind === "reply") {
+      return;
+    }
+
+    const link = new URL(fields.url, new URL(urls.public("")).origin).href;
+
+    const message = [
+      `*${fields.headline}*`,
+      ...(fields.text === "" ? [] : [`> ${fields.text}`]),
+      `<${link}|Open it in Pipoca>`,
+    ].join("\n");
+
+    for (const owner of to) {
+      direct(owner, message).then(
+        (bot) => {
+          if (bot !== undefined) {
+            log("activity sent in Slack", { bot, kind: fields.kind });
+          }
+        },
+        (failure: unknown) => {
+          log("couldn't send activity in Slack", {
+            error: failure instanceof Error ? failure.message : String(failure),
+          });
+        },
+      );
+    }
+  });
+
   const viewOf = (bot: Bot): BotView => ({
     name: bot.name,
     team: bot.team,
@@ -320,6 +400,14 @@ export const server = defineServer(slack, (context) => {
   });
 
   routes.get("bots", { auth: "admin" }, () => bots.list().map(viewOf));
+
+  // Whether a mention can reach the person here: they gave an email and a
+  // bot they or the team use could find them by it.
+  routes.get("activity", { auth: "person" }, ({ caller }) => ({
+    reaches:
+      people.get(caller.person.id)?.email !== undefined &&
+      [...usable(caller.owner), ...usable("team")].length > 0,
+  }));
 
   routes.post(
     "bots",

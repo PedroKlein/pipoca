@@ -1,10 +1,12 @@
 import { afterEach, expect, test } from "bun:test";
+import { artifacts } from "@pipoca/artifacts/plugin";
 import { server as askServer } from "@pipoca/ask/server";
 import {
   definePlugin,
   defineServer,
   type PluginDestinations,
   type Questions,
+  type ServerContext,
   type Sessions,
 } from "@pipoca/plugins";
 import {
@@ -421,6 +423,58 @@ test("an invite goes out by mail from a mailbox the inviting admin sends from", 
   expect(mail.sent[0]).toContain("To: cy@example.com");
   expect(mail.sent[0]).toContain("Subject: Ana invited you to Pipoca");
   expect(mail.sent[0]?.replace(/=\r\n/g, "")).toContain("/#join/abc");
+});
+
+let telling: ServerContext<typeof artifacts> | undefined;
+
+const artifactsServer = defineServer(artifacts, (context) => {
+  telling = context;
+});
+
+test("a mention or review request is mailed to the person's own address, a reply isn't", async () => {
+  const mail = await fakeMail();
+
+  await using t = await started(undefined, {
+    people: [
+      { id: "ana", name: "Ana", admin: true, email: "ana@example.com" },
+      { id: "bo", name: "Bo" },
+    ],
+    plugins: [artifactsServer],
+  });
+
+  await addMailbox(t, mail);
+
+  // Activity names email where it can reach them.
+  expect(await t.as("ana").get("activity")).toEqual({ reaches: true });
+  expect(await t.as("bo").get("activity")).toEqual({ reaches: false });
+
+  const told = (kind: "mention" | "review" | "reply", to: string) => {
+    telling?.events.emit(
+      "activity",
+      {
+        kind,
+        artifact: "a1",
+        headline: `Rui ${kind} on Webhooks`,
+        text: "Works for me.",
+        url: "/#plugin/artifacts/a1/comments",
+      },
+      { to: [person(to)] },
+    );
+  };
+
+  told("reply", "ana");
+  told("mention", "bo");
+  told("mention", "ana");
+
+  await until(() => mail.sent.length > 0);
+
+  expect(mail.sent).toHaveLength(1);
+  expect(mail.sent[0]).toContain("To: ana@example.com");
+  expect(mail.sent[0]).toContain("Subject: Rui mention on Webhooks");
+
+  expect(mail.sent[0]?.replace(/=\r\n/g, "")).toContain(
+    "/#plugin/artifacts/a1/comments",
+  );
 });
 
 // A plugin that starts work from mail, as routines do, so its Sessions'
