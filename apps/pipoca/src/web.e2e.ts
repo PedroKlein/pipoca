@@ -6121,10 +6121,15 @@ test("opens an artifact Pi published, in a sandbox, from its card in the chat", 
 
   const resolved = page.getByRole("list", { name: "Resolved comments" });
 
-  // The thread just written stays open.
+  // Pi's answer is in the thread, as Pi via the person who sent it.
   await resolved.getByText("Resolved by Pi").waitFor();
-  await resolved.getByText("Added Q4").waitFor();
-  await resolved.getByText(/via you/).waitFor();
+  await resolved.getByText("1 reply").click();
+
+  const answered = viewer.getByRole("region", { name: "Thread" });
+
+  await answered.getByText("Added Q4").waitFor();
+  await answered.getByText(/via you/).waitFor();
+  await answered.getByRole("button", { name: "All comments" }).click();
 
   // In comment mode a click picks what to comment on; out of it, the page
   // works as itself.
