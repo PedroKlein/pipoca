@@ -6140,6 +6140,8 @@ test("opens an artifact Pi published, in a sandbox, from its card in the chat", 
   expect(await page.locator("#prompt-text").inputValue()).toBe(
     "Make the chart blue",
   );
+
+  await page.locator("#prompt-text:focus").waitFor();
 }, 30_000);
 
 test("signs out and back in with the password", async () => {

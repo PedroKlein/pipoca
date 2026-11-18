@@ -5,11 +5,20 @@ import { act } from "react";
 import type { ArtifactSummary } from "../src/artifacts";
 import { web } from "./index";
 
-// The page's change stream, which tells nothing here.
+// The page's change stream, which tells only what a test says changed.
+const heard: ((event: { readonly data: string }) => void)[] = [];
+
 Object.assign(globalThis, {
   EventSource: class {
-    addEventListener(): void {
-      // Nothing changes.
+    readonly readyState = 1;
+
+    addEventListener(
+      type: string,
+      listener: (event: { readonly data: string }) => void,
+    ): void {
+      if (type === "message") {
+        heard.push(listener);
+      }
     }
 
     close(): void {
@@ -17,6 +26,12 @@ Object.assign(globalThis, {
     }
   },
 });
+
+function changed(topic: string): void {
+  for (const listener of heard) {
+    listener({ data: JSON.stringify({ topic }) });
+  }
+}
 
 test("a published artifact shows in the chat as a card of how it is now, which opens it over the chat", async () => {
   const asked: string[] = [];
@@ -387,6 +402,105 @@ test("an artifact opens over the page with what can be done with it, and closes 
 
   expect(location.hash).toBe("#session-1");
   expect(page.querySelector("dialog")).toBeNull();
+});
+
+test("a version the address can't name shows the latest, and compare is left behind with the version it opened on", async () => {
+  const asked: Served[] = [];
+
+  const page = renderPart(
+    web,
+    "overlay",
+    {},
+    {
+      hash: "#session-1?artifact=a1&v=abc",
+      fetch: serving({ ...artifact({ versions: 3 }), ...viewed(3) }, asked),
+    },
+  );
+
+  await opened(asked);
+
+  const versions = (): HTMLButtonElement | undefined =>
+    buttons(page).find(
+      (each) => each.getAttribute("aria-label")?.endsWith("Versions") === true,
+    );
+
+  expect(versions()?.textContent).toBe("Version 3 · latest");
+
+  act(() => {
+    history.replaceState(null, "", "#session-1?artifact=a1&v=99");
+    dispatchEvent(new HashChangeEvent("hashchange"));
+  });
+
+  expect(versions()?.textContent).toBe("Version 3 · latest");
+
+  act(() => {
+    versions()?.click();
+  });
+
+  act(() => {
+    item(page, "Compare versions…")?.click();
+  });
+
+  expect(named(page, "Back to the page")).toBeDefined();
+  expect(page.querySelector("iframe")).toBeNull();
+
+  act(() => {
+    versions()?.click();
+  });
+
+  await act(async () => {
+    item(page, "Version 1")?.click();
+    await until(() => location.hash.endsWith("v=1"));
+  });
+
+  expect(named(page, "Back to the page")).toBeUndefined();
+
+  await act(async () => {
+    named(page, "Go to latest")?.click();
+    await until(() => !location.hash.includes("v="));
+  });
+
+  expect(named(page, "Back to the page")).toBeUndefined();
+  expect(page.querySelector("iframe")).not.toBeNull();
+});
+
+test("a refresh that fails keeps the artifact shown", async () => {
+  const asked: Served[] = [];
+  let failing = false;
+
+  const serve = serving(
+    { ...artifact({ title: "Kept" }), ...viewed(1) },
+    asked,
+  );
+
+  const page = renderPart(
+    web,
+    "overlay",
+    {},
+    {
+      hash: "#session-1?artifact=a1",
+      fetch: async (url, init) =>
+        failing
+          ? Response.json({ error: "down" }, { status: 503 })
+          : serve(url, init),
+    },
+  );
+
+  await opened(asked);
+
+  expect(page.querySelector("h2")?.textContent).toBe("Kept");
+
+  failing = true;
+
+  act(() => {
+    changed("artifacts.artifacts");
+  });
+
+  await drawn(() => page.textContent.includes("Kept"));
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 400)));
+
+  expect(page.querySelector("h2")?.textContent).toBe("Kept");
+  expect(page.textContent).not.toContain("didn't load");
 });
 
 test("someone an artifact is shared with to view sees it, and nothing that changes it", async () => {

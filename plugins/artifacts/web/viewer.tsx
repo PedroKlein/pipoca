@@ -1,5 +1,6 @@
 import {
   ago,
+  hashParts,
   href,
   useApi,
   useLoaded,
@@ -99,7 +100,6 @@ export function ArtifactOverlay(): ReactElement | null {
   return (
     <Dialog key={id} open size="full" onClose={close} labelledBy={titleId}>
       <Viewer
-        key={id}
         id={id}
         mode="modal"
         titleId={titleId}
@@ -110,6 +110,7 @@ export function ArtifactOverlay(): ReactElement | null {
             {
               artifact: id,
               ...(number !== undefined && { v: String(number) }),
+              ...(params.get("comments") === "1" && { comments: "1" }),
             },
             { replace: true },
           );
@@ -142,11 +143,20 @@ export function Viewer({
 }): ReactElement {
   const api = useApi(plugin);
 
-  const { value: artifact, reload } = useLoaded(
+  const { value: loaded, reload } = useLoaded(
     async () => loadArtifact(api, id),
     id,
     { changes: ["artifacts"] },
   );
+
+  // A refresh that fails keeps what's shown, with its drafts and panes.
+  const [last, setLast] = useState<ArtifactView>();
+
+  if (typeof loaded === "object" && loaded !== last) {
+    setLast(loaded);
+  }
+
+  const artifact = loaded === "failed" && last !== undefined ? last : loaded;
 
   if (artifact === undefined || typeof artifact === "string") {
     return (
@@ -204,16 +214,17 @@ function Placeholder({
   readonly onClose: () => void;
 }): ReactElement {
   const { title, body } = placeholders[state];
-  const Heading = mode === "window" ? "h1" : "h2";
+  const Heading = headings[mode];
 
   return (
-    <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-[inherit] bg-elevated">
-      <header className="flex min-h-14 items-center gap-3 border-b border-line py-2.5 pr-3 pl-4.5">
+    <div className={shellClass}>
+      <header className={headerClass}>
+        <Lead mode={mode} />
         <Heading
           id={titleId}
           aria-busy={state === "loading"}
           className={cn(
-            "flex-1 truncate text-[15px] font-semibold",
+            "ml-1.5 flex-1 truncate text-[15px] font-semibold",
             state === "loading" ? "text-fg-dim" : "text-fg-strong",
           )}
         >
@@ -236,6 +247,28 @@ function Placeholder({
   );
 }
 
+const headings = { modal: "h2", window: "h1" } as const;
+
+const shellClass =
+  "flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-[inherit] bg-elevated";
+
+const headerClass =
+  "relative flex min-h-14 flex-wrap items-center gap-1.5 border-b border-line py-2.5 pr-3 pl-4.5";
+
+// Alone in the window, the way back into Pipoca.
+function Lead({ mode }: { readonly mode: Mode }): ReactElement {
+  return mode === "window" ? (
+    <a href="#" aria-label="Pipoca home">
+      <Mark className="size-8" />
+    </a>
+  ) : (
+    <span className="grid size-8 shrink-0 place-items-center rounded-lg border border-line bg-panel text-fg-dim">
+      <Icon name="file-text" />
+    </span>
+  );
+}
+
+// Focused once the artifact is there, as the placeholder's was.
 function CloseButton({
   onClose,
 }: {
@@ -247,6 +280,7 @@ function CloseButton({
       size="sm"
       iconOnly
       aria-label="Close"
+      autoFocus
       onClick={onClose}
       className="max-sm:absolute max-sm:top-2.5 max-sm:right-3"
     >
@@ -280,6 +314,10 @@ function Shown({
     on: shown,
   });
 
+  if (opened.on !== shown) {
+    setOpened({ body: "page", on: shown });
+  }
+
   const body = opened.on === shown ? opened.body : "page";
 
   const setBody = (next: Body): void => {
@@ -293,7 +331,7 @@ function Shown({
   const [said, setSaid] = useState<string>();
   const [confirm, confirmDialog] = useConfirm();
   const now = useNow();
-  const Heading = mode === "window" ? "h1" : "h2";
+  const Heading = headings[mode];
   const latest = shown === artifact.versions;
   const steers = artifact.access === "steer";
 
@@ -434,7 +472,13 @@ function Shown({
             icon: "chevron-right" as const,
             divided: true,
             run: () => {
-              location.hash = `#${artifact.sessionId ?? ""}`;
+              const session = `#${String(artifact.sessionId)}`;
+
+              if (hashParts(location.hash).page === session) {
+                onClose();
+              } else {
+                location.hash = session;
+              }
             },
           },
         ]),
@@ -452,17 +496,9 @@ function Shown({
   ];
 
   return (
-    <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-[inherit] bg-elevated">
-      <header className="relative flex min-h-14 flex-wrap items-center gap-1.5 border-b border-line py-2.5 pr-3 pl-4.5">
-        {mode === "window" ? (
-          <a href="#" aria-label="Pipoca home">
-            <Mark className="size-8" />
-          </a>
-        ) : (
-          <span className="grid size-8 shrink-0 place-items-center rounded-lg border border-line bg-panel text-fg-dim">
-            <Icon name="file-text" />
-          </span>
-        )}
+    <div className={shellClass}>
+      <header className={headerClass}>
+        <Lead mode={mode} />
         <div className="ml-1.5 flex min-w-50 flex-1 flex-col max-sm:pr-8">
           <Heading
             id={titleId}

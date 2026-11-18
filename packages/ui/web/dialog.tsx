@@ -52,6 +52,22 @@ export function Dialog({
   const dialog = useRef<HTMLDialogElement>(null);
   const titleId = useId();
 
+  // Focus goes back to what opened the dialog, also when the dialog leaves
+  // the page without closing, such as when Back takes it away.
+  useEffect(() => {
+    if (!open) {
+      return undefined;
+    }
+
+    const opener = document.activeElement;
+
+    return () => {
+      if (opener instanceof HTMLElement && opener.isConnected) {
+        opener.focus();
+      }
+    };
+  }, [open]);
+
   useEffect(() => {
     const element = dialog.current;
 

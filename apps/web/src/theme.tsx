@@ -26,8 +26,11 @@ function stored(): ThemeChoice {
   }
 }
 
+// This tab's choice, which outlives storage that refuses it.
+let chosen = stored();
+
 // Sets data-theme on the page, so every token follows the choice.
-export function applyTheme(choice: ThemeChoice = stored()): void {
+export function applyTheme(choice: ThemeChoice = chosen): void {
   const system = prefersLight().matches ? "light" : "dark";
 
   document.documentElement.dataset["theme"] =
@@ -49,7 +52,7 @@ export function useTheme(): readonly [
   ThemeChoice,
   (choice: ThemeChoice) => void,
 ] {
-  const [choice, setChoice] = useState(stored);
+  const [choice, setChoice] = useState(() => chosen);
 
   useEffect(() => {
     applyTheme(choice);
@@ -62,6 +65,7 @@ export function useTheme(): readonly [
       // The choice still applies until the page reloads.
     }
 
+    chosen = next;
     setChoice(next);
   };
 

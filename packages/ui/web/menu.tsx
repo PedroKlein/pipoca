@@ -74,6 +74,7 @@ export function Menu({
         // Inside a dialog, Escape closes only the menu.
         event.preventDefault();
         setOpen(false);
+        box.current?.querySelector("button")?.focus();
       } else if (
         !(event instanceof KeyboardEvent) &&
         box.current?.contains(event.target as Node) !== true
