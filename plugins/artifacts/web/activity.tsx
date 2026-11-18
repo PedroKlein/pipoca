@@ -166,9 +166,12 @@ export function ActivityPage(): ReactElement {
                         className="flex min-w-0 text-caption text-fg-dim"
                       >
                         {said !== "" && (
-                          <span className="truncate">{said}&nbsp;·&nbsp;</span>
+                          <span className="truncate">“{said}</span>
                         )}
-                        <span className="shrink-0">{rest}</span>
+                        <span className="shrink-0">
+                          {said !== "" && <>”&nbsp;·&nbsp;</>}
+                          {rest}
+                        </span>
                       </span>
                     </span>
                     <span className="shrink-0 rounded-md bg-hover px-2 py-0.5 text-caption text-fg-dim">
@@ -186,7 +189,8 @@ export function ActivityPage(): ReactElement {
   );
 }
 
-// What was written, which gives way on a narrow row, then where and when.
+// What was written, which gives way on a narrow row while its closing
+// quote stays, then where and when.
 function detail(
   item: ActivityItem,
   view: View,
@@ -207,7 +211,7 @@ function detail(
   const shown = item.kind === "mention" || item.kind === "reply";
 
   return {
-    said: shown && item.excerpt !== "" ? `“${item.excerpt}”` : "",
+    said: shown ? item.excerpt : "",
     rest: [...parts[item.kind], ago(new Date(item.at).toISOString(), now)].join(
       " · ",
     ),

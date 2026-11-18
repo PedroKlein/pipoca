@@ -4834,6 +4834,11 @@ test("Activity lists what's for the person, opens each where it happened and mar
 
   expect(text(0)).toEndWith("Mention");
 
+  // Only what was written gives way on a narrow row.
+  expect(rows()[0]?.querySelector(".truncate")?.textContent).toBe(
+    "“Works for me. @Ana ok to accept?",
+  );
+
   expect(text(1)).toContain(
     "Pedro asked you to review Webhooks v2 delivery design",
   );

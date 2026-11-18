@@ -33,16 +33,18 @@ function TestShell({
   plugin,
   fills = {},
   repositories = [],
+  admin = false,
   children,
 }: {
   readonly plugin: Pick<PluginDefinition, "id">;
   readonly fills?: Readonly<Record<string, ComponentType<never>>>;
   readonly repositories?: readonly RepositoryChoice[];
+  readonly admin?: boolean;
   readonly children: ReactNode;
 }): ReactElement {
   const shell: Shell = {
     viewer: {
-      person: { id: "ana", name: "Ana", admin: false },
+      person: { id: "ana", name: "Ana", admin },
       team: false,
     },
     fills: (slot) => {
@@ -99,6 +101,8 @@ export function renderPart(
     readonly fills?: Readonly<Record<string, ComponentType<never>>>;
     // What a search of the git hosts finds.
     readonly repositories?: readonly RepositoryChoice[];
+    // Whether the signed-in person is an admin.
+    readonly admin?: boolean;
     // What the page's requests get, in place of the network.
     readonly fetch?: (url: string, init?: RequestInit) => Promise<Response>;
     // The address the page is at, such as #s1?artifact=a1.
@@ -166,6 +170,7 @@ export function renderPart(
         plugin: part.plugin,
         ...(o.fills && { fills: o.fills }),
         ...(o.repositories && { repositories: o.repositories }),
+        ...(o.admin !== undefined && { admin: o.admin }),
         children: createElement(Part, props),
       }),
     );

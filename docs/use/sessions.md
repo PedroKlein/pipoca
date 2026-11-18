@@ -39,7 +39,8 @@ Slash commands from Pi and from the Session's Profile work as in Pi, such as `/l
 
 - The header shows the Session's token use and cost (the `usage` plugin).
 - **Changes** opens the diff of what the Session changed (the `changes` plugin). See [Changes and pull requests](changes.md).
-- The panel beside the Session has a tab for each plugin that fills one, such as **Artifacts**, **Files** and **Changes**, each also opened from its button in the header ([ADR 0078](../adr/0078-artifacts-and-session-files.md)).
+- **Files** lists the Session's artifacts, outputs, uploads and Project folder in one menu, and each opens in the viewer over the chat ([Artifacts and files](artifacts-and-files.md)).
+- The panel beside the Session has a tab for each plugin that fills one, such as **Changes** and **Subagents**, each also opened from its button in the header.
 - **Subagents** opens every subagent run of the Session. See [Subagents](subagents.md).
 
 ## Pi and Terminal
