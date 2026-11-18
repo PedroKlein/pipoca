@@ -22,6 +22,18 @@ export { hashParts, useOverlay } from "./overlay";
 export { RepositoryField } from "./repositories";
 export { SessionPanel, SessionTab } from "./session-panel";
 export { uploadBlob } from "./upload";
+export { FilesMenu, FilesMenuHost, FilesRow, FilesSection } from "./files-menu";
+export {
+  FileViewer,
+  frameSandbox,
+  ViewerClose,
+  viewerHeaderClass,
+  viewerHeadings,
+  ViewerLead,
+  type ViewerMode,
+  viewerShellClass,
+  ViewerTitle,
+} from "./viewer";
 export {
   defineWeb,
   Hidden,

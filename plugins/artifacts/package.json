@@ -9,7 +9,6 @@
     "@pipoca/plugins": "workspace:*",
     "@pipoca/protocol": "workspace:*",
     "@pipoca/ui": "workspace:*",
-    "marked": "18.1.1",
     "react": "19.3.1"
   },
   "devDependencies": {

@@ -10,6 +10,7 @@ import {
 import type { RepositoryChoice } from "@pipoca/protocol";
 import type { PluginDefinition } from "../src/definition";
 import type { MountedSession, WebPart } from "./index";
+import { FilesMenu, FilesMenuHost } from "./files-menu";
 import { SessionPanel } from "./session-panel";
 import { PluginScope, type Shell, ShellProvider } from "./shell";
 
@@ -62,7 +63,12 @@ function TestShell({
   return (
     <ShellProvider shell={shell}>
       <PluginScope plugin={plugin.id}>
-        <SessionPanel>{children}</SessionPanel>
+        <SessionPanel>
+          <FilesMenuHost>
+            <FilesMenu />
+            {children}
+          </FilesMenuHost>
+        </SessionPanel>
       </PluginScope>
     </ShellProvider>
   );

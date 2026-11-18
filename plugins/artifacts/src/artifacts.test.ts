@@ -11,7 +11,6 @@ import {
 import { until } from "@pipoca/testing/until";
 import type { ArtifactSummary, ArtifactView, Comment } from "./artifacts";
 import { lineDiff, textChanges } from "./diff";
-import { parseCsv } from "./render";
 import { server } from "./server";
 import { session } from "./session";
 
@@ -248,14 +247,6 @@ test("Pi finds artifacts by title and reads one back into its folder", async () 
   });
 
   expect(await readFile(path, "utf8")).toBe("plan");
-});
-
-test("reads CSV fields with quotes, commas and newlines", () => {
-  expect(parseCsv('a,b\n"x, y","say ""hi""\nthere"\r\n1,2\n')).toEqual([
-    ["a", "b"],
-    ["x, y", 'say "hi"\nthere'],
-    ["1", "2"],
-  ]);
 });
 
 async function shared(setup: Awaited<ReturnType<typeof setUp>>) {

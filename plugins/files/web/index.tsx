@@ -1,25 +1,38 @@
 import {
+  ago,
   ConfigForm,
   defineWeb,
+  FilesRow,
+  FilesSection,
+  FileViewer,
   type MountedSession,
-  SessionTab,
   type SessionFilesProps,
   uploadBlob,
   useApi,
   useLoaded,
+  useNow,
+  useOverlay,
   useSessionState,
+  useViewer,
+  ViewerClose,
+  viewerHeaderClass,
+  ViewerLead,
+  viewerShellClass,
+  ViewerTitle,
 } from "@pipoca/plugins/web";
 import {
-  Badge,
   Chip,
+  FileButton,
+  Dialog,
   ErrorText,
   Icon,
   plural,
   Row,
   Rows,
   Section,
+  Spinner,
 } from "@pipoca/ui";
-import { type ReactElement, useEffect, useRef, useState } from "react";
+import { type ReactElement, useEffect, useId, useRef, useState } from "react";
 import { files as plugin } from "../plugin";
 import {
   bytes as size,
@@ -32,9 +45,10 @@ import {
 export const web = defineWeb(plugin, {
   settings: { group: "server", Section: FilesSettings },
   slots: {
-    "session.header": FilesButton,
+    "session.header": SessionFiles,
     "session.files": Attached,
     "notice:files": UploadNotice,
+    overlay: FileOverlay,
   },
 });
 
@@ -96,31 +110,40 @@ function FilesSettings(): ReactElement {
   );
 }
 
-function useSessionFiles(sessionId: string): readonly SessionFile[] {
-  const api = useApi(plugin);
-
-  return (
-    useLoaded(
-      async () =>
-        (await api.get<{ files: SessionFile[] }>(`sessions/${sessionId}/files`))
-          .files,
-      sessionId,
-      { changes: ["files"] },
-    ).value ?? none
-  );
+interface Kept {
+  readonly files: readonly SessionFile[];
+  // Whether the person may give the Session files.
+  readonly steers: boolean;
 }
 
-// The header's Files button opens what the Session keeps on the server, with
-// downloads, as in the mockups' Files tab.
-function FilesButton({
+function useSessionFiles(sessionId: string): Kept | undefined {
+  const api = useApi(plugin);
+
+  return useLoaded(
+    async () => api.get<Kept>(`sessions/${sessionId}/files`),
+    sessionId,
+    { changes: ["files"] },
+  ).value;
+}
+
+const unsavedNote = "retrying when the runner is back";
+
+// What the header's Files menu lists for the Session: what Pi made, what
+// people uploaded, and work Pi didn't push (ADR 0081). A row opens the
+// file in the viewer.
+function SessionFiles({
   session,
 }: {
   readonly session: MountedSession;
-}): ReactElement | null {
-  const kept = useSessionFiles(session.id);
+}): ReactElement {
+  const listed = useSessionFiles(session.id);
+  const kept = listed?.files ?? none;
   const state = useSessionState<FilesState>(session, "files");
   const unsaved = state?.unsaved ?? [];
   const api = useApi(plugin);
+  const { open } = useOverlay();
+  const [uploadProblem, setUploadProblem] = useState<string>();
+  const [sending, setSending] = useState(false);
 
   const { value: limits } = useLoaded(
     async () => api.get<Limits>("limits"),
@@ -128,7 +151,7 @@ function FilesButton({
     { changes: ["files"] },
   );
 
-  const { value: snapshots } = useLoaded(
+  const { value: snapshots = [] } = useLoaded(
     async () =>
       (
         await api.get<{ snapshots: Snapshot[] }>(
@@ -139,146 +162,343 @@ function FilesButton({
     { changes: ["files"] },
   );
 
-  if (
-    kept.length === 0 &&
-    unsaved.length === 0 &&
-    (snapshots ?? []).length === 0
-  ) {
-    return null;
-  }
+  const waiting = (listed === undefined ? [] : unsaved).filter(
+    (path) =>
+      !kept.some((file) => file.place === "outputs" && file.path === path),
+  );
+
+  const rows = (place: Place) => (filter: string) => {
+    const shown = kept.filter(
+      (file) =>
+        file.place === place && file.path.toLowerCase().includes(filter),
+    );
+
+    return shown.length === 0
+      ? null
+      : shown.map((file) => (
+          <FilesRow
+            key={file.path}
+            name={file.path}
+            detail={
+              place === "outputs" && unsaved.includes(file.path)
+                ? "not saved"
+                : size(file.size)
+            }
+            onOpen={() => {
+              open({ session: session.id, file: `${place}/${file.path}` });
+            }}
+          />
+        ));
+  };
+
+  const count = (place: Place): number =>
+    kept.filter((file) => file.place === place).length;
+
+  const over = limits !== undefined && limits.kept > limits.perPersonBytes;
 
   return (
-    <SessionTab
-      name="files"
-      order={20}
-      label={`Files ${String(kept.length)}`}
-      button={`Files, ${String(kept.length)} kept`}
-      icon="paperclip"
-    >
-      {unsaved.length > 0 && (
-        <p className="text-label text-waiting">
-          {`${String(unsaved.length)} ${unsaved.length === 1 ? "file isn't" : "files aren't"} saved yet. `}
-          {state?.problem}
-        </p>
-      )}
-      {state?.problem !== undefined && unsaved.length === 0 && (
-        <ErrorText size="caption">{state.problem}</ErrorText>
-      )}
-      {limits !== undefined && limits.kept > limits.perPersonBytes && (
-        <p className="text-label text-waiting">
-          {`Your Sessions keep ${size(limits.kept)} of files, more than the ${size(limits.perPersonBytes)} this server suggests for each person. Nothing is deleted or refused.`}
-        </p>
-      )}
-      <FileList
-        sessionId={session.id}
-        place="outputs"
-        title="Outputs"
-        description="What Pi made for you"
-        files={kept}
-        unsaved={unsaved}
-      />
-      <FileList
-        sessionId={session.id}
-        place="uploads"
-        title="Uploads"
-        description="What you gave this Session"
-        files={kept}
-        unsaved={[]}
-      />
-      {snapshots !== undefined && snapshots.length > 0 && (
-        <Section
-          title="Unfinished work"
-          description="What Pi changed in a repository but didn't push. The next pod clones the branch and puts it back; ignored folders like node_modules are rebuilt."
-        >
-          <Rows label="Unfinished work">
-            {snapshots.map((each) => (
-              <Row
-                key={each.checkout}
-                title={each.checkout === "." ? "The repository" : each.checkout}
-                description={`${plural(each.changed, "file")} Pi changed but didn't commit · ${size(each.size)} · saved ${new Date(each.savedAt).toLocaleString()}`}
-              >
-                {each.changes.length > 0 && (
-                  <ul
-                    aria-label={`Changed in ${each.checkout}`}
-                    className="flex w-full flex-col gap-0.5 font-mono text-mono text-fg-dim"
+    <>
+      <FilesSection
+        name="outputs"
+        order={20}
+        title="Made by Pi · outputs/"
+        count={count("outputs") + waiting.length}
+      >
+        {rows("outputs")}
+      </FilesSection>
+      <FilesSection
+        name="uploads"
+        order={30}
+        title="Uploaded · uploads/"
+        count={count("uploads")}
+        {...(listed?.steers === true && {
+          action: (
+            <UploadButton
+              sessionId={session.id}
+              sending={sending}
+              onSending={setSending}
+              onProblem={setUploadProblem}
+            />
+          ),
+        })}
+      >
+        {rows("uploads")}
+      </FilesSection>
+      <FilesSection
+        name="unfinished"
+        order={50}
+        title="Unfinished work"
+        count={snapshots.length}
+      >
+        {(filter) => {
+          const shown = snapshots.filter(
+            (each) =>
+              each.checkout.toLowerCase().includes(filter) ||
+              each.changes.some((change) =>
+                change.path.toLowerCase().includes(filter),
+              ),
+          );
+
+          return shown.length === 0
+            ? null
+            : shown.map((each) => <Unfinished key={each.checkout} {...each} />);
+        }}
+      </FilesSection>
+      <FilesSection name="files-status" order={90} count={0}>
+        {() =>
+          waiting.length === 0 &&
+          state?.problem === undefined &&
+          uploadProblem === undefined &&
+          !over
+            ? null
+            : [
+                uploadProblem !== undefined && (
+                  <ErrorText key="upload" size="caption">
+                    {uploadProblem}
+                  </ErrorText>
+                ),
+                waiting.length > 0 && (
+                  <p
+                    key="unsaved"
+                    className="flex items-center gap-2 rounded-lg bg-waiting/12 px-3 py-2.5 text-caption text-fg"
                   >
-                    {each.changes.map((change) => (
-                      <li key={change.path}>
-                        {`${change.path} · ${change.change}`}
-                      </li>
-                    ))}
-                    {each.changed > each.changes.length && (
-                      <li>{`and ${String(each.changed - each.changes.length)} more`}</li>
-                    )}
-                  </ul>
-                )}
-              </Row>
-            ))}
-          </Rows>
-        </Section>
-      )}
-    </SessionTab>
+                    <Spinner className="size-3.5 text-waiting" />
+                    {`${plural(waiting.length, "file")} not saved yet · ${state?.problem ?? unsavedNote}`}
+                  </p>
+                ),
+                waiting.length === 0 && state?.problem !== undefined && (
+                  <ErrorText key="problem" size="caption">
+                    {state.problem}
+                  </ErrorText>
+                ),
+                over && (
+                  <p key="over" className="px-1 pt-2 text-caption text-waiting">
+                    {`Your Sessions keep ${size(limits.kept)} of files, more than the ${size(limits.perPersonBytes)} this server suggests for each person. Nothing is deleted or refused.`}
+                  </p>
+                ),
+              ]
+        }
+      </FilesSection>
+    </>
   );
 }
 
-function FileList({
+// A checkout's changes Pi didn't push, which the next pod puts back.
+function Unfinished({
+  checkout,
+  changes,
+  changed,
+  size: kept,
+  savedAt,
+}: Snapshot): ReactElement {
+  return (
+    <div
+      title="The next pod clones the branch and puts these back; ignored folders like node_modules are rebuilt."
+      className="flex flex-col gap-1 px-1 py-1.5"
+    >
+      <span className="text-label text-fg">
+        {checkout === "." ? "The repository" : checkout}
+      </span>
+      <span className="text-caption text-fg-dim">
+        {`${plural(changed, "file")} Pi changed but didn't push · ${size(kept)} · saved ${new Date(savedAt).toLocaleString()}`}
+      </span>
+      {changes.length > 0 && (
+        <ul
+          aria-label={`Changed in ${checkout}`}
+          className="flex flex-col gap-0.5 font-mono text-mono text-fg-dim"
+        >
+          {changes.map((change) => (
+            <li key={change.path}>{`${change.path} · ${change.change}`}</li>
+          ))}
+          {changed > changes.length && (
+            <li>{`and ${String(changed - changes.length)} more`}</li>
+          )}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+// Beside the filter: gives the Session files, which Pi finds in uploads/.
+// The menu's sections leave while it's closed, so what an upload is doing
+// stays with the Session's files.
+function UploadButton({
   sessionId,
-  place,
-  title,
-  description,
-  files,
-  unsaved,
+  sending,
+  onSending,
+  onProblem,
 }: {
   readonly sessionId: string;
-  readonly place: Place;
-  readonly title: string;
-  readonly description: string;
-  readonly files: readonly SessionFile[];
-  readonly unsaved: readonly string[];
-}): ReactElement | null {
-  const here = files.filter((file) => file.place === place);
+  readonly sending: boolean;
+  readonly onSending: (sending: boolean) => void;
+  readonly onProblem: (problem: string | undefined) => void;
+}): ReactElement {
+  const api = useApi(plugin);
 
-  const waiting = unsaved.filter(
-    (path) => !here.some((file) => file.path === path),
+  const send = async (chosen: readonly File[]): Promise<void> => {
+    for (const file of chosen) {
+      await sendUpload(api, sessionId, file, () => undefined);
+    }
+  };
+
+  return (
+    <FileButton
+      multiple
+      disabled={sending}
+      onFiles={(chosen) => {
+        onSending(true);
+        onProblem(undefined);
+
+        send(chosen)
+          .catch((error: unknown) => {
+            onProblem(error instanceof Error ? error.message : String(error));
+          })
+          .finally(() => {
+            onSending(false);
+          });
+      }}
+    >
+      {sending ? "Uploading…" : "Upload"}
+    </FileButton>
   );
+}
 
-  if (here.length === 0 && waiting.length === 0) {
+const filesNote =
+  "Files have no comments or versions. Publish one as an artifact to share it and get comments.";
+
+// A Session file over any page, from the Files menu or a link, until Esc,
+// Back or Close.
+function FileOverlay(): ReactElement | null {
+  const { params, close } = useOverlay();
+  const titleId = useId();
+  const sessionId = params.get("session");
+  const file = params.get("file");
+
+  if (sessionId === null || sessionId === "" || file === null) {
     return null;
   }
 
   return (
-    <Section title={title} description={description}>
-      <Rows label={title}>
-        {here.map((file) => (
-          <Row
-            key={file.path}
-            title={<span className="font-mono text-mono">{file.path}</span>}
-            description={size(file.size)}
-          >
-            {unsaved.includes(file.path) ? (
-              <Badge state="waiting">not saved</Badge>
-            ) : (
-              <a
-                href={`/api/ext/files/sessions/${sessionId}/files/${place}?path=${encodeURIComponent(file.path)}`}
-                download={file.path.split("/").at(-1)}
-                className="text-label text-accent hover:underline"
-              >
-                Download
-              </a>
-            )}
-          </Row>
-        ))}
-        {waiting.map((path) => (
-          <Row
-            key={path}
-            title={<span className="font-mono text-mono">{path}</span>}
-          >
-            <Badge state="waiting">not saved</Badge>
-          </Row>
-        ))}
-      </Rows>
-    </Section>
+    <Dialog
+      key={sessionId}
+      open
+      size="full"
+      onClose={close}
+      labelledBy={titleId}
+    >
+      <SessionFileViewer
+        sessionId={sessionId}
+        file={file}
+        titleId={titleId}
+        onClose={close}
+      />
+    </Dialog>
   );
+}
+
+function SessionFileViewer({
+  sessionId,
+  file,
+  titleId,
+  onClose,
+}: {
+  readonly sessionId: string;
+  // Its place and path, such as outputs/report.csv.
+  readonly file: string;
+  readonly titleId: string;
+  readonly onClose: () => void;
+}): ReactElement {
+  const listed = useSessionFiles(sessionId);
+  const kept = listed?.files ?? none;
+  const { open } = useOverlay();
+  const viewer = useViewer();
+  const now = useNow();
+  const at = kept.findIndex((each) => `${each.place}/${each.path}` === file);
+  const shown = kept[at];
+  const name = file.slice(file.indexOf("/") + 1);
+
+  if (shown === undefined) {
+    return (
+      <div className={viewerShellClass}>
+        <header className={viewerHeaderClass}>
+          <ViewerLead mode="modal" />
+          <ViewerTitle mode="modal" titleId={titleId} title={name} line="" />
+          <ViewerClose onClose={onClose} />
+        </header>
+        <p className="m-auto p-6 text-label text-fg-dim">
+          {listed !== undefined
+            ? `This Session doesn't keep ${name}.`
+            : "Loading…"}
+        </p>
+      </div>
+    );
+  }
+
+  const where = `/api/ext/files/sessions/${sessionId}/files/${shown.place}`;
+  const query = `?path=${encodeURIComponent(shown.path)}`;
+
+  return (
+    <FileViewer
+      key={file}
+      name={shown.path}
+      line={`${shown.place}/ · ${size(shown.size)} · ${maker(shown, viewer.person.id)} ${ago(new Date(shown.savedAt).toISOString(), now)}`}
+      size={shown.size}
+      view={`${where}/view${query}&v=${shown.hash}`}
+      download={`${where}${query}`}
+      titleId={titleId}
+      stepper={{
+        at: at + 1,
+        of: kept.length,
+        label: "files in this Session",
+        step: (by) => {
+          const next = kept[at + by];
+
+          if (next !== undefined) {
+            open(
+              { session: sessionId, file: `${next.place}/${next.path}` },
+              { replace: true },
+            );
+          }
+        },
+      }}
+      note={filesNote}
+      onClose={onClose}
+    />
+  );
+}
+
+function maker(file: SessionFile, you: string): string {
+  if (file.place === "outputs") {
+    return "Pi wrote it";
+  }
+
+  return file.by === you ? "you added it" : "added";
+}
+
+// Gives the Session a file, which Pi finds in uploads/ under the name it
+// returns.
+async function sendUpload(
+  api: ReturnType<typeof useApi>,
+  sessionId: string,
+  file: File,
+  onSent: (sent: number) => void,
+): Promise<string> {
+  const { maxFileBytes } = await api.get<Limits>("limits");
+
+  if (file.size > maxFileBytes) {
+    throw new Error(
+      `${file.name} is ${size(file.size)}. Files can be up to ${size(maxFileBytes)} on this server.`,
+    );
+  }
+
+  const hash = await uploadBlob(api, file, onSent);
+
+  const { path } = await api.post<{ path: string }>(
+    `sessions/${sessionId}/uploads`,
+    { name: file.name, hash },
+  );
+
+  return path;
 }
 
 interface Progress {
@@ -309,22 +529,9 @@ function Attached({
     };
 
     const send = async (file: File): Promise<void> => {
-      const { maxFileBytes } = await api.get<Limits>("limits");
-
-      if (file.size > maxFileBytes) {
-        throw new Error(
-          `${file.name} is ${size(file.size)}. Files can be up to ${size(maxFileBytes)} on this server.`,
-        );
-      }
-
-      const hash = await uploadBlob(api, file, (sent) => {
+      const path = await sendUpload(api, session.id, file, (sent) => {
         change(file, { sent });
       });
-
-      const { path } = await api.post<{ path: string }>(
-        `sessions/${session.id}/uploads`,
-        { name: file.name, hash },
-      );
 
       change(file, { sent: file.size, path });
     };

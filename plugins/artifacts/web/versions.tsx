@@ -1,5 +1,15 @@
-import { isHttpError } from "@pipoca/plugins";
-import { useApi, useLoaded, useNow, useViewer } from "@pipoca/plugins/web";
+import { isHttpError, previewed } from "@pipoca/plugins";
+import {
+  useApi,
+  useLoaded,
+  useNow,
+  useViewer,
+  ViewerClose,
+  viewerHeaderClass,
+  ViewerLead,
+  type ViewerMode,
+  ViewerTitle,
+} from "@pipoca/plugins/web";
 import {
   Button,
   cn,
@@ -21,17 +31,7 @@ import {
 import { artifacts as plugin } from "../plugin";
 import { type ArtifactView, isText, kindLabel } from "../src/artifacts";
 import { type DiffLine, lineDiff, type Span, textChanges } from "../src/diff";
-import { previewed } from "../src/page";
-import {
-  audienceLabel,
-  byline,
-  CloseButton,
-  headerClass,
-  Lead,
-  type Mode,
-  Title,
-  versionChoices,
-} from "./chrome";
+import { audienceLabel, byline, versionChoices } from "./chrome";
 import { base, Frame } from "./collaborate";
 
 async function fetched(
@@ -86,7 +86,7 @@ export function Compare({
   onClose,
 }: {
   readonly artifact: ArtifactView;
-  readonly mode: Mode;
+  readonly mode: ViewerMode;
   readonly titleId: string | undefined;
   readonly version: number;
   readonly onBack: () => void;
@@ -206,7 +206,7 @@ export function Compare({
         }
       }}
     >
-      <header className={headerClass}>
+      <header className={viewerHeaderClass}>
         <Button
           variant="ghost"
           size="sm"
@@ -217,7 +217,7 @@ export function Compare({
         >
           <Icon name="chevron-left" className="size-3.5" />
         </Button>
-        <Title
+        <ViewerTitle
           mode={mode}
           titleId={titleId}
           title={artifact.title}
@@ -237,7 +237,7 @@ export function Compare({
             onChange={setHow}
           />
         )}
-        {mode === "modal" && <CloseButton onClose={onClose} focus={false} />}
+        {mode === "modal" && <ViewerClose onClose={onClose} focus={false} />}
       </header>
       {how === "side" ? (
         <div className="grid min-h-0 flex-1 grid-cols-2 bg-panel max-md:grid-cols-1">
@@ -344,7 +344,7 @@ export function Editor({
   onClose,
 }: {
   readonly artifact: ArtifactView;
-  readonly mode: Mode;
+  readonly mode: ViewerMode;
   readonly titleId: string | undefined;
   // With the version it saved, if it saved one.
   readonly onDone: (saved?: number) => void;
@@ -442,9 +442,9 @@ export function Editor({
         }
       }}
     >
-      <header className={headerClass}>
-        <Lead mode={mode} />
-        <Title
+      <header className={viewerHeaderClass}>
+        <ViewerLead mode={mode} />
+        <ViewerTitle
           mode={mode}
           titleId={titleId}
           title={artifact.title}
@@ -475,7 +475,7 @@ export function Editor({
           </Button>
         )}
         {mode === "modal" && (
-          <CloseButton onClose={() => void leave(onClose)} focus={false} />
+          <ViewerClose onClose={() => void leave(onClose)} focus={false} />
         )}
       </header>
       {stale && (

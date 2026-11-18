@@ -2,6 +2,8 @@ import {
   Fragment,
   type ReactElement,
   type ReactNode,
+  type RefObject,
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -32,6 +34,42 @@ export interface MenuItem {
 // The look of a popover: an elevated card with the pop shadow.
 export const popClass =
   "rounded-lg border border-line bg-elevated p-1 shadow-pop animate-pop-in";
+
+// Closes what opened in box on Escape, giving its button focus again, or on
+// a press outside it.
+export function useDismiss(
+  box: RefObject<HTMLElement | null>,
+  open: boolean,
+  close: () => void,
+): void {
+  useEffect(() => {
+    if (!open) {
+      return undefined;
+    }
+
+    const dismiss = (event: Event): void => {
+      if (event instanceof KeyboardEvent && event.key === "Escape") {
+        // Inside a dialog, Escape closes only this.
+        event.preventDefault();
+        close();
+        box.current?.querySelector("button")?.focus();
+      } else if (
+        !(event instanceof KeyboardEvent) &&
+        box.current?.contains(event.target as Node) !== true
+      ) {
+        close();
+      }
+    };
+
+    document.addEventListener("pointerdown", dismiss);
+    document.addEventListener("keydown", dismiss);
+
+    return () => {
+      document.removeEventListener("pointerdown", dismiss);
+      document.removeEventListener("keydown", dismiss);
+    };
+  }, [box, open, close]);
+}
 
 // A button that opens a short list of actions. A click outside or Escape
 // closes it.
@@ -69,33 +107,11 @@ export function Menu({
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (!open) {
-      return undefined;
-    }
+  const shut = useCallback(() => {
+    setOpen(false);
+  }, []);
 
-    const close = (event: Event): void => {
-      if (event instanceof KeyboardEvent && event.key === "Escape") {
-        // Inside a dialog, Escape closes only the menu.
-        event.preventDefault();
-        setOpen(false);
-        box.current?.querySelector("button")?.focus();
-      } else if (
-        !(event instanceof KeyboardEvent) &&
-        box.current?.contains(event.target as Node) !== true
-      ) {
-        setOpen(false);
-      }
-    };
-
-    document.addEventListener("pointerdown", close);
-    document.addEventListener("keydown", close);
-
-    return () => {
-      document.removeEventListener("pointerdown", close);
-      document.removeEventListener("keydown", close);
-    };
-  }, [open]);
+  useDismiss(box, open, shut);
 
   return (
     <div ref={box} className={cn("relative", className)}>
