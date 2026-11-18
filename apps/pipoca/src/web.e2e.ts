@@ -585,6 +585,12 @@ async function openEnvironment(name: string): Promise<void> {
 }
 
 // A folder with its own .pi asks before loading it (ADR 0031).
+// The dialog closes on Escape at once, and the address steps Back after it.
+// A test that goes on before then has its next page load cut short.
+async function overlayClosed(): Promise<void> {
+  await page.waitForURL((url) => !url.hash.includes("?"));
+}
+
 async function trustRepository(): Promise<void> {
   await page
     .locator('[data-role="prompt"]')
@@ -6124,6 +6130,7 @@ test("opens an artifact Pi published, in a sandbox, from its card in the chat", 
   expect(await viewer.isVisible()).toBe(true);
   await page.keyboard.press("Escape");
   await viewer.waitFor({ state: "hidden" });
+  await overlayClosed();
   await page.waitForURL((url) => url.hash === session);
 
   await page.goto(`${server.url.href}${link}`);
@@ -6387,6 +6394,7 @@ test("comments on selected text and on a clicked element, pins them on the page,
   await viewer.getByText("Sent to Pi by you").first().waitFor();
   await page.keyboard.press("Escape");
   await viewer.waitFor({ state: "hidden" });
+  await overlayClosed();
 
   await page
     .getByText("You sent 2 comment threads on Checkout latency")
@@ -6749,6 +6757,7 @@ test("edits a Markdown artifact beside its preview and compares the versions wit
   await viewer.getByText("Comparing two versions").waitFor({ state: "hidden" });
   await page.keyboard.press("Escape");
   await viewer.waitFor({ state: "hidden" });
+  await overlayClosed();
 
   await page
     .locator("#chat")
