@@ -69,7 +69,7 @@ function ArtifactsPage({ path }: PageProps): ReactElement {
 
   return (
     <Viewer
-      key={id}
+      key={`${id}/${rest[0] === "comments" ? (rest[1] ?? "") : ""}`}
       id={id}
       mode="window"
       version={version}

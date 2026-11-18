@@ -102,6 +102,14 @@ export function activityLog({
     ) as ActivitySettings;
   };
 
+  const unread = (person: string): number =>
+    store
+      .all<{ artifact_id: string }>(
+        "select artifact_id from artifacts_activity where user_id = ? and read_at is null",
+        person,
+      )
+      .filter(({ artifact_id }) => sees(artifact_id, person)).length;
+
   const select = `select a.id, a.kind, a.artifact_id, t.title, a.comment_id,
       coalesce(c.parent_id, c.id) as thread_id, top.quote, c.body,
       a.actor_user_id, a.by_pi,
@@ -223,22 +231,10 @@ export function activityLog({
 
       return {
         items: await Promise.all(seen.map(async (each) => item(each, person))),
-        unread:
-          view === "mine"
-            ? rows.filter(
-                (each) =>
-                  each.read_at === null && sees(each.artifact_id, person),
-              ).length
-            : 0,
+        unread: view === "mine" ? unread(person) : 0,
       };
     },
-    unread: (person) =>
-      store
-        .all<{ artifact_id: string }>(
-          "select artifact_id from artifacts_activity where user_id = ? and read_at is null",
-          person,
-        )
-        .filter(({ artifact_id }) => sees(artifact_id, person)).length,
+    unread,
     read: (person, ids) => {
       const now = clock.now();
 

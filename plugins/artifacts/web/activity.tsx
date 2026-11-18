@@ -124,7 +124,7 @@ export function ActivityPage(): ReactElement {
             )}
           >
             {items.map((item) => {
-              const { said, rest } = detail(item, now);
+              const { said, rest } = detail(item, view, now);
 
               return (
                 <li key={item.id}>
@@ -189,6 +189,7 @@ export function ActivityPage(): ReactElement {
 // What was written, which gives way on a narrow row, then where and when.
 function detail(
   item: ActivityItem,
+  view: View,
   now: number,
 ): { readonly said: string; readonly rest: string } {
   const on = item.quote === "" ? [] : [`thread on ${short(item.quote)}`];
@@ -200,7 +201,7 @@ function detail(
       `version ${String(item.version)}`,
     ],
     reply: [],
-    comment: ["Your artifact"],
+    comment: view === "mine" ? ["Your artifact"] : [],
   };
 
   const shown = item.kind === "mention" || item.kind === "reply";

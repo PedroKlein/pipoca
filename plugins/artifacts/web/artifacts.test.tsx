@@ -2,7 +2,7 @@ import { expect, spyOn, test } from "bun:test";
 import { AttachMenu } from "@pipoca/plugins/web";
 import { renderPart, resize, sessionWith } from "@pipoca/plugins/web/testing";
 import { until } from "@pipoca/testing/until";
-import { act } from "react";
+import { act, type ReactElement, useState } from "react";
 import type {
   ActivityItem,
   ArtifactSummary,
@@ -4804,6 +4804,7 @@ test("Activity lists what's for the person, opens each where it happened and mar
           return Response.json({
             items: [
               entry({ id: "f1", read: true, kind: "reply", excerpt: "Me" }),
+              entry({ id: "f2", read: true, kind: "comment" }),
             ],
             unread: 0,
           });
@@ -4905,8 +4906,65 @@ test("Activity lists what's for the person, opens each where it happened and mar
     named(page, "Everything I follow")?.click();
   });
 
-  await drawn(() => rows().length === 1);
+  await drawn(() => rows().length === 2);
 
   expect(text(0)).toContain("Rui replied in a thread you're in");
+
+  // What they follow isn't always theirs.
+  expect(text(1)).not.toContain("Your artifact");
   expect(named(page, "Mark all read")).toBeUndefined();
+});
+
+test("a link to another thread of the artifact open in the window opens that thread", async () => {
+  const Gallery = slots.page;
+
+  if (Gallery === undefined) {
+    throw new Error("no gallery page");
+  }
+
+  const Page = Gallery;
+
+  let go = (_path: string): void => undefined;
+
+  function Moving(): ReactElement {
+    const [path, setPath] = useState("a1/comments/t1");
+
+    go = setPath;
+
+    return <Page path={path} />;
+  }
+
+  const moving = { page: Moving };
+
+  const page = renderPart(
+    { ...web, slots: moving },
+    "page",
+    {},
+    {
+      hash: "#plugin/artifacts/a1/comments/t1",
+      fetch: lively(async (url) => {
+        await Promise.resolve();
+
+        return url.endsWith("/comments")
+          ? Response.json({
+              comments: [
+                thread({ id: "t1", quote: "three times" }),
+                thread({ id: "t2", quote: "Nov 3" }),
+              ],
+            })
+          : Response.json({ ...artifact({ versions: 2 }), ...viewed(2) });
+      }),
+    },
+  );
+
+  const title = (): string | null | undefined =>
+    page.querySelector("h3")?.textContent;
+
+  await drawn(() => title() === "Thread on “three times”");
+
+  act(() => {
+    go("a1/comments/t2");
+  });
+
+  await drawn(() => title() === "Thread on “Nov 3”");
 });

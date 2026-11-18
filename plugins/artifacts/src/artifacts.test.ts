@@ -45,6 +45,7 @@ async function setUp() {
       { id: "ana", name: "Ana", admin: true },
       { id: "bo", name: "Bo" },
       { id: "cy", name: "Cy" },
+      { id: "bolee", name: "Bo Lee" },
     ],
   });
 
@@ -2075,6 +2076,21 @@ test("Pi suggests an edit to a Markdown artifact in a thread sent to it, and som
     isError: true,
     text: expect.stringContaining("2 times") as unknown,
   });
+
+  // A suggestion is decided only on its own artifact.
+  const elsewhere = await t
+    .as("ana")
+    .raw(`artifacts/${twiceId}/comments/${pending}/suggestion`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ accept: false }),
+    });
+
+  expect(elsewhere.status).toBe(404);
+
+  expect(
+    (await listed()).find((each) => each.id === pending)?.suggestion,
+  ).toMatchObject({ state: "open" });
 });
 
 test("people are told of mentions, review requests, replies in their threads and, if they ask, comments on their artifacts", async () => {
@@ -2171,7 +2187,7 @@ test("people are told of mentions, review requests, replies in their threads and
   // Asking again, or naming someone whose name only starts the same, tells
   // nobody twice.
   await t.as("ana").put(`artifacts/${id}/reviewers`, { reviewers: ["Bo"] });
-  await comment("ana", "Thanks @Bob, and @Bo-team");
+  await comment("ana", "Thanks @Bob, @Bo-team and @Bo Lee");
 
   expect(
     (await told("bo")).items.filter(({ kind }) => kind !== "reply"),
@@ -2222,7 +2238,7 @@ test("people are told of mentions, review requests, replies in their threads and
   const following = await told("bo", "following");
 
   expect(following.items.map(({ excerpt }) => excerpt)).toEqual([
-    "Thanks @Bob, and @Bo-team",
+    "Thanks @Bob, @Bo-team and @Bo Lee",
     "Me",
     "",
     "@pi what about Monday?",
