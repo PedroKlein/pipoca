@@ -1,6 +1,6 @@
-import { useApi, useDraft, useLoaded } from "@pipoca/plugins/web";
+import { ago, useApi, useDraft, useLoaded, useNow } from "@pipoca/plugins/web";
 import {
-  Avatar,
+  Badge,
   Button,
   cardClass,
   Checkbox,
@@ -274,7 +274,7 @@ export function Editor({
 }
 
 // Threads of comments on the artifact, beside it. One sent to Pi reaches
-// the Session as the person's message.
+// its Session as a notice, and Pi answers in the thread (ADR 0081).
 export function Comments({
   artifact,
   version,
@@ -287,6 +287,7 @@ export function Comments({
   readonly onQuoted: () => void;
 }): ReactElement {
   const api = useApi(plugin);
+  const now = useNow();
 
   const { value, reload } = useLoaded(
     async () =>
@@ -307,25 +308,23 @@ export function Comments({
   const quoted = threads.filter((each) => each.quote !== "");
 
   const thread = (top: Comment): ReactElement => (
-    <li
-      key={top.id}
-      className={cn(
-        cardClass,
-        "flex flex-col gap-2.5 p-3",
-        top.resolved && "opacity-60",
-      )}
-    >
-      {top.quote !== "" && (
-        <span className="text-caption text-fg-dim">
-          {`On “${short(top.quote)}”`}
-          {quoted.includes(top) && (
-            <sup className="ml-1">{quoted.indexOf(top) + 1}</sup>
-          )}
-        </span>
-      )}
-      {[top, ...all.filter((each) => each.parent === top.id)].map((each) => (
-        <CommentBody key={each.id} comment={each} />
-      ))}
+    <li key={top.id} className={cn(cardClass, "flex flex-col gap-3 p-3")}>
+      <CommentBody
+        comment={top}
+        now={now}
+        {...(quoted.includes(top) && { mark: quoted.indexOf(top) + 1 })}
+        {...(top.resolvedByPi && {
+          badge: <Badge state="done">Resolved by Pi</Badge>,
+        })}
+      />
+      {all
+        .filter((each) => each.parent === top.id)
+        .map((each) => (
+          <div key={each.id} className="border-t border-line pt-3">
+            <CommentBody comment={each} now={now} />
+          </div>
+        ))}
+      <ThreadState artifact={artifact} thread={top} onSent={reload} />
       {canComment && (
         <CommentForm
           artifact={artifact}
@@ -355,9 +354,9 @@ export function Comments({
   return (
     <div className="flex flex-col gap-3">
       <p className="text-caption text-fg-dim">
-        {`${String(open.length)} open`}
-        {canComment && artifact.sessionId !== null
-          ? ". Sent to Pi, a comment arrives in the Session as your message and wakes it if it's idle."
+        {open.length === 0 ? "Nothing open" : `${String(open.length)} open`}
+        {artifact.askable
+          ? ". Pi sees a thread once you send it, and answers in it."
           : ""}
       </p>
       {canComment && (
@@ -394,26 +393,111 @@ export function Comments({
   );
 }
 
-function short(text: string): string {
-  return text.length > 40 ? `${text.slice(0, 40).trimEnd()}…` : text;
-}
-
-function CommentBody({ comment }: { readonly comment: Comment }): ReactElement {
+function CommentBody({
+  comment,
+  now,
+  mark,
+  badge,
+}: {
+  readonly comment: Comment;
+  readonly now: number;
+  // Its number on the passage the page marks.
+  readonly mark?: number;
+  readonly badge?: ReactNode;
+}): ReactElement {
   return (
-    <div className="flex gap-2">
-      <Avatar name={comment.author} size="sm" />
-      <div className="flex min-w-0 flex-col gap-0.5">
-        <span className="text-caption text-fg-dim">
-          <b className="font-medium text-fg-strong">{comment.author}</b>
-          {` · version ${String(comment.version)}`}
-        </span>
-        <p className="text-label whitespace-pre-wrap">{comment.body}</p>
-        {comment.sentToPi && (
-          <span className="text-caption text-fg-dim">
-            Sent to Pi by {comment.author}
+    <div className="flex min-w-0 flex-col gap-2">
+      <span className="flex min-w-0 items-center gap-2 text-caption text-fg-dim">
+        {comment.byPi && (
+          <span
+            aria-hidden="true"
+            className="grid size-6 shrink-0 place-items-center rounded-full bg-accent text-caption font-semibold text-on-accent"
+          >
+            Pi
           </span>
         )}
-      </div>
+        <b className="font-medium text-fg-strong">
+          {comment.byPi ? "Pi" : comment.author}
+        </b>
+        <span className="min-w-0 flex-1 truncate">
+          {[
+            comment.byPi
+              ? `via ${lower(comment.author)}`
+              : `on version ${String(comment.version)}`,
+            ago(new Date(comment.createdAt).toISOString(), now),
+          ].join(" · ")}
+        </span>
+        {badge}
+      </span>
+      {comment.quote !== "" && (
+        <blockquote className="border-l-2 border-accent pl-2 text-label text-fg-dim italic">
+          {comment.quote}
+          {mark !== undefined && <sup className="ml-1 not-italic">{mark}</sup>}
+        </blockquote>
+      )}
+      <p className="text-label whitespace-pre-wrap">{comment.body}</p>
+    </div>
+  );
+}
+
+function lower(name: string): string {
+  return name === "You" ? "you" : name;
+}
+
+// Whether Pi has the thread, and Send to Pi for people who can act in its
+// Session.
+function ThreadState({
+  artifact,
+  thread,
+  onSent,
+}: {
+  readonly artifact: ArtifactView;
+  readonly thread: Comment;
+  readonly onSent: () => void;
+}): ReactElement | null {
+  const api = useApi(plugin);
+  const [problem, setProblem] = useState<string>();
+
+  if (thread.resolved) {
+    return null;
+  }
+
+  if (thread.sentBy !== null) {
+    return (
+      <span className="text-caption text-fg-dim">
+        {`Sent to Pi by ${lower(thread.sentBy)}`}
+      </span>
+    );
+  }
+
+  if (!artifact.askable) {
+    return null;
+  }
+
+  return (
+    <div className="flex flex-col gap-1">
+      <Button
+        variant="ghost"
+        size="sm"
+        className="self-start"
+        onClick={() => {
+          setProblem(undefined);
+
+          void api
+            .post(`artifacts/${artifact.id}/comments/send`, {
+              threads: [thread.id],
+            })
+            .then(onSent)
+            .catch((error: unknown) => {
+              setProblem(
+                error instanceof Error ? error.message : String(error),
+              );
+            });
+        }}
+      >
+        Send to Pi
+      </Button>
+      <ErrorText size="caption">{problem}</ErrorText>
     </div>
   );
 }
@@ -439,7 +523,8 @@ function CommentForm({
 }): ReactElement {
   const api = useApi(plugin);
   const [body, setBody] = useState("");
-  const [toPi, setToPi] = useState(artifact.sessionId !== null);
+  const asks = parent === undefined && artifact.askable;
+  const [toPi, setToPi] = useState(asks);
   const [problem, setProblem] = useState<string>();
   const label = parent === undefined ? "Comment" : "Reply";
 
@@ -459,7 +544,7 @@ function CommentForm({
           .post(`artifacts/${artifact.id}/comments`, {
             version,
             body: body.trim(),
-            toPi,
+            toPi: asks && toPi,
             ...(quote !== "" && { quote }),
             ...(parent !== undefined && { parent }),
           })
@@ -488,7 +573,7 @@ function CommentForm({
         }}
       />
       <div className="flex flex-wrap items-center gap-3">
-        {artifact.sessionId !== null && (
+        {asks && (
           <Checkbox
             label="Send to Pi"
             size="sm"

@@ -73,6 +73,9 @@ export type Access = "steer" | "comment" | "view";
 export interface ArtifactView extends ArtifactSummary {
   readonly history: readonly Version[];
   readonly access: Access;
+  // Whether the viewer can send threads to Pi: they steer its Session, and
+  // the Session is there and not archived.
+  readonly askable: boolean;
   readonly shares: readonly Share[];
   readonly pinned: boolean;
 }
@@ -82,13 +85,27 @@ export interface Comment {
   readonly version: number;
   // The comment it replies to.
   readonly parent: string | null;
+  // A person, or for Pi's reply the person who sent Pi the thread.
   readonly author: string;
+  readonly byPi: boolean;
   // The text it's about, as the person selected it.
   readonly quote: string;
   readonly body: string;
-  readonly sentToPi: boolean;
+  // On a thread: who last sent it to Pi, or null.
+  readonly sentBy: string | null;
   readonly resolved: boolean;
+  readonly resolvedByPi: boolean;
   readonly createdAt: number;
+}
+
+// The threads one notice told Pi about, for its row in the chat.
+export interface Batch {
+  readonly senders: readonly string[];
+  readonly threads: readonly {
+    readonly artifact: string;
+    readonly title: string;
+    readonly comment: Comment;
+  }[];
 }
 
 export function isText(kind: Kind): boolean {
