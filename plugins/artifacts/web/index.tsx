@@ -33,7 +33,8 @@ import {
   type Published,
 } from "../src/artifacts";
 import { artifactHref, loadArtifact } from "./collaborate";
-import { ArtifactLink, ArtifactOverlay, audienceLabel, Viewer } from "./viewer";
+import { audienceLabel } from "./chrome";
+import { ArtifactLink, ArtifactOverlay, Viewer } from "./viewer";
 
 export const web = defineWeb(plugin, {
   pages: [
@@ -50,6 +51,7 @@ export const web = defineWeb(plugin, {
     overlay: ArtifactOverlay,
     "session.toolCall:publish_artifact": PublishedCard,
     "notice:artifact_comments": CommentsNotice,
+    "notice:artifact_version": VersionNotice,
   },
 });
 
@@ -256,6 +258,9 @@ function PublishedCard({ call }: ToolCallProps): ReactElement {
   );
 }
 
+const noticeClass =
+  "rounded-lg border border-dashed border-line px-3 py-1.5 text-label text-fg-dim";
+
 // Threads people sent Pi, as one row in the chat. Their text stays on the
 // artifact; the row shows it on demand.
 function CommentsNotice({ data }: NoticeProps): ReactElement {
@@ -279,7 +284,7 @@ function CommentsNotice({ data }: NoticeProps): ReactElement {
       : `${value.senders.join(" and ")} sent ${plural(threads.length, "comment thread")} on `;
 
   return (
-    <div className="relative rounded-lg border border-dashed border-line px-3 py-1.5 text-label text-fg-dim">
+    <div className={cn(noticeClass, "relative")}>
       <details className="group">
         <summary
           className={cn(
@@ -334,6 +339,56 @@ function CommentsNotice({ data }: NoticeProps): ReactElement {
           id={first.artifact}
           comments
           className="absolute top-1.5 right-9 text-fg-dim hover:text-fg"
+        >
+          Open
+        </ArtifactLink>
+      )}
+    </div>
+  );
+}
+
+// A version a person saved by hand or restored, as one row in the chat. Pi
+// reads it as context; no turn starts.
+function VersionNotice({ data }: NoticeProps): ReactElement {
+  const api = useApi(plugin);
+
+  const { artifact: id, version } = (data ?? {}) as {
+    artifact?: unknown;
+    version?: unknown;
+  };
+
+  const shown = typeof id === "string" ? id : "";
+  const number = typeof version === "number" ? version : undefined;
+
+  const { value } = useLoaded(
+    async () =>
+      loadArtifact(api, shown).then((loaded) =>
+        typeof loaded === "string" ? null : loaded,
+      ),
+    `${shown}:version`,
+    { changes: ["artifacts"] },
+  );
+
+  const made = number === undefined ? undefined : value?.history[number - 1];
+
+  return (
+    <div className={cn(noticeClass, "flex items-center gap-2")}>
+      <Icon name="pencil" className="size-4 shrink-0" />
+      <span className="min-w-0 flex-1 truncate">
+        {made === undefined || value === undefined || value === null ? (
+          "A new version of an artifact"
+        ) : (
+          <>
+            {`${made.by} saved version ${String(made.number)} of `}
+            <b className="font-medium text-fg">{value.title}</b>
+          </>
+        )}
+      </span>
+      {value !== null && value !== undefined && (
+        <ArtifactLink
+          id={shown}
+          {...(number !== undefined && { version: number })}
+          className="shrink-0 text-fg-dim hover:text-fg"
         >
           Open
         </ArtifactLink>

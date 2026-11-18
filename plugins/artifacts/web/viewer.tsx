@@ -1,5 +1,4 @@
 import {
-  ago,
   hashParts,
   href,
   useApi,
@@ -14,7 +13,6 @@ import {
   Dialog,
   ErrorText,
   Icon,
-  Mark,
   Menu,
   type MenuItem,
   useConfirm,
@@ -30,17 +28,25 @@ import {
 import { artifacts as plugin } from "../plugin";
 import type { ArtifactSummary, ArtifactView } from "../src/artifacts";
 import {
+  audienceLabel,
+  byline,
+  CloseButton,
+  headerClass,
+  headings,
+  Lead,
+  type Mode,
+  shellClass,
+  Title,
+} from "./chrome";
+import {
   artifactHref,
   base,
   Comments,
-  Compare,
-  Editor,
   Frame,
   loadArtifact,
 } from "./collaborate";
 import { ShareDialog } from "./share";
-
-type Mode = "modal" | "window";
+import { Compare, Editor } from "./versions";
 
 type Body = "page" | "compare" | "edit";
 
@@ -48,12 +54,15 @@ type Body = "page" | "compare" | "edit";
 // it shows the artifact alone.
 export function ArtifactLink({
   id,
+  version,
   comments = false,
   className,
   current,
   children,
 }: {
   readonly id: string;
+  // A version other than the latest.
+  readonly version?: number;
   // Opens with its comments beside it.
   readonly comments?: boolean;
   readonly className?: string;
@@ -64,7 +73,9 @@ export function ArtifactLink({
 
   return (
     <a
-      href={comments ? href(plugin, `${id}/comments`) : artifactHref(id)}
+      href={
+        comments ? href(plugin, `${id}/comments`) : artifactHref(id, version)
+      }
       aria-current={current === true ? "page" : undefined}
       className={className}
       onClick={(event: MouseEvent) => {
@@ -79,7 +90,12 @@ export function ArtifactLink({
         }
 
         event.preventDefault();
-        open({ artifact: id, ...(comments && { comments: "1" }) });
+
+        open({
+          artifact: id,
+          ...(version !== undefined && { v: String(version) }),
+          ...(comments && { comments: "1" }),
+        });
       }}
     >
       {children}
@@ -170,14 +186,18 @@ export function Viewer({
     );
   }
 
+  const asked =
+    version !== undefined && Number.isInteger(version) && version >= 1
+      ? version
+      : null;
+
   return (
     <Shown
       artifact={artifact}
       mode={mode}
+      asked={asked}
       shown={
-        version !== undefined && Number.isInteger(version) && version >= 1
-          ? Math.min(version, artifact.versions)
-          : artifact.versions
+        asked === null ? artifact.versions : Math.min(asked, artifact.versions)
       }
       commentsAtFirst={commentsAtFirst}
       titleId={titleId}
@@ -247,51 +267,10 @@ function Placeholder({
   );
 }
 
-const headings = { modal: "h2", window: "h1" } as const;
-
-const shellClass =
-  "flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-[inherit] bg-elevated";
-
-const headerClass =
-  "relative flex min-h-14 flex-wrap items-center gap-1.5 border-b border-line py-2.5 pr-3 pl-4.5";
-
-// Alone in the window, the way back into Pipoca.
-function Lead({ mode }: { readonly mode: Mode }): ReactElement {
-  return mode === "window" ? (
-    <a href="#" aria-label="Pipoca home">
-      <Mark className="size-8" />
-    </a>
-  ) : (
-    <span className="grid size-8 shrink-0 place-items-center rounded-lg border border-line bg-panel text-fg-dim">
-      <Icon name="file-text" />
-    </span>
-  );
-}
-
-// Focused once the artifact is there, as the placeholder's was.
-function CloseButton({
-  onClose,
-}: {
-  readonly onClose: () => void;
-}): ReactElement {
-  return (
-    <Button
-      variant="ghost"
-      size="sm"
-      iconOnly
-      aria-label="Close"
-      autoFocus
-      onClick={onClose}
-      className="max-sm:absolute max-sm:top-2.5 max-sm:right-3"
-    >
-      <Icon name="x" className="size-3.5" />
-    </Button>
-  );
-}
-
 function Shown({
   artifact,
   mode,
+  asked,
   shown,
   commentsAtFirst,
   titleId,
@@ -300,6 +279,8 @@ function Shown({
 }: {
   readonly artifact: ArtifactView;
   readonly mode: Mode;
+  // The version the address names, or null for the latest.
+  readonly asked: number | null;
   readonly shown: number;
   readonly commentsAtFirst: boolean;
   readonly titleId: string | undefined;
@@ -308,20 +289,21 @@ function Shown({
 }): ReactElement {
   const api = useApi(plugin);
 
-  // Compare and edit belong to the version they opened on.
-  const [opened, setOpened] = useState<{ body: Body; on: number }>({
+  // Compare and edit belong to the address they opened on: Back leaves
+  // them, and a version someone publishes meanwhile doesn't.
+  const [opened, setOpened] = useState<{ body: Body; on: number | null }>({
     body: "page",
-    on: shown,
+    on: asked,
   });
 
-  if (opened.on !== shown) {
-    setOpened({ body: "page", on: shown });
+  if (opened.on !== asked) {
+    setOpened({ body: "page", on: asked });
   }
 
-  const body = opened.on === shown ? opened.body : "page";
+  const body = opened.on === asked ? opened.body : "page";
 
   const setBody = (next: Body): void => {
-    setOpened({ body: next, on: shown });
+    setOpened({ body: next, on: asked });
   };
 
   const [commenting, setCommenting] = useState(commentsAtFirst);
@@ -331,7 +313,6 @@ function Shown({
   const [said, setSaid] = useState<string>();
   const [confirm, confirmDialog] = useConfirm();
   const now = useNow();
-  const Heading = headings[mode];
   const latest = shown === artifact.versions;
   const steers = artifact.access === "steer";
 
@@ -495,21 +476,49 @@ function Shown({
       : []),
   ];
 
+  const toPage = (): void => {
+    setBody("page");
+  };
+
+  if (body === "compare") {
+    return (
+      <div className={shellClass}>
+        <Compare
+          artifact={artifact}
+          mode={mode}
+          titleId={titleId}
+          version={shown}
+          onBack={toPage}
+          onClose={onClose}
+        />
+      </div>
+    );
+  }
+
+  if (body === "edit") {
+    return (
+      <div className={shellClass}>
+        <Editor
+          artifact={artifact}
+          mode={mode}
+          titleId={titleId}
+          onDone={toPage}
+          onClose={onClose}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className={shellClass}>
       <header className={headerClass}>
         <Lead mode={mode} />
-        <div className="ml-1.5 flex min-w-50 flex-1 flex-col max-sm:pr-8">
-          <Heading
-            id={titleId}
-            className="truncate text-[15px] font-semibold text-fg-strong"
-          >
-            {artifact.title}
-          </Heading>
-          <span className="truncate text-caption text-fg-dim">
-            {originLine(artifact, mode)}
-          </span>
-        </div>
+        <Title
+          mode={mode}
+          titleId={titleId}
+          title={artifact.title}
+          line={originLine(artifact, mode)}
+        />
         <span role="status" className="text-caption text-fg-dim">
           {said}
         </span>
@@ -519,6 +528,7 @@ function Shown({
               ? `Version ${String(shown)}, the latest. Versions`
               : `Version ${String(shown)} of ${String(artifact.versions)}. Versions`
           }
+          heading="Versions · every publish is kept"
           variant="default"
           size="sm"
           align="end"
@@ -609,38 +619,16 @@ function Shown({
       )}
       <div className="flex min-h-0 flex-1 bg-panel">
         <div className="flex min-w-0 flex-1 flex-col overflow-y-auto">
-          {body === "page" && (
-            <Frame
-              artifact={artifact}
-              version={shown}
-              highlights={quotes ?? []}
-              className="min-h-0 flex-1"
-              onSelect={(text) => {
-                setQuote(text);
-                setCommenting(true);
-              }}
-            />
-          )}
-          {body === "compare" && (
-            <div className="flex flex-col gap-3 p-6">
-              <Back
-                onBack={() => {
-                  setBody("page");
-                }}
-              />
-              <Compare artifact={artifact} version={shown} />
-            </div>
-          )}
-          {body === "edit" && (
-            <div className="flex flex-col gap-3 p-6">
-              <Editor
-                artifact={artifact}
-                onDone={() => {
-                  setBody("page");
-                }}
-              />
-            </div>
-          )}
+          <Frame
+            artifact={artifact}
+            version={shown}
+            highlights={quotes ?? []}
+            className="min-h-0 flex-1"
+            onSelect={(text) => {
+              setQuote(text);
+              setCommenting(true);
+            }}
+          />
         </div>
         {commenting && (
           <aside
@@ -671,15 +659,6 @@ function Shown({
   );
 }
 
-function Back({ onBack }: { readonly onBack: () => void }): ReactElement {
-  return (
-    <Button variant="ghost" size="sm" className="self-start" onClick={onBack}>
-      <Icon name="chevron-left" className="size-3.5" />
-      Back to the page
-    </Button>
-  );
-}
-
 function versionItems(
   artifact: ArtifactView,
   shown: number,
@@ -690,7 +669,8 @@ function versionItems(
   return [
     ...[...artifact.history].reverse().map((each) => ({
       label: `Version ${String(each.number)}`,
-      description: versionLine(each, artifact.versions, now),
+      ...(each.number === artifact.versions && { badge: "latest" }),
+      description: byline(each, now),
       checked: each.number === shown,
       run: () => {
         onVersion(each.number === artifact.versions ? undefined : each.number);
@@ -700,25 +680,13 @@ function versionItems(
       ? [
           {
             label: "Compare versions…",
+            icon: "arrow-up-down" as const,
             divided: true,
             run: onCompare,
           },
         ]
       : []),
   ];
-}
-
-function versionLine(
-  version: ArtifactView["history"][number],
-  last: number,
-  now: number,
-): string {
-  return [
-    ...(version.number === last ? ["latest"] : []),
-    version.by,
-    ago(new Date(version.createdAt).toISOString(), now),
-    ...(version.note === "" ? [] : [version.note]),
-  ].join(" · ");
 }
 
 // Where it comes from and who opens it. Alone in the window, whose it is
@@ -736,16 +704,4 @@ function originLine(artifact: ArtifactSummary, mode: Mode): string {
     : [...from.map((each) => `From ${each}`), audienceLabel(artifact)].join(
         " · ",
       );
-}
-
-export function audienceLabel(artifact: ArtifactSummary): string {
-  if (artifact.audience === "team") {
-    return "Team";
-  }
-
-  if (artifact.audience === "named") {
-    return `Shared with ${artifact.sharedWith.join(", ")}`;
-  }
-
-  return artifact.yours ? "Only you" : `From ${artifact.owner}`;
 }

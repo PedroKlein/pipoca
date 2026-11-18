@@ -331,16 +331,22 @@ export const server = defineServer(
 
         const found = versionOf(artifact, body.version);
 
-        return {
-          version: addVersion(
-            artifact.id,
-            found.name,
-            found.hash,
-            found.size,
-            `user:${caller.person.id}`,
-            `restored version ${String(found.number)}`,
-          ),
-        };
+        const number = addVersion(
+          artifact.id,
+          found.name,
+          found.hash,
+          found.size,
+          `user:${caller.person.id}`,
+          `restored version ${String(found.number)}`,
+        );
+
+        told(
+          artifact,
+          number,
+          `${caller.person.name} restored version ${String(found.number)} of the artifact “${artifact.title}” (${artifact.id}) as version ${String(number)}.`,
+        );
+
+        return { version: number };
       },
     );
 
@@ -793,13 +799,33 @@ export const server = defineServer(
       },
     );
 
-    // A person's edit of a Markdown artifact is a version of its own, which
-    // Pi hears about with its author.
+    // A person's own version reaches the Session as a notice without a
+    // turn, so Pi reads it before it next changes the artifact.
+    const told = (artifact: Row, number: number, what: string): void => {
+      if (artifact.session_id === null) {
+        return;
+      }
+
+      sessions.send(artifact.session_id, {
+        text: `${what} Read it with read_artifact before you change it.`,
+        turn: false,
+        notice: {
+          kind: "artifact_version",
+          data: { artifact: artifact.id, version: number },
+        },
+      });
+    };
+
+    // A person's edit of a Markdown artifact is a version of its own. One
+    // built on an older version than the latest is refused, so they choose.
     routes.post(
       "artifacts/:id/versions",
       {
         auth: "person",
-        body: Type.Object({ text: Type.String({ maxLength: 5_000_000 }) }),
+        body: Type.Object({
+          text: Type.String({ maxLength: 5_000_000 }),
+          base: Type.Optional(Type.Integer({ minimum: 1 })),
+        }),
         changes: ["artifacts"],
       },
       async ({ caller, params, body }) => {
@@ -816,6 +842,14 @@ export const server = defineServer(
           throw new BadRequest("Only Markdown artifacts are edited here.");
         }
 
+        if (body.base !== undefined && body.base < last.number) {
+          throw new HttpError(
+            409,
+            `${byOf(last.author)} saved version ${String(last.number)} while you were editing.`,
+            "stale",
+          );
+        }
+
         const stored = await blobs.put(new TextEncoder().encode(body.text));
 
         const number = addVersion(
@@ -824,16 +858,14 @@ export const server = defineServer(
           stored.hash,
           stored.size,
           `user:${caller.person.id}`,
-          "edited",
+          "edited by hand",
         );
 
-        if (artifact.session_id !== null) {
-          sessions.send(artifact.session_id, {
-            text: `${caller.person.name} edited the artifact “${artifact.title}” (${artifact.id}): it's now version ${String(number)}. Read it with read_artifact before you change it.`,
-            turn: false,
-            as: `user:${caller.person.id}`,
-          });
-        }
+        told(
+          artifact,
+          number,
+          `${caller.person.name} saved version ${String(number)} of the artifact “${artifact.title}” (${artifact.id}).`,
+        );
 
         return { version: number };
       },
@@ -907,6 +939,7 @@ export const server = defineServer(
           title: Type.Optional(Type.String({ minLength: 1, maxLength: 200 })),
           id: Type.Optional(Type.String({ minLength: 1 })),
           note: Type.Optional(Type.String({ maxLength: 200 })),
+          base: Type.Optional(Type.Integer({ minimum: 1 })),
         }),
         changes: ["artifacts"],
       },
@@ -943,6 +976,16 @@ export const server = defineServer(
           if (artifact?.session_id !== caller.session.id) {
             throw new NotFound(
               `no artifact ${body.id} published from this Session`,
+            );
+          }
+
+          const latest = versionOf(artifact);
+
+          if (body.base !== undefined && body.base < latest.number) {
+            throw new HttpError(
+              409,
+              `Version ${String(latest.number)} of “${artifact.title}” is newer than version ${String(body.base)}: ${byOf(latest.author)} made it${latest.note === "" ? "" : ` (${latest.note})`}. Read it with read_artifact, merge your change into it, and publish again with base ${String(latest.number)}.`,
+              "stale",
             );
           }
 

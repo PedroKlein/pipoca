@@ -12,6 +12,8 @@ import { Icon, type IconName } from "./icon";
 
 export interface MenuItem {
   readonly label: string;
+  // A word beside the label, such as latest.
+  readonly badge?: string;
   // A line under the label on what the item does.
   readonly description?: string;
   readonly icon?: IconName;
@@ -35,6 +37,7 @@ export const popClass =
 // closes it.
 export function Menu({
   label,
+  heading,
   items,
   icon = "more",
   trigger,
@@ -46,6 +49,8 @@ export function Menu({
   triggerClassName,
 }: {
   readonly label: string;
+  // A line above the items on what they are.
+  readonly heading?: string;
   readonly items: readonly MenuItem[];
   readonly icon?: IconName;
   // Draws the button with this content instead of the icon alone. The
@@ -122,6 +127,11 @@ export function Menu({
             popClass,
           )}
         >
+          {heading !== undefined && (
+            <p className="px-2.5 pt-1.5 pb-1 text-caption font-medium text-fg">
+              {heading}
+            </p>
+          )}
           {items.map((item) => (
             <Fragment key={item.label}>
               {item.divided === true && <hr className="my-1 border-line" />}
@@ -147,10 +157,10 @@ export function Menu({
                 {item.icon !== undefined && <Icon name={item.icon} />}
                 {item.mark}
                 {item.description === undefined ? (
-                  item.label
+                  <Label item={item} />
                 ) : (
                   <span className="flex flex-1 flex-col py-0.5">
-                    {item.label}
+                    <Label item={item} />
                     <span className="text-caption text-fg-dim">
                       {item.description}
                     </span>
@@ -167,5 +177,18 @@ export function Menu({
         </div>
       )}
     </div>
+  );
+}
+
+function Label({ item }: { readonly item: MenuItem }): ReactNode {
+  return item.badge === undefined ? (
+    item.label
+  ) : (
+    <span className="flex items-center gap-2">
+      {item.label}{" "}
+      <span className="rounded-sm bg-hover px-1.5 text-caption text-fg-dim">
+        {item.badge}
+      </span>
+    </span>
   );
 }
