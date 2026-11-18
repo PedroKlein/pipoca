@@ -101,5 +101,9 @@ create table artifacts_batch_threads (
   sent_by_user_id text references users (id) on delete set null,
   primary key (batch_id, thread_id)
 ) strict, without rowid;`,
+    // 4: what a comment is, and the element it's on: a selector in the
+    // version it was written on, with quote naming it for people.
+    `alter table artifacts_comments add column kind text not null default 'comment' check (kind in ('comment', 'question', 'decision', 'suggestion'));
+alter table artifacts_comments add column element text not null default '';`,
   ],
 });

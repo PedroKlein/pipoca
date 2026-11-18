@@ -6,6 +6,7 @@ import {
   type ArtifactSummary,
   bytes,
   type Comment,
+  type CommentKind,
   kindOf,
   type Published,
   supported,
@@ -302,8 +303,10 @@ function threadLines(comments: readonly Comment[]): string[] {
     .filter((each) => each.parent === null)
     .flatMap((thread) => [
       [
-        `${thread.author} on version ${String(thread.version)}, thread ${thread.id}`,
-        thread.quote === "" ? "" : `, about “${fence(thread.quote)}”`,
+        `${thread.author}${said[thread.kind]} on version ${String(thread.version)}, thread ${thread.id}`,
+        thread.quote === ""
+          ? ""
+          : `, about ${thread.element === "" ? "" : "the element "}“${fence(thread.quote)}”`,
         thread.resolved ? " (resolved)" : "",
         thread.sentBy === null ? "" : ` (sent to you by ${thread.sentBy})`,
         `: ${fence(thread.body)}`,
@@ -317,6 +320,13 @@ function threadLines(comments: readonly Comment[]): string[] {
         ),
     ]);
 }
+
+const said: Readonly<Record<CommentKind, string>> = {
+  comment: "",
+  question: " asks",
+  decision: " records a decision",
+  suggestion: " suggests",
+};
 
 // Comment text is what people wrote, so Pi reads it as data.
 function fence(value: string): string {

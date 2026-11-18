@@ -1,31 +1,9 @@
-import {
-  ago,
-  href,
-  useApi,
-  useDraft,
-  useLoaded,
-  useNow,
-} from "@pipoca/plugins/web";
-import {
-  Badge,
-  Button,
-  cardClass,
-  Checkbox,
-  cn,
-  ErrorText,
-  TextArea,
-} from "@pipoca/ui";
-import {
-  type ReactElement,
-  type ReactNode,
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
+import { href, useDraft } from "@pipoca/plugins/web";
+import { cn } from "@pipoca/ui";
+import { type ReactElement, useCallback, useEffect, useRef } from "react";
 import { isHttpError, type TypedClient } from "@pipoca/plugins";
 import { artifacts as plugin } from "../plugin";
-import type { ArtifactView, Comment } from "../src/artifacts";
+import type { ArtifactView } from "../src/artifacts";
 import type { Span } from "../src/diff";
 
 export const base = "/api/ext/artifacts";
@@ -55,22 +33,60 @@ export async function loadArtifact(
 const sandbox =
   "allow-scripts allow-popups allow-popups-to-escape-sandbox allow-modals allow-forms";
 
+// Where on the page a thread sits, numbered as the list numbers it; a
+// draft has no number yet.
+export interface Pin {
+  readonly n: number | null;
+  readonly quote: string;
+  readonly selector: string;
+  readonly active: boolean;
+}
+
+// Where something sits in the frame's window.
+export interface Box {
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+}
+
+// What a person picked to comment on: selected text, or in comment mode an
+// element, named for people.
+export type Picked =
+  | { readonly quote: string; readonly rect: Box }
+  | {
+      readonly element: string;
+      readonly label: string;
+      readonly rect: Box;
+    };
+
 // The artifact in its sandbox. A page may ask for a draft in the Session's
 // composer, which the person sends or not (ADR 0078); pages Pipoca draws
-// also say what the person selected.
+// also say what the person selected or clicked to comment on, and pin the
+// threads.
 export function Frame({
   artifact,
   version,
-  onSelect,
-  highlights,
+  commenting = false,
+  pins,
+  onPick,
+  onPin,
+  onEscape,
+  onScroll,
   changes,
   className,
 }: {
   readonly artifact: ArtifactView;
   readonly version: number;
-  readonly onSelect?: (text: string) => void;
-  // Text comments quote, which the page marks.
-  readonly highlights?: readonly string[];
+  // Clicking an element picks it instead of following it.
+  readonly commenting?: boolean;
+  readonly pins?: readonly Pin[];
+  readonly onPick?: (picked: Picked) => void;
+  readonly onPin?: (n: number) => void;
+  // Escape pressed in the page while commenting.
+  readonly onEscape?: () => void;
+  // How far the page scrolled, to keep what sits over it in place.
+  readonly onScroll?: (by: { readonly x: number; readonly y: number }) => void;
   // Words this version took out or put in, compared with another, by where
   // they sit in a page text this long.
   readonly changes?:
@@ -95,7 +111,51 @@ export function Frame({
         return;
       }
 
-      const data = event.data as { pipoca?: unknown; text?: unknown } | null;
+      const data = event.data as {
+        pipoca?: unknown;
+        text?: unknown;
+        selector?: unknown;
+        label?: unknown;
+        rect?: unknown;
+        n?: unknown;
+        x?: unknown;
+        y?: unknown;
+      } | null;
+
+      if (data?.pipoca === "pin" && typeof data.n === "number") {
+        onPin?.(data.n);
+
+        return;
+      }
+
+      if (data?.pipoca === "escape") {
+        onEscape?.();
+
+        return;
+      }
+
+      if (
+        data?.pipoca === "scroll" &&
+        typeof data.x === "number" &&
+        typeof data.y === "number"
+      ) {
+        onScroll?.({ x: data.x, y: data.y });
+
+        return;
+      }
+
+      const rect = boxOf(data?.rect);
+
+      if (
+        data?.pipoca === "element" &&
+        typeof data.selector === "string" &&
+        typeof data.label === "string" &&
+        rect !== undefined
+      ) {
+        onPick?.({ element: data.selector, label: data.label, rect });
+
+        return;
+      }
 
       if (typeof data?.text !== "string") {
         return;
@@ -103,8 +163,8 @@ export function Frame({
 
       if (data.pipoca === "draft" && sessionId !== null && steers) {
         draft(sessionId, data.text);
-      } else if (data.pipoca === "selection") {
-        onSelect?.(data.text);
+      } else if (data.pipoca === "selection" && rect !== undefined) {
+        onPick?.({ quote: data.text, rect });
       }
     };
 
@@ -113,18 +173,23 @@ export function Frame({
     return () => {
       removeEventListener("message", heard);
     };
-  }, [draft, onSelect, sessionId, steers]);
+  }, [draft, onEscape, onPick, onPin, onScroll, sessionId, steers]);
 
-  const marked = (highlights ?? []).join("\n");
+  // Pinning redraws the page, so only for pins that changed.
+  const pinned = JSON.stringify(pins ?? []);
 
-  const highlight = useCallback(() => {
-    frame.current?.contentWindow?.postMessage(
-      { pipoca: "highlight", quotes: marked === "" ? [] : marked.split("\n") },
+  const tell = useCallback(() => {
+    const window = frame.current?.contentWindow;
+
+    window?.postMessage({ pipoca: "commenting", on: commenting }, "*");
+
+    window?.postMessage(
+      { pipoca: "pins", pins: JSON.parse(pinned) as unknown },
       "*",
     );
-  }, [marked]);
+  }, [commenting, pinned]);
 
-  useEffect(highlight, [highlight]);
+  useEffect(tell, [tell]);
 
   const markChanges = useCallback(() => {
     if (changes !== undefined) {
@@ -145,7 +210,7 @@ export function Frame({
       src={`${base}/artifacts/${artifact.id}/view?v=${String(version)}`}
       {...(artifact.kind !== "pdf" && { sandbox })}
       onLoad={() => {
-        highlight();
+        tell();
         markChanges();
       }}
       className={cn(
@@ -156,323 +221,17 @@ export function Frame({
   );
 }
 
-// Threads of comments on the artifact, beside it. One sent to Pi reaches
-// its Session as a notice, and Pi answers in the thread (ADR 0081).
-export function Comments({
-  artifact,
-  version,
-  quote,
-  onQuoted,
-}: {
-  readonly artifact: ArtifactView;
-  readonly version: number;
-  readonly quote: string;
-  readonly onQuoted: () => void;
-}): ReactElement {
-  const api = useApi(plugin);
-  const now = useNow();
-
-  const { value, reload } = useLoaded(
-    async () =>
-      (
-        await api.get<{ comments: Comment[] }>(
-          `artifacts/${artifact.id}/comments`,
-        )
-      ).comments,
-    artifact.id,
-    { changes: ["artifacts"] },
-  );
-
-  const all = value ?? [];
-  const threads = all.filter((each) => each.parent === null);
-  const open = threads.filter((each) => !each.resolved);
-  const resolved = threads.filter((each) => each.resolved);
-  const canComment = artifact.access !== "view";
-  const quoted = threads.filter((each) => each.quote !== "");
-
-  const thread = (top: Comment): ReactElement => (
-    <li key={top.id} className={cn(cardClass, "flex flex-col gap-3 p-3")}>
-      <CommentBody
-        comment={top}
-        now={now}
-        {...(quoted.includes(top) && { mark: quoted.indexOf(top) + 1 })}
-        {...(top.resolvedByPi && {
-          badge: <Badge state="done">Resolved by Pi</Badge>,
-        })}
-      />
-      {all
-        .filter((each) => each.parent === top.id)
-        .map((each) => (
-          <div key={each.id} className="border-t border-line pt-3">
-            <CommentBody comment={each} now={now} />
-          </div>
-        ))}
-      <ThreadState artifact={artifact} thread={top} onSent={reload} />
-      {canComment && (
-        <CommentForm
-          artifact={artifact}
-          version={version}
-          parent={top.id}
-          hidden={top.resolved}
-          onSent={reload}
-        >
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() =>
-              void api
-                .post(`artifacts/${artifact.id}/comments/${top.id}/resolve`, {
-                  resolved: !top.resolved,
-                })
-                .then(reload)
-            }
-          >
-            {top.resolved ? "Reopen" : "Resolve"}
-          </Button>
-        </CommentForm>
-      )}
-    </li>
-  );
-
-  return (
-    <div className="flex flex-col gap-3">
-      <p className="text-caption text-fg-dim">
-        {open.length === 0 ? "Nothing open" : `${String(open.length)} open`}
-        {artifact.askable
-          ? ". Pi sees a thread once you send it, and answers in it."
-          : ""}
-      </p>
-      {canComment && (
-        <CommentForm
-          artifact={artifact}
-          version={version}
-          quote={quote}
-          onSent={() => {
-            onQuoted();
-            reload();
-          }}
-        />
-      )}
-      {threads.length === 0 && (
-        <p className="text-label text-fg-dim">No comments yet.</p>
-      )}
-      <ul aria-label="Comments" className="flex flex-col gap-3">
-        {open.map(thread)}
-      </ul>
-      {resolved.length > 0 && (
-        <details className="flex flex-col gap-3">
-          <summary className="cursor-pointer text-label text-fg-dim">
-            {`${String(resolved.length)} resolved`}
-          </summary>
-          <ul
-            aria-label="Resolved comments"
-            className="mt-3 flex flex-col gap-3"
-          >
-            {resolved.map(thread)}
-          </ul>
-        </details>
-      )}
-    </div>
-  );
-}
-
-function CommentBody({
-  comment,
-  now,
-  mark,
-  badge,
-}: {
-  readonly comment: Comment;
-  readonly now: number;
-  // Its number on the passage the page marks.
-  readonly mark?: number;
-  readonly badge?: ReactNode;
-}): ReactElement {
-  return (
-    <div className="flex min-w-0 flex-col gap-2">
-      <span className="flex min-w-0 items-center gap-2 text-caption text-fg-dim">
-        {comment.byPi && (
-          <span
-            aria-hidden="true"
-            className="grid size-6 shrink-0 place-items-center rounded-full bg-accent text-caption font-semibold text-on-accent"
-          >
-            Pi
-          </span>
-        )}
-        <b className="font-medium text-fg-strong">
-          {comment.byPi ? "Pi" : comment.author}
-        </b>
-        <span className="min-w-0 flex-1 truncate">
-          {[
-            comment.byPi
-              ? `via ${lower(comment.author)}`
-              : `on version ${String(comment.version)}`,
-            ago(new Date(comment.createdAt).toISOString(), now),
-          ].join(" · ")}
-        </span>
-        {badge}
-      </span>
-      {comment.quote !== "" && (
-        <blockquote className="border-l-2 border-accent pl-2 text-label text-fg-dim italic">
-          {comment.quote}
-          {mark !== undefined && <sup className="ml-1 not-italic">{mark}</sup>}
-        </blockquote>
-      )}
-      <p className="text-label whitespace-pre-wrap">{comment.body}</p>
-    </div>
-  );
-}
-
-function lower(name: string): string {
-  return name === "You" ? "you" : name;
-}
-
-// Whether Pi has the thread, and Send to Pi for people who can act in its
-// Session.
-function ThreadState({
-  artifact,
-  thread,
-  onSent,
-}: {
-  readonly artifact: ArtifactView;
-  readonly thread: Comment;
-  readonly onSent: () => void;
-}): ReactElement | null {
-  const api = useApi(plugin);
-  const [problem, setProblem] = useState<string>();
-
-  if (thread.resolved) {
-    return null;
+function boxOf(value: unknown): Box | undefined {
+  if (typeof value !== "object" || value === null) {
+    return undefined;
   }
 
-  if (thread.sentBy !== null) {
-    return (
-      <span className="text-caption text-fg-dim">
-        {`Sent to Pi by ${lower(thread.sentBy)}`}
-      </span>
-    );
-  }
+  const { x, y, width, height } = value as Record<string, unknown>;
 
-  if (!artifact.askable) {
-    return null;
-  }
-
-  return (
-    <div className="flex flex-col gap-1">
-      <Button
-        variant="ghost"
-        size="sm"
-        className="self-start"
-        onClick={() => {
-          setProblem(undefined);
-
-          void api
-            .post(`artifacts/${artifact.id}/comments/send`, {
-              threads: [thread.id],
-            })
-            .then(onSent)
-            .catch((error: unknown) => {
-              setProblem(
-                error instanceof Error ? error.message : String(error),
-              );
-            });
-        }}
-      >
-        Send to Pi
-      </Button>
-      <ErrorText size="caption">{problem}</ErrorText>
-    </div>
-  );
-}
-
-function CommentForm({
-  artifact,
-  version,
-  parent,
-  quote = "",
-  hidden = false,
-  onSent,
-  children,
-}: {
-  readonly artifact: ArtifactView;
-  readonly version: number;
-  readonly parent?: string;
-  readonly quote?: string;
-  // Only the other actions show, such as Reopen on a resolved thread.
-  readonly hidden?: boolean;
-  readonly onSent: () => void;
-  // More actions beside the send button.
-  readonly children?: ReactNode;
-}): ReactElement {
-  const api = useApi(plugin);
-  const [body, setBody] = useState("");
-  const asks = parent === undefined && artifact.askable;
-  const [toPi, setToPi] = useState(asks);
-  const [problem, setProblem] = useState<string>();
-  const label = parent === undefined ? "Comment" : "Reply";
-
-  if (hidden) {
-    return <div className="flex gap-2">{children}</div>;
-  }
-
-  return (
-    <form
-      aria-label={label}
-      className="flex w-full flex-col gap-2"
-      onSubmit={(event) => {
-        event.preventDefault();
-        setProblem(undefined);
-
-        void api
-          .post(`artifacts/${artifact.id}/comments`, {
-            version,
-            body: body.trim(),
-            toPi: asks && toPi,
-            ...(quote !== "" && { quote }),
-            ...(parent !== undefined && { parent }),
-          })
-          .then(() => {
-            setBody("");
-            onSent();
-          })
-          .catch((error: unknown) => {
-            setProblem(error instanceof Error ? error.message : String(error));
-          });
-      }}
-    >
-      {quote !== "" && (
-        <blockquote className="border-l-2 border-accent pl-2 text-label text-fg-dim">
-          {quote}
-        </blockquote>
-      )}
-      <TextArea
-        aria-label={label}
-        placeholder={parent === undefined ? "Add a comment" : "Reply…"}
-        rows={parent === undefined ? 3 : 1}
-        {...(parent !== undefined && { className: "min-h-0" })}
-        value={body}
-        onChange={(event) => {
-          setBody(event.target.value);
-        }}
-      />
-      <div className="flex flex-wrap items-center gap-3">
-        {asks && (
-          <Checkbox
-            label="Send to Pi"
-            size="sm"
-            checked={toPi}
-            onChange={(event) => {
-              setToPi(event.target.checked);
-            }}
-          />
-        )}
-        <span className="flex-1" />
-        {children}
-        <Button type="submit" disabled={body.trim() === ""}>
-          {label}
-        </Button>
-      </div>
-      <ErrorText size="caption">{problem}</ErrorText>
-    </form>
-  );
+  return typeof x === "number" &&
+    typeof y === "number" &&
+    typeof width === "number" &&
+    typeof height === "number"
+    ? { x, y, width, height }
+    : undefined;
 }

@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { renderPart, sessionWith } from "@pipoca/plugins/web/testing";
 import { until } from "@pipoca/testing/until";
 import { act } from "react";
-import type { ArtifactSummary } from "../src/artifacts";
+import type { ArtifactSummary, Comment } from "../src/artifacts";
 import { web } from "./index";
 
 // The page's change stream, which tells only what a test says changed.
@@ -233,10 +233,14 @@ interface Served {
   readonly body?: unknown;
 }
 
-// The plugin's routes as a fake server, with the artifact these tests open.
+// The plugin's routes as a fake server, with the artifact these tests open
+// and its comments. Writing a comment answers with a new thread's id.
 function serving(
   shown: object,
   asked: Served[],
+  {
+    comments = () => [],
+  }: { readonly comments?: () => readonly Comment[] } = {},
 ): (url: string, init?: RequestInit) => Promise<Response> {
   return async (url, init) => {
     await Promise.resolve();
@@ -250,7 +254,21 @@ function serving(
     });
 
     if (url.endsWith("/comments")) {
-      return Response.json({ comments: [] });
+      return Response.json(
+        init?.method === "POST"
+          ? {
+              id: "new",
+              sentToPi:
+                typeof init.body === "string" && init.body.includes("@pi"),
+            }
+          : { comments: comments() },
+      );
+    }
+
+    if (url.endsWith("/comments/send") && typeof init?.body === "string") {
+      const { threads } = JSON.parse(init.body) as { threads: string[] };
+
+      return Response.json({ sent: threads.length });
     }
 
     const version = /\/(view|download)\?v=(\d+)$/.exec(url);
@@ -341,7 +359,7 @@ function item(page: HTMLElement, label: string): HTMLButtonElement | undefined {
 }
 
 async function opened(asked: readonly Served[]): Promise<void> {
-  // The artifact loads, and then what its comments quote.
+  // The artifact loads, and then its comments.
   await act(async () => until(() => asked.length >= 1));
   await act(async () => until(() => asked.length >= 2));
 }
@@ -1175,9 +1193,7 @@ test("its links are copied, it pins to the sidebar, and its comments open beside
   });
 
   await opened(asked);
-  await act(async () => until(() => asked.length >= 3));
-
-  expect(page.querySelector("aside[aria-label=Comments]")).not.toBeNull();
+  await drawn(() => page.querySelector("aside[aria-label=Comments]") !== null);
 
   const comment = buttons(page).find((each) =>
     each.textContent.startsWith("Comment"),
@@ -1493,7 +1509,7 @@ test("a link opens the artifact alone in the window, and an earlier version offe
     },
   );
 
-  // The artifact loads, and then what its comments quote.
+  // The artifact loads, and then its comments.
   await act(async () => until(() => asked.length === 1));
   await act(async () => until(() => asked.length === 2));
 
@@ -1555,7 +1571,7 @@ test("sharing names people and what they can do, and the link opens the latest o
     },
   );
 
-  // The artifact loads, and then what its comments quote.
+  // The artifact loads, and then its comments.
   await act(async () => until(() => asked.length === 1));
   await act(async () => until(() => asked.length === 2));
 
@@ -1616,4 +1632,734 @@ test("sharing names people and what they can do, and the link opens the latest o
     url: "/api/ext/artifacts/artifacts/a1/shares",
     body: { shares: [{ name: "Bo", role: "comment" }] },
   });
+});
+
+function frameOf(page: HTMLElement): {
+  readonly tell: (data: object) => void;
+  readonly told: () => readonly {
+    pipoca?: string;
+    pins?: unknown;
+    on?: boolean;
+  }[];
+} {
+  const frame = page.querySelector<HTMLIFrameElement>("iframe[src*='/view']");
+  const window = frame?.contentWindow;
+  const posted: { pipoca?: string }[] = [];
+
+  if (window !== null && window !== undefined) {
+    window.postMessage = (data: unknown) => {
+      posted.push(data as { pipoca?: string });
+    };
+  }
+
+  return {
+    tell: (data) => {
+      act(() => {
+        dispatchEvent(
+          new MessageEvent("message", { data, source: window ?? null }),
+        );
+      });
+    },
+    told: () => posted,
+  };
+}
+
+const rect = { x: 120, y: 80, width: 200, height: 18 };
+
+function commentMode(page: HTMLElement): void {
+  act(() => {
+    buttons(page)
+      .find(
+        (each) =>
+          each.hasAttribute("aria-pressed") &&
+          each.textContent.startsWith("Comment"),
+      )
+      ?.click();
+  });
+}
+
+test("a comment is written where the person selected or clicked, of the kind they choose, and kept as a draft for Pi", async () => {
+  const asked: Served[] = [];
+  const comments: Comment[] = [];
+
+  const page = renderPart(
+    web,
+    "overlay",
+    {},
+    {
+      hash: "#session-1?artifact=a1",
+      fetch: serving(
+        { ...artifact({ versions: 2 }), ...viewed(2), askable: true },
+        asked,
+        { comments: () => comments },
+      ),
+    },
+  );
+
+  await opened(asked);
+
+  let frame = frameOf(page);
+
+  const box = (): HTMLFormElement | null =>
+    page.querySelector("form[aria-label='New comment']");
+
+  // Outside comment mode, and from anything but the page, a pick opens
+  // nothing.
+  frame.tell({ pipoca: "selection", text: "three times", rect });
+  expect(box()).toBeNull();
+
+  commentMode(page);
+
+  act(() => {
+    dispatchEvent(
+      new MessageEvent("message", {
+        data: { pipoca: "selection", text: "forged", rect },
+        source: null,
+      }),
+    );
+  });
+
+  expect(box()).toBeNull();
+
+  frame.tell({ pipoca: "selection", text: "three times", rect });
+
+  await drawn(() => box() !== null);
+
+  expect(
+    page.querySelector("aside[aria-label=Comments]")?.textContent,
+  ).toContain("You writing…three times");
+
+  expect(box()?.textContent).toContain("three times");
+
+  expect(box()?.textContent).toContain(
+    "Saved as a draft for Pi. Send it now with @pi, or later with the others.",
+  );
+
+  // Scrolling the page moves the box, without pinning the page again.
+  const pinned = (): number =>
+    frame.told().filter((each) => each.pipoca === "pins").length;
+
+  const before = pinned();
+
+  frame.tell({ pipoca: "scroll", x: 0, y: 40 });
+  frame.tell({ pipoca: "scroll", x: 0, y: 40 });
+
+  expect(pinned()).toBe(before);
+  expect(box()).not.toBeNull();
+
+  // Escape in the box drops it, and leaves the viewer open.
+  act(() => {
+    box()
+      ?.querySelector("textarea")
+      ?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      );
+  });
+
+  expect(box()).toBeNull();
+  expect(page.querySelector("dialog")).not.toBeNull();
+
+  // So does Escape in the page.
+  frame.tell({ pipoca: "selection", text: "three times", rect });
+  await drawn(() => box() !== null);
+  frame.tell({ pipoca: "escape" });
+  expect(box()).toBeNull();
+
+  // A comment being written belongs to the version it's on.
+  frame.tell({ pipoca: "selection", text: "three times", rect });
+  await drawn(() => box() !== null);
+
+  act(() => {
+    history.replaceState(null, "", "#session-1?artifact=a1&v=1");
+    dispatchEvent(new HashChangeEvent("hashchange"));
+  });
+
+  await drawn(() => versionMenu(page)?.textContent === "Version 1 of 2");
+
+  expect(box()).toBeNull();
+  expect(page.textContent).not.toContain("You writing…");
+
+  act(() => {
+    history.replaceState(null, "", "#session-1?artifact=a1");
+    dispatchEvent(new HashChangeEvent("hashchange"));
+  });
+
+  await drawn(() => versionMenu(page)?.textContent === "Version 2 · latest");
+
+  expect(box()).toBeNull();
+
+  // The page is drawn again for that version.
+  frame = frameOf(page);
+
+  // In comment mode, clicking an element picks it.
+  frame.tell({
+    pipoca: "element",
+    selector: "body > div:nth-of-type(1) > span:nth-of-type(4)",
+    label: "Nov 3",
+    rect,
+  });
+
+  await drawn(() => box() !== null);
+
+  expect(box()?.textContent).toContain("On “Nov 3”");
+
+  act(() => {
+    [...(box()?.querySelectorAll("button") ?? [])]
+      .find((each) => each.textContent === "Question")
+      ?.click();
+  });
+
+  typeInto(
+    box()?.querySelector("textarea[aria-label='Comment text']") ?? null,
+    "Is this the retry?",
+  );
+
+  comments.push(
+    thread({
+      id: "new",
+      author: "You",
+      kind: "question",
+      quote: "Nov 3",
+      element: "body > div:nth-of-type(1) > span:nth-of-type(4)",
+      body: "Is this the retry?",
+    }),
+  );
+
+  await act(async () => {
+    box()?.requestSubmit();
+    await until(() => asked.some(({ method }) => method === "POST"));
+  });
+
+  expect(asked.find(({ method }) => method === "POST")).toEqual({
+    url: "/api/ext/artifacts/artifacts/a1/comments",
+    method: "POST",
+    body: {
+      version: 2,
+      body: "Is this the retry?",
+      kind: "question",
+      toPi: false,
+      quote: "Nov 3",
+      element: "body > div:nth-of-type(1) > span:nth-of-type(4)",
+    },
+  });
+
+  // The new thread takes focus, and the header says where it went.
+  await drawn(() => named(page, "Comment 1 by You") !== undefined);
+
+  expect(box()).toBeNull();
+  expect(document.activeElement).toBe(named(page, "Comment 1 by You") ?? null);
+
+  expect(page.querySelector("[role=status]")?.textContent).toBe(
+    "Saved as a draft for Pi",
+  );
+});
+
+function thread(o: Partial<Comment> & { readonly id: string }): Comment {
+  return {
+    kind: "comment",
+    version: 2,
+    parent: null,
+    author: "Ana",
+    byPi: false,
+    quote: "",
+    element: "",
+    body: "A comment",
+    sentBy: null,
+    resolved: false,
+    resolvedByPi: false,
+    createdAt: Date.now(),
+    ...o,
+  };
+}
+
+test("drafts for Pi are listed with the page's pins, and the checked ones go to Pi together", async () => {
+  const asked: Served[] = [];
+
+  const comments = [
+    thread({
+      id: "t1",
+      kind: "question",
+      quote: "three times",
+      body: "Attempts or retries?",
+    }),
+    thread({ id: "t2", author: "Rui", body: "Keep this chart" }),
+    thread({
+      id: "t3",
+      author: "You",
+      quote: "Nov 3",
+      element: "body > span:nth-of-type(4)",
+      body: "Add the error rate",
+    }),
+    thread({ id: "t4", body: "Already asked", sentBy: "Ana" }),
+    thread({
+      id: "t5",
+      quote: "old wording",
+      body: "Done",
+      resolved: true,
+      resolvedByPi: true,
+    }),
+    // An element is pinned only on its own version; quoted text on any.
+    thread({
+      id: "t6",
+      version: 1,
+      quote: "Header",
+      element: "body > h1:nth-of-type(1)",
+      body: "Bigger",
+      sentBy: "Rui",
+    }),
+    thread({
+      id: "t7",
+      version: 1,
+      quote: "p95",
+      body: "Which percentile?",
+      sentBy: "Rui",
+    }),
+  ];
+
+  const serve = serving(
+    { ...artifact({ versions: 2 }), ...viewed(2), askable: true },
+    asked,
+    { comments: () => comments },
+  );
+
+  let sends = 0;
+  let resolves = 0;
+
+  const page = renderPart(
+    web,
+    "overlay",
+    {},
+    {
+      hash: "#session-1?artifact=a1&comments=1",
+      fetch: async (url, init) => {
+        if (url.endsWith("/send") && (sends += 1) === 1) {
+          return Response.json({ error: "Pi is offline" }, { status: 503 });
+        }
+
+        if (url.endsWith("/resolve") && (resolves += 1) === 1) {
+          return Response.json({ error: "Try later" }, { status: 503 });
+        }
+
+        return serve(url, init);
+      },
+    },
+  );
+
+  await opened(asked);
+
+  const aside = (): HTMLElement | null =>
+    page.querySelector("aside[aria-label=Comments]");
+
+  await drawn(() => aside()?.textContent.includes("Attempts") === true);
+
+  const frame = frameOf(page);
+
+  expect(aside()?.textContent).toContain("3 threads not sent to Pi");
+  expect(named(page, "Send 3 to Pi")).toBeDefined();
+  expect(named(page, "Open 6")?.getAttribute("aria-pressed")).toBe("true");
+  expect(aside()?.textContent).toContain("Pi handles them in one turn");
+  expect(aside()?.textContent).toContain("Sent to Pi by Ana");
+  expect(aside()?.textContent).toContain("Question");
+  expect(aside()?.textContent).toContain("on “Nov 3”");
+
+  act(() => {
+    [...page.querySelectorAll("label")]
+      .find((each) => each.textContent === "Send comment 2 to Pi")
+      ?.querySelector("input")
+      ?.click();
+  });
+
+  expect(named(page, "Send 2 to Pi")).toBeDefined();
+  expect(aside()?.textContent).toContain("Left out of this send");
+
+  expect(aside()?.textContent).toContain("The one left out stays a draft");
+
+  // A pin on the page opens its thread, and the page marks it.
+  frame.tell({ pipoca: "pin", n: 3 });
+
+  await drawn(
+    () =>
+      named(page, "Comment 3 by You")?.getAttribute("aria-expanded") === "true",
+  );
+
+  await drawn(() =>
+    Bun.deepEquals(
+      frame
+        .told()
+        .filter((each) => each.pipoca === "pins")
+        .at(-1)?.pins,
+      [
+        { n: 1, quote: "three times", selector: "", active: false },
+        {
+          n: 3,
+          quote: "Nov 3",
+          selector: "body > span:nth-of-type(4)",
+          active: true,
+        },
+        { n: 7, quote: "p95", selector: "", active: false },
+      ],
+    ),
+  );
+
+  expect(
+    frame
+      .told()
+      .filter((each) => each.pipoca === "commenting")
+      .at(-1)?.on,
+  ).toBe(true);
+
+  // A send that fails says so, and can be tried again.
+  act(() => {
+    named(page, "Send 2 to Pi")?.click();
+  });
+
+  await drawn(() => aside()?.textContent.includes("Pi is offline") === true);
+
+  await act(async () => {
+    named(page, "Send 2 to Pi")?.click();
+    await until(() => asked.some(({ url }) => url.endsWith("/send")));
+  });
+
+  expect(asked.find(({ url }) => url.endsWith("/send"))?.body).toEqual({
+    threads: ["t1", "t3"],
+  });
+
+  // The banner's button is gone once sent, so focus goes to the list's
+  // heading and the header says what happened.
+  await drawn(() => !(aside()?.textContent.includes("Pi is offline") ?? true));
+  expect(page.querySelector("[role=status]")?.textContent).toBe("Sent 2 to Pi");
+  expect(document.activeElement?.textContent).toBe("Comments");
+
+  // A thread takes replies, and can be resolved.
+  act(() => {
+    named(page, "Comment 2 by Rui")?.click();
+  });
+
+  const reply = (): HTMLFormElement | null =>
+    page.querySelector("form[aria-label=Reply]");
+
+  typeInto(reply()?.querySelector("textarea") ?? null, "Agreed");
+
+  // A second press while the first is on its way sends nothing.
+  act(() => {
+    reply()?.requestSubmit();
+  });
+
+  await act(async () => {
+    reply()?.requestSubmit();
+
+    await until(() =>
+      asked.some(
+        ({ method, url }) => method === "POST" && url.endsWith("/comments"),
+      ),
+    );
+  });
+
+  await drawn(() => reply()?.querySelector("textarea")?.value === "");
+
+  expect(
+    asked
+      .filter(
+        ({ method, url }) => method === "POST" && url.endsWith("/comments"),
+      )
+      .map(({ body }) => body),
+  ).toEqual([{ version: 2, body: "Agreed", parent: "t2", toPi: false }]);
+
+  act(() => {
+    named(page, "Resolve")?.click();
+  });
+
+  await drawn(() => aside()?.textContent.includes("Try later") === true);
+
+  // A second press while the first is on its way sends nothing.
+  act(() => {
+    named(page, "Resolve")?.click();
+  });
+
+  await act(async () => {
+    named(page, "Resolve")?.click();
+    await until(() => asked.some(({ url }) => url.endsWith("/resolve")));
+  });
+
+  await drawn(
+    () => page.querySelector("[role=status]")?.textContent === "Resolved",
+  );
+
+  expect(asked.filter(({ url }) => url.endsWith("/resolve"))).toHaveLength(1);
+
+  expect(asked.find(({ url }) => url.endsWith("/resolve"))).toEqual({
+    url: "/api/ext/artifacts/artifacts/a1/comments/t2/resolve",
+    method: "POST",
+    body: { resolved: true },
+  });
+
+  act(() => {
+    named(page, "Resolved 1")?.click();
+  });
+
+  expect(aside()?.textContent).toContain("Resolved by Pi");
+  expect(aside()?.textContent).not.toContain("Attempts or retries?");
+});
+
+test("people who only view read the comments but don't write them", async () => {
+  const asked: Served[] = [];
+
+  const viewer = renderPart(
+    web,
+    "overlay",
+    {},
+    {
+      hash: "#session-1?artifact=a1&comments=1",
+      fetch: serving(
+        { ...artifact({ versions: 1 }), ...viewed(1), access: "view" },
+        asked,
+      ),
+    },
+  );
+
+  await opened(asked);
+
+  const frame = frameOf(viewer);
+
+  // Turning comments off and on again never puts the page in comment mode.
+  commentMode(viewer);
+  commentMode(viewer);
+
+  act(() => {
+    viewer
+      .querySelector("iframe[src*='/view']")
+      ?.dispatchEvent(new Event("load"));
+  });
+
+  frame.tell({ pipoca: "selection", text: "three times", rect });
+
+  expect(viewer.querySelector("form[aria-label='New comment']")).toBeNull();
+
+  await drawn(() => viewer.textContent.includes("No comments yet."));
+
+  expect(viewer.textContent).toContain(
+    "You can read comments here but not add them.",
+  );
+
+  expect(named(viewer, "Comment on the whole page")).toBeUndefined();
+
+  const modes = frame.told().filter((each) => each.pipoca === "commenting");
+
+  expect(modes.length).toBeGreaterThan(0);
+  expect(modes.every((each) => each.on === false)).toBe(true);
+});
+
+test("comments that can't be loaded say so, and the page still shows", async () => {
+  const asked: Served[] = [];
+  const serve = serving({ ...artifact(), ...viewed(1) }, asked);
+
+  const page = renderPart(
+    web,
+    "overlay",
+    {},
+    {
+      hash: "#session-1?artifact=a1&comments=1",
+      fetch: async (url, init) =>
+        url.endsWith("/comments")
+          ? Response.json({ error: "down" }, { status: 500 })
+          : serve(url, init),
+    },
+  );
+
+  await drawn(() => page.textContent.includes("Comments couldn't be loaded."));
+
+  expect(page.querySelector("iframe[src*='/view']")).not.toBeNull();
+  expect(page.textContent).not.toContain("Select text or click");
+});
+
+test("a comment can be on the whole page, for people who can't select", async () => {
+  const asked: Served[] = [];
+  const serve = serving({ ...artifact({ versions: 1 }), ...viewed(1) }, asked);
+  let failing = false;
+
+  const page = renderPart(
+    web,
+    "overlay",
+    {},
+    {
+      hash: "#session-1?artifact=a1&comments=1",
+      fetch: async (url, init) =>
+        failing && init?.method === "POST"
+          ? Response.json({ error: "Disk full" }, { status: 507 })
+          : serve(url, init),
+    },
+  );
+
+  await opened(asked);
+
+  await drawn(() => named(page, "Comment on the whole page") !== undefined);
+
+  expect(page.textContent).toContain(
+    "Select text or click part of the page to comment on it.",
+  );
+
+  act(() => {
+    named(page, "Comment on the whole page")?.focus();
+    named(page, "Comment on the whole page")?.click();
+  });
+
+  const box = (): HTMLFormElement | null =>
+    page.querySelector("form[aria-label='New comment']");
+
+  expect(box()?.textContent).toContain("On the whole page");
+
+  expect(box()?.textContent).toContain(
+    "Pi can't be asked about this artifact, so this comment is for people.",
+  );
+
+  expect(document.activeElement).toBe(box()?.querySelector("textarea") ?? null);
+
+  // Cancel gives focus back to what opened the box.
+  act(() => {
+    named(page, "Cancel")?.click();
+  });
+
+  expect(box()).toBeNull();
+
+  expect(document.activeElement).toBe(
+    named(page, "Comment on the whole page") ?? null,
+  );
+
+  // So does Escape.
+  act(() => {
+    named(page, "Comment on the whole page")?.focus();
+    named(page, "Comment on the whole page")?.click();
+  });
+
+  const key = (init: KeyboardEventInit): void => {
+    act(() => {
+      box()
+        ?.querySelector("textarea")
+        ?.dispatchEvent(
+          new KeyboardEvent("keydown", { bubbles: true, ...init }),
+        );
+    });
+  };
+
+  key({ key: "Escape" });
+
+  expect(box()).toBeNull();
+
+  expect(document.activeElement).toBe(
+    named(page, "Comment on the whole page") ?? null,
+  );
+
+  act(() => {
+    named(page, "Comment on the whole page")?.focus();
+    named(page, "Comment on the whole page")?.click();
+  });
+
+  // Ctrl+Enter with nothing written sends nothing.
+  key({ key: "Enter", ctrlKey: true });
+  await act(async () => Promise.resolve());
+
+  expect(asked.some(({ method }) => method === "POST")).toBe(false);
+
+  typeInto(box()?.querySelector("textarea") ?? null, "Shorter, please");
+
+  // A save that fails keeps the box and says why.
+  failing = true;
+
+  act(() => {
+    box()?.requestSubmit();
+  });
+
+  await drawn(() => box()?.textContent.includes("Disk full") === true);
+
+  failing = false;
+  key({ key: "Enter", ctrlKey: true });
+
+  await act(async () => {
+    await until(() =>
+      asked.some(
+        ({ method, url }) => method === "POST" && url.endsWith("/comments"),
+      ),
+    );
+  });
+
+  expect(
+    asked.find(
+      ({ method, url }) => method === "POST" && url.endsWith("/comments"),
+    )?.body,
+  ).toEqual({
+    version: 1,
+    body: "Shorter, please",
+    kind: "comment",
+    toPi: false,
+  });
+
+  await drawn(() => box() === null);
+
+  expect(page.querySelector("[role=status]")?.textContent).toBe(
+    "Comment saved",
+  );
+});
+
+test("a pin opens its thread from the page with the comments closed, and @pi sends a new comment at once", async () => {
+  const asked: Served[] = [];
+
+  const page = renderPart(
+    web,
+    "overlay",
+    {},
+    {
+      hash: "#session-1?artifact=a1",
+      fetch: serving(
+        { ...artifact({ versions: 2 }), ...viewed(2), askable: true },
+        asked,
+        {
+          comments: () => [
+            thread({ id: "t1", quote: "three times", body: "Which one?" }),
+          ],
+        },
+      ),
+    },
+  );
+
+  await opened(asked);
+
+  const frame = frameOf(page);
+
+  expect(page.querySelector("aside[aria-label=Comments]")).toBeNull();
+
+  frame.tell({ pipoca: "pin", n: 1 });
+
+  await drawn(
+    () =>
+      named(page, "Comment 1 by Ana")?.getAttribute("aria-expanded") === "true",
+  );
+
+  await drawn(
+    () =>
+      frame
+        .told()
+        .filter((each) => each.pipoca === "commenting")
+        .at(-1)?.on === true,
+  );
+
+  act(() => {
+    named(page, "Comment on the whole page")?.click();
+  });
+
+  typeInto(
+    page.querySelector("textarea[aria-label='Comment text']"),
+    "@pi add a date",
+  );
+
+  await act(async () => {
+    page
+      .querySelector<HTMLFormElement>("form[aria-label='New comment']")
+      ?.requestSubmit();
+
+    await until(() => asked.some(({ method }) => method === "POST"));
+  });
+
+  await drawn(
+    () => page.querySelector("[role=status]")?.textContent === "Sent to Pi",
+  );
 });

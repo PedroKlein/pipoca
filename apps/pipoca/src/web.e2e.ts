@@ -6104,19 +6104,31 @@ test("opens an artifact Pi published, in a sandbox, from its card in the chat", 
 
   await viewer.getByRole("button", { name: "Comment", exact: true }).click();
 
-  const comment = page.getByRole("form", { name: "Comment" });
+  await viewer
+    .getByRole("button", { name: "Comment on the whole page" })
+    .click();
 
-  await comment.getByRole("textbox", { name: "Comment" }).fill("Add Q4");
-  await comment.getByRole("button", { name: "Comment" }).click();
+  const comment = page.getByRole("form", { name: "New comment" });
 
-  await page.getByText("1 resolved").click();
+  await comment.getByRole("textbox", { name: "Comment text" }).fill("Add Q4");
+  await comment.locator("button[type=submit]").click();
+  await comment.waitFor({ state: "hidden" });
+
+  await viewer.getByText("1 thread not sent to Pi").waitFor();
+  await viewer.getByRole("button", { name: "Send 1 to Pi" }).click();
+
+  await viewer.getByRole("button", { name: "Resolved 1" }).click();
 
   const resolved = page.getByRole("list", { name: "Resolved comments" });
 
-  await resolved.getByText("Added Q4").waitFor();
-  await resolved.getByText(/^via you/).waitFor();
+  // The thread just written stays open.
   await resolved.getByText("Resolved by Pi").waitFor();
+  await resolved.getByText("Added Q4").waitFor();
+  await resolved.getByText(/via you/).waitFor();
 
+  // In comment mode a click picks what to comment on; out of it, the page
+  // works as itself.
+  await viewer.getByRole("button", { name: /^Comment/, pressed: true }).click();
   await frame.getByRole("button", { name: "Ask Pi" }).click();
 
   await page.getByText("Answered in the thread").waitFor();
@@ -6142,6 +6154,178 @@ test("opens an artifact Pi published, in a sandbox, from its card in the chat", 
   );
 
   await page.locator("#prompt-text:focus").waitFor();
+}, 30_000);
+
+test("comments on selected text and on a clicked element, pins them on the page, and sends the drafts to Pi in one turn", async () => {
+  const folder = join(root, "pinned");
+  await mkdir(folder, { recursive: true });
+
+  await writeFile(
+    join(folder, "report.html"),
+    '<h1>Checkout latency</h1><p>The retry waits three times before falling back.</p><div style="display:flex;gap:8px;align-items:flex-end;height:120px"><span title="Nov 2" style="flex:1;height:40%;background:#9db4d8"></span><span title="Nov 3" style="flex:1;height:90%;background:#c2410c"></span></div><p>See <a href="https://example.invalid/runbook">the runbook</a>.</p><span tabindex="0">Retry details</span><div style="height:1600px"></div>',
+  );
+
+  faux.setResponses([
+    fauxAssistantMessage(
+      [
+        fauxToolCall("publish_artifact", {
+          path: "report.html",
+          title: "Checkout latency",
+        }),
+      ],
+      { stopReason: "toolUse" },
+    ),
+    fauxAssistantMessage([fauxText("Published it")]),
+  ]);
+
+  await page.goto(server.url.href);
+  await page.getByRole("button", { name: "New session" }).click();
+  const form = page.locator("form#create");
+
+  await pickWorkspace(form, folder);
+  await form.getByRole("button", { name: "Start session" }).click();
+  await page.locator("#status", { hasText: "idle" }).waitFor();
+
+  const prompt = page.locator("#prompt-text");
+  await prompt.fill("write it");
+  await prompt.press("Enter");
+  await page.getByText("Published it").waitFor();
+  await page.getByRole("link", { name: /Checkout latency/ }).click();
+
+  const viewer = page.getByRole("dialog", { name: "Checkout latency" });
+
+  const frame = page.frameLocator(
+    'iframe[title="Checkout latency, version 1"]',
+  );
+
+  await frame.getByText("three times").waitFor();
+  await viewer.getByRole("button", { name: "Comment", exact: true }).click();
+
+  const box = page.getByRole("form", { name: "New comment" });
+
+  await frame.locator("p").first().selectText();
+  await frame.locator("p").first().dispatchEvent("mouseup");
+
+  await box
+    .getByText("The retry waits three times before falling back.")
+    .waitFor();
+
+  // Escape drops the comment and keeps the viewer, from the box or the page.
+  await box.getByRole("textbox", { name: "Comment text" }).press("Escape");
+  await box.waitFor({ state: "hidden" });
+  expect(await viewer.isVisible()).toBe(true);
+
+  await frame.locator("p").first().selectText();
+  await frame.locator("p").first().dispatchEvent("mouseup");
+  await box.waitFor();
+  await frame.locator("h1").press("Escape");
+  await box.waitFor({ state: "hidden" });
+  expect(await viewer.isVisible()).toBe(true);
+
+  await frame.locator("p").first().selectText();
+  await frame.locator("p").first().dispatchEvent("mouseup");
+  await box.waitFor();
+
+  // The box stays with what it's on when the page scrolls.
+  const before = (await box.boundingBox())?.y ?? 0;
+  await frame.locator("h1").hover();
+  await page.mouse.wheel(0, 40);
+
+  let after = before;
+
+  for (let tries = 0; tries < 40 && after > before - 30; tries += 1) {
+    await page.waitForTimeout(50);
+    after = (await box.boundingBox())?.y ?? before;
+  }
+
+  expect(after).toBeLessThan(before - 30);
+
+  await page.mouse.wheel(0, -40);
+
+  await box
+    .getByRole("textbox", { name: "Comment text" })
+    .fill("Three attempts or three retries?");
+
+  await box.locator("button[type=submit]").click();
+  await box.waitFor({ state: "hidden" });
+
+  await frame
+    .locator('mark[data-pipoca="1"]', { hasText: "three times" })
+    .waitFor();
+
+  await frame.locator('[data-pipoca-pin="1"]').waitFor();
+
+  await frame.locator('span[title="Nov 3"]').click();
+  await box.getByText("On “Nov 3”").waitFor();
+  await box.getByRole("button", { name: "Question" }).click();
+
+  await box
+    .getByRole("textbox", { name: "Comment text" })
+    .fill("Add the error rate here");
+
+  await box.locator("button[type=submit]").click();
+  await box.waitFor({ state: "hidden" });
+
+  await frame.locator('[data-pipoca-pin="2"]').waitFor();
+
+  // Enter picks the part that has focus, for people on a keyboard.
+  await frame.getByText("Retry details").focus();
+  await page.keyboard.press("Enter");
+  await box.getByText("On “Retry details”").waitFor();
+  await box.getByRole("button", { name: "Cancel" }).click();
+  await box.waitFor({ state: "hidden" });
+
+  // Selecting with Shift opens the box once Shift is let go, not on the
+  // first arrow.
+  await frame.getByText("Retry details").focus();
+  await frame.locator("h1").selectText();
+  await page.keyboard.down("Shift");
+  await page.keyboard.press("ArrowRight");
+  await page.waitForTimeout(200);
+  expect(await box.isVisible()).toBe(false);
+  await page.keyboard.up("Shift");
+  await box.getByText(/Checkout latency/).waitFor();
+  await box.getByRole("button", { name: "Cancel" }).click();
+  await box.waitFor({ state: "hidden" });
+
+  // Text selected inside a link is commented on, and the link isn't
+  // followed.
+  await frame.locator("a").selectText();
+  await frame.locator("a").dispatchEvent("mouseup");
+  await frame.locator("a").dispatchEvent("click");
+  await box.getByText("the runbook").waitFor();
+  await page.waitForTimeout(200);
+  expect(await frame.locator("h1").textContent()).toBe("Checkout latency");
+  await box.getByRole("button", { name: "Cancel" }).click();
+  await box.waitFor({ state: "hidden" });
+
+  const list = viewer.getByRole("list", { name: "Open comments" });
+
+  await list.getByText("on “Nov 3”").waitFor();
+  await list.getByText("Question").waitFor();
+
+  await frame.locator('[data-pipoca-pin="1"]').click();
+
+  await list
+    .getByRole("button", { name: "Comment 1 by You", expanded: true })
+    .waitFor();
+
+  faux.setResponses([fauxAssistantMessage([fauxText("Looking at both")])]);
+
+  await viewer.getByText("2 threads not sent to Pi").waitFor();
+  await viewer.getByRole("button", { name: "Send 2 to Pi" }).click();
+  await viewer.getByText("Sent to Pi by you").first().waitFor();
+  await page.keyboard.press("Escape");
+  await viewer.waitFor({ state: "hidden" });
+
+  await page
+    .getByText("You sent 2 comment threads on Checkout latency")
+    .waitFor();
+
+  await page.getByText("Looking at both").waitFor();
+  await page.locator("#status", { hasText: "idle" }).waitFor();
+
+  expect(await page.getByText("Looking at both").count()).toBe(1);
 }, 30_000);
 
 test("edits a Markdown artifact beside its preview and compares the versions with the changed words marked", async () => {

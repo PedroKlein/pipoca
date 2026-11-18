@@ -39,8 +39,9 @@ An artifact runs in a sandbox on an opaque origin, so it can't reach Pipoca or y
 
 ### Comments and edits
 
-- Leave comments beside an artifact, on a passage you select or on the whole thing, and reply to them or resolve them. The page marks the passages comments are on.
-- Pi sees a thread only once someone who can act in the Session sends it: check **Send to Pi** on a new comment, or click **Send to Pi** on a thread. People an artifact is shared with can comment and reply, but not send.
+- Click **Comment** to turn on comment mode. Select text, or click part of the page such as a chart bar, and the comment box opens right there. **Comment on the whole page** is beside the list for a comment on all of it. While comment mode is on, a click on the page, or Enter on the part that has focus, picks what to comment on instead of following it; turn it off to use the page. Escape closes the comment box.
+- A comment is a Comment, a Question, a Decision or a Suggestion. Threads are numbered and pinned on the page where they sit; a pin opens its thread. A comment on an element is pinned only in the version it was written on.
+- New threads wait as drafts for Pi. The list says how many haven't been sent, and **Send N to Pi** hands the checked ones over together, so Pi takes them in one turn and makes one version. Uncheck a thread to leave it out of this send; it stays a draft. Writing `@pi` in a comment sends that thread at once. Only people who can act in the Session send to Pi; people an artifact is shared with can comment and reply.
 - A sent thread reaches the Session as one row in the chat, such as "You sent 2 comment threads on Checkout latency", not as a message. The row opens to show the comments. Threads sent while Pi works join one row, and Pi takes them in one turn.
 - Pi reads sent threads with `read_artifact_comments`, answers in each thread with `reply_artifact_comment`, shown as "Pi, via" whoever sent it, and resolves the ones it finished with `resolve_artifact_comment`. A later reply from you in a sent thread reaches Pi again, until the thread is resolved. Comment text reaches Pi as data, never as instructions.
 - An archived Session can't be asked. People can still discuss its artifacts.
