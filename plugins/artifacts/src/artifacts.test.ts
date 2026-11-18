@@ -1834,3 +1834,198 @@ test("an artifact is a design doc by its front matter, its meta tag or a person'
     await marked("crlf.md", `---\r\na: b\r\n${"x\r\n".repeat(200)}`),
   ).toBeNull();
 });
+
+test("Pi suggests an edit to a Markdown artifact in a thread sent to it, and someone who steers accepts it as their version or rejects it", async () => {
+  const setup = await setUp();
+  const { t, host, cwd, part } = setup;
+  const { id, comment, listed } = await shared(setup);
+  const sent = await comment("ana", "Friday is too soon", { toPi: true });
+
+  await until(() => host.delivered().length === 1);
+
+  const suggest = async (input: Record<string, unknown>) =>
+    part.tool("suggest_artifact_edit", { thread: sent.id, ...input });
+
+  expect(await suggest({ find: "Ship Monday.", replace: "x" })).toMatchObject({
+    isError: true,
+    text: expect.stringContaining("version 1") as unknown,
+  });
+
+  expect(
+    await suggest({
+      find: "Ship Friday.",
+      replace: "Ship Monday.",
+      text: "Monday leaves a day for review.",
+    }),
+  ).toMatchObject({ isError: false });
+
+  // Like a reply, one suggestion waits for a person's word.
+  expect(
+    await suggest({ find: "# Plan", replace: "# Release plan" }),
+  ).toMatchObject({ isError: true });
+
+  const suggested = (await listed("bo")).find(({ byPi }) => byPi);
+
+  expect(suggested).toMatchObject({
+    author: "Ana",
+    body: "Monday leaves a day for review.",
+    suggestion: {
+      find: "Ship Friday.",
+      replace: "Ship Monday.",
+      version: 1,
+      state: "open",
+      by: null,
+      saved: null,
+    },
+  });
+
+  const decide = async (who: string, accept: boolean) =>
+    t
+      .as(who)
+      .raw(`artifacts/${id}/comments/${suggested?.id ?? ""}/suggestion`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ accept }),
+      });
+
+  // Bo may comment, but a version is made only by someone who steers.
+  expect((await decide("bo", true)).status).toBe(403);
+
+  const accepted = await decide("ana", true);
+
+  expect(await accepted.json()).toEqual({ version: 2 });
+
+  expect(
+    await (
+      await t.as("ana").raw(`artifacts/${id}/download`, { method: "GET" })
+    ).text(),
+  ).toBe("# Plan\n\nShip Monday.\n");
+
+  const view = await t.as("ana").get<ArtifactView>(`artifacts/${id}`);
+
+  expect(view.history.at(-1)).toMatchObject({
+    by: "Ana",
+    note: "accepted Pi's suggested edit",
+  });
+
+  expect(
+    (await listed("bo")).find(({ byPi }) => byPi)?.suggestion,
+  ).toMatchObject({
+    state: "accepted",
+    by: "Ana",
+    saved: 2,
+  });
+
+  await until(() => host.delivered().length === 2);
+
+  expect(host.delivered()[1]).toMatchObject({
+    text: `Ana accepted your suggested edit in thread ${sent.id} as version 2 of the artifact “plan.md” (${id}). Read it with read_artifact before you change it.`,
+    turn: false,
+  });
+
+  // Decided once.
+  expect((await decide("ana", false)).status).toBe(409);
+
+  // Pi reads what became of it.
+  const read = await part.tool("read_artifact_comments", { id });
+
+  expect(read.text).toContain(
+    "You suggested replacing <comment_text>Ship Friday.</comment_text> with <comment_text>Ship Monday.</comment_text>: accepted by Ana as version 2",
+  );
+
+  // A passage that changed since can't be accepted, only rejected.
+  await comment("ana", "And the title?", { parent: sent.id });
+  await until(() => host.delivered().length === 3);
+
+  expect(
+    await suggest({ find: "# Plan", replace: "# Release plan" }),
+  ).toMatchObject({ isError: false });
+
+  const second = (await listed()).filter(({ byPi }) => byPi).at(-1);
+
+  await writeFile(join(cwd, "plan.md"), "# Roadmap\n\nShip Monday.\n");
+  await part.tool("publish_artifact", { path: "plan.md", id });
+
+  const late = await t
+    .as("ana")
+    .raw(`artifacts/${id}/comments/${second?.id ?? ""}/suggestion`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ accept: true }),
+    });
+
+  expect(late.status).toBe(409);
+
+  expect(await late.json()).toMatchObject({
+    message: "The text Pi suggested changing isn't in version 3 anymore.",
+  });
+
+  expect(
+    (
+      await t
+        .as("ana")
+        .raw(`artifacts/${id}/comments/${second?.id ?? ""}/suggestion`, {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ accept: false }),
+        })
+    ).status,
+  ).toBe(200);
+
+  expect(
+    (await listed()).filter(({ byPi }) => byPi).at(-1)?.suggestion,
+  ).toMatchObject({
+    state: "rejected",
+    by: "You",
+    saved: null,
+  });
+
+  // A suggestion is only on Markdown, and only on text that's there once.
+  await writeFile(join(cwd, "page.html"), "<p>hi</p><p>hi</p>");
+
+  const page = await part.tool("publish_artifact", { path: "page.html" });
+  const pageId = (page.details as { id: string }).id;
+
+  const thread = await t
+    .as("ana")
+    .post<{ id: string }>(`artifacts/${pageId}/comments`, {
+      version: 1,
+      body: "Say hello",
+      toPi: true,
+    });
+
+  expect(
+    await part.tool("suggest_artifact_edit", {
+      thread: thread.id,
+      find: "hi",
+      replace: "hello",
+    }),
+  ).toMatchObject({
+    isError: true,
+    text: expect.stringContaining("Markdown") as unknown,
+  });
+
+  await writeFile(join(cwd, "twice.md"), "hi\n\nhi\n");
+
+  const twice = await part.tool("publish_artifact", { path: "twice.md" });
+  const twiceId = (twice.details as { id: string }).id;
+
+  const other = await t
+    .as("ana")
+    .post<{ id: string }>(`artifacts/${twiceId}/comments`, {
+      version: 1,
+      body: "Say hello",
+      toPi: true,
+    });
+
+  expect(
+    await part.tool("suggest_artifact_edit", {
+      thread: other.id,
+      find: "hi",
+      replace: "hello",
+    }),
+  ).toMatchObject({
+    isError: true,
+    text: expect.stringContaining("2 times") as unknown,
+  });
+});

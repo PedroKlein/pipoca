@@ -132,5 +132,16 @@ create table artifacts_reviewers (
   added_at integer not null,
   primary key (artifact_id, user_id)
 ) strict, without rowid;`,
+    // 8: an edit Pi suggests in a reply, on the version it read, which a
+    // person accepts as a version of their own or rejects.
+    `create table artifacts_suggestions (
+  comment_id text primary key references artifacts_comments (id) on delete cascade,
+  version integer not null check (version >= 1),
+  find text not null,
+  replace text not null,
+  state text not null default 'open' check (state in ('open', 'accepted', 'rejected')),
+  decided_by_user_id text references users (id) on delete set null,
+  saved integer
+) strict, without rowid;`,
   ],
 });

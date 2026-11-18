@@ -265,7 +265,8 @@ function VersionNotice({ data }: NoticeProps): ReactElement {
           "A new version of an artifact"
         ) : (
           <>
-            {made.note.startsWith("restored ")
+            {made.note.startsWith("restored ") ||
+            made.note.startsWith("accepted ")
               ? `${made.by} ${made.note} as version ${String(made.number)} of `
               : `${made.by} saved version ${String(made.number)} of `}
             <b className="font-medium text-fg">{value.title}</b>

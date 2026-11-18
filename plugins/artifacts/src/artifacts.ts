@@ -173,6 +173,20 @@ export interface Comment {
   readonly resolvedByPi: boolean;
   readonly createdAt: number;
   readonly reactions: readonly Reaction[];
+  // On a reply of Pi's, the edit it suggests.
+  readonly suggestion: Suggestion | null;
+}
+
+// Replacing find, once in the version Pi read, with replace.
+export interface Suggestion {
+  readonly find: string;
+  readonly replace: string;
+  readonly version: number;
+  readonly state: "open" | "accepted" | "rejected";
+  // Who accepted or rejected it.
+  readonly by: string | null;
+  // The version accepting it saved.
+  readonly saved: number | null;
 }
 
 export const reactionEmoji = ["👍", "🎉", "👀", "✅"] as const;
