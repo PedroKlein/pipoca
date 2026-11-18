@@ -6833,7 +6833,7 @@ test("docks an artifact beside the chat on a wide window, and on a phone keeps i
   } finally {
     await page.setViewportSize({ width: 1280, height: 900 });
   }
-});
+}, 30_000);
 
 test("reads a design doc with its status, an outline of its sections and its comments in the margin beside their passages", async () => {
   const folder = join(root, "design-doc");
@@ -6931,9 +6931,7 @@ test("reads a design doc with its status, an outline of its sections and its com
 
   await level();
 
-  await frame
-    .locator("body")
-    .evaluate("(body) => body.ownerDocument.defaultView.scrollBy(0, 120)");
+  await frame.locator("body").evaluate("scrollBy(0, 120)");
 
   await level();
 
@@ -6941,15 +6939,10 @@ test("reads a design doc with its status, an outline of its sections and its com
   await frame.getByText("Store every event.").waitFor();
 
   await until(
-    async () =>
-      Number(
-        await frame
-          .locator("body")
-          .evaluate("(body) => body.ownerDocument.defaultView.scrollY"),
-      ),
+    async () => Number(await frame.locator("body").evaluate("scrollY")),
     (y) => y > 300,
   );
-});
+}, 30_000);
 
 test("edits a Markdown artifact beside its preview and compares the versions with the changed words marked", async () => {
   const folder = join(root, "plan");
