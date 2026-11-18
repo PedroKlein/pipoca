@@ -71,6 +71,7 @@ export function Frame({
   pins,
   onPick,
   onPin,
+  onEscape,
   changes,
   className,
 }: {
@@ -81,6 +82,8 @@ export function Frame({
   readonly pins?: readonly Pin[];
   readonly onPick?: (picked: Picked) => void;
   readonly onPin?: (n: number) => void;
+  // Escape pressed in the page while commenting.
+  readonly onEscape?: () => void;
   // Words this version took out or put in, compared with another, by where
   // they sit in a page text this long.
   readonly changes?:
@@ -120,6 +123,12 @@ export function Frame({
         return;
       }
 
+      if (data?.pipoca === "escape") {
+        onEscape?.();
+
+        return;
+      }
+
       const rect = boxOf(data?.rect);
 
       if (
@@ -149,7 +158,7 @@ export function Frame({
     return () => {
       removeEventListener("message", heard);
     };
-  }, [draft, onPick, onPin, sessionId, steers]);
+  }, [draft, onEscape, onPick, onPin, sessionId, steers]);
 
   const pinned = JSON.stringify(pins ?? []);
 

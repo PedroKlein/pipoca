@@ -24,6 +24,7 @@ import {
   useCallback,
   useEffect,
   useId,
+  useMemo,
   useState,
 } from "react";
 import { artifacts as plugin } from "../plugin";
@@ -309,8 +310,19 @@ function Shown({
   };
 
   const [commenting, setCommenting] = useState(commentsAtFirst);
-  const [anchor, setAnchor] = useState<Anchor>();
+  // What's being commented on belongs to the version it was picked on.
+  const [held, setHeld] = useState<{ anchor: Anchor; on: number }>();
+  const anchor = held?.on === shown ? held.anchor : undefined;
+
+  const setAnchor = useCallback(
+    (next: Anchor | undefined) => {
+      setHeld(next === undefined ? undefined : { anchor: next, on: shown });
+    },
+    [shown],
+  );
+
   const [active, setActive] = useState<string>();
+  const [saved, setSaved] = useState<string>();
   const [measured, area] = useSize();
   const [sharing, setSharing] = useState(false);
   const [problem, setProblem] = useState<string>();
@@ -320,39 +332,51 @@ function Shown({
   const latest = shown === artifact.versions;
   const steers = artifact.access === "steer";
 
-  // Pins are a nicety: without them the page still shows.
+  // Without comments the page still shows.
   const { value: comments, reload } = useLoaded(
     async () =>
       api
         .get<{ comments: Comment[] }>(`artifacts/${artifact.id}/comments`)
         .then(({ comments: all }) => all)
-        .catch((): Comment[] => []),
+        .catch(() => "failed" as const),
     `${artifact.id}:comments`,
     { changes: ["artifacts"] },
   );
 
-  const threads = threadsOf(comments ?? []);
+  const threads = useMemo(
+    () =>
+      comments === undefined || comments === "failed"
+        ? []
+        : threadsOf(comments),
+    [comments],
+  );
+
   const canComment = artifact.access !== "view";
 
+  // Only while commenting: a page can't open the box on its own.
   const pick = useCallback(
     (picked: Anchor) => {
-      if (canComment) {
+      if (canComment && commenting) {
         setAnchor(picked);
         setActive(undefined);
-        setCommenting(true);
       }
     },
-    [canComment],
+    [canComment, commenting, setAnchor],
   );
 
   const showPin = useCallback(
     (n: number) => {
       setActive(threads.find((each) => each.n === n)?.top.id);
+
       setAnchor(undefined);
       setCommenting(true);
     },
-    [threads],
+    [threads, setAnchor],
   );
+
+  const stopWriting = useCallback(() => {
+    setAnchor(undefined);
+  }, [setAnchor]);
 
   useEffect(() => {
     if (said === undefined) {
@@ -523,9 +547,9 @@ function Shown({
           artifact={artifact}
           mode={mode}
           titleId={titleId}
-          onDone={(saved) => {
-            if (saved !== undefined) {
-              setSaid(`Saved as version ${String(saved)}`);
+          onDone={(published) => {
+            if (published !== undefined) {
+              setSaid(`Saved as version ${String(published)}`);
             }
 
             toPage();
@@ -658,6 +682,7 @@ function Shown({
             className="min-h-0 flex-1"
             onPick={pick}
             onPin={showPin}
+            onEscape={stopWriting}
           />
           {anchor !== undefined && (
             <CommentBox
@@ -665,11 +690,13 @@ function Shown({
               version={shown}
               anchor={anchor}
               area={area}
-              onDone={(id) => {
+              onDone={(done) => {
                 setAnchor(undefined);
 
-                if (id !== undefined) {
-                  setActive(id);
+                if (done !== undefined) {
+                  setActive(done.id);
+                  setSaved(done.id);
+                  setSaid(savedLine(artifact, done.sentToPi));
                   reload();
                 }
               }}
@@ -685,8 +712,10 @@ function Shown({
               artifact={artifact}
               version={shown}
               threads={threads}
+              loaded={comments === "failed" ? "failed" : comments !== undefined}
               anchor={anchor}
               active={active}
+              saved={saved}
               onActive={setActive}
               onWholePage={() => {
                 setAnchor({ page: true });
@@ -748,6 +777,14 @@ function originLine(artifact: ArtifactSummary, mode: Mode): string {
     : [...from.map((each) => `From ${each}`), audienceLabel(artifact)].join(
         " · ",
       );
+}
+
+function savedLine(artifact: ArtifactView, sentToPi: boolean): string {
+  if (sentToPi) {
+    return "Sent to Pi";
+  }
+
+  return artifact.askable ? "Saved as a draft for Pi" : "Comment saved";
 }
 
 // An element's size as it changes, such as the frame the comment box sits

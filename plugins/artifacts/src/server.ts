@@ -699,7 +699,7 @@ export const server = defineServer(
           version: Type.Integer({ minimum: 1 }),
           body: Type.String({ minLength: 1, maxLength: 10_000 }),
           quote: Type.Optional(Type.String({ maxLength: 2000 })),
-          element: Type.Optional(Type.String({ maxLength: 1000 })),
+          element: Type.Optional(Type.String({ maxLength: 4000 })),
           kind: Type.Optional(
             Type.Union([
               Type.Literal("comment"),
@@ -724,7 +724,8 @@ export const server = defineServer(
           throw new BadRequest("Reopen a resolved thread before sending it.");
         }
 
-        const follows = parent?.sent_to_pi === 1 && parent.resolved_at === null;
+        const open = parent === undefined || parent.resolved_at === null;
+        const follows = parent?.sent_to_pi === 1 && open;
 
         const listens = listening(artifact, caller.person.id);
 
@@ -732,8 +733,9 @@ export const server = defineServer(
           throw listens.refused;
         }
 
-        // Writing @pi asks Pi, for people who can; for others it's a word.
-        const named = /(^|\s)@pi\b/i.test(body.body);
+        // Writing @pi asks Pi in an open thread, for people who can; for
+        // others it's a word.
+        const named = open && /(^|\s)@pi(?![\w-])/i.test(body.body);
 
         const toSession =
           (body.toPi || named || follows) && "session" in listens

@@ -3,6 +3,7 @@ import {
   Badge,
   Button,
   cardClass,
+  Checkbox,
   cn,
   ErrorText,
   Segmented,
@@ -136,10 +137,11 @@ export function CommentBox({
   readonly anchor: Anchor;
   // The frame's size, to keep the box inside it.
   readonly area: { readonly width: number; readonly height: number };
-  // With the new thread's id once saved.
-  readonly onDone: (id?: string) => void;
+  // With the new thread once saved, and whether it went to Pi at once.
+  readonly onDone: (saved?: { id: string; sentToPi: boolean }) => void;
 }): ReactElement {
   const api = useApi(plugin);
+  const [opener] = useState(() => document.activeElement);
   const [body, setBody] = useState("");
   const [kind, setKind] = useState<CommentKind>("comment");
   const [saving, setSaving] = useState(false);
@@ -147,12 +149,20 @@ export function CommentBox({
   const width = area.width === 0 ? 420 : Math.min(420, area.width - 32);
   const at = placed("rect" in anchor ? anchor.rect : undefined, area, width);
 
+  const cancel = (): void => {
+    onDone();
+
+    if (opener instanceof HTMLElement && opener.isConnected) {
+      opener.focus();
+    }
+  };
+
   const save = async (): Promise<void> => {
     setSaving(true);
     setProblem(undefined);
 
     try {
-      const { id } = await api.post<{ id: string }>(
+      const saved = await api.post<{ id: string; sentToPi: boolean }>(
         `artifacts/${artifact.id}/comments`,
         {
           version,
@@ -167,7 +177,7 @@ export function CommentBox({
         },
       );
 
-      onDone(id);
+      onDone(saved);
     } catch (error) {
       setSaving(false);
       setProblem(error instanceof Error ? error.message : String(error));
@@ -191,7 +201,7 @@ export function CommentBox({
         if (event.key === "Escape") {
           event.preventDefault();
           event.stopPropagation();
-          onDone();
+          cancel();
         } else if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
           event.preventDefault();
 
@@ -205,7 +215,7 @@ export function CommentBox({
         {where(anchor)}
       </p>
       <TextArea
-        aria-label="Comment"
+        aria-label="Comment text"
         placeholder={
           artifact.askable
             ? "Add a comment, or @pi to ask now"
@@ -220,7 +230,7 @@ export function CommentBox({
       />
       <div className="flex">
         <Segmented
-          label="Kind"
+          label="Kind of comment"
           value={kind}
           options={commentKinds.map((each) => ({
             value: each,
@@ -230,13 +240,7 @@ export function CommentBox({
         />
       </div>
       <div className="flex items-center justify-end gap-2">
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => {
-            onDone();
-          }}
-        >
+        <Button variant="ghost" size="sm" onClick={cancel}>
           Cancel
         </Button>
         <Button
@@ -249,16 +253,22 @@ export function CommentBox({
         </Button>
       </div>
       <ErrorText size="caption">{problem}</ErrorText>
-      <p className="text-caption text-fg-dim">
-        {artifact.askable
-          ? "Saved as a draft for Pi. Send it now with @pi, or later with the others."
-          : "People who can see this artifact can reply."}
-      </p>
+      <p className="text-caption text-fg-dim">{hint(artifact)}</p>
     </form>
   );
 }
 
-export function PinMark({ n }: { readonly n: number }): ReactElement {
+function hint(artifact: ArtifactView): string {
+  if (artifact.askable) {
+    return "Saved as a draft for Pi. Send it now with @pi, or later with the others.";
+  }
+
+  return artifact.access === "steer"
+    ? "Pi can't be asked about this artifact, so this comment is for people."
+    : "People who can see this artifact can reply.";
+}
+
+function PinMark({ n }: { readonly n: number }): ReactElement {
   return (
     <span
       aria-hidden="true"
@@ -275,8 +285,10 @@ export function CommentList({
   artifact,
   version,
   threads,
+  loaded,
   anchor,
   active,
+  saved,
   onActive,
   onWholePage,
   onChanged,
@@ -284,9 +296,12 @@ export function CommentList({
   readonly artifact: ArtifactView;
   readonly version: number;
   readonly threads: readonly Thread[];
+  readonly loaded: boolean | "failed";
   // What's being commented on now.
   readonly anchor: Anchor | undefined;
   readonly active: string | undefined;
+  // The thread just written, to move focus to.
+  readonly saved: string | undefined;
   readonly onActive: (id: string | undefined) => void;
   readonly onWholePage: () => void;
   readonly onChanged: () => void;
@@ -348,7 +363,9 @@ export function CommentList({
                   : `${String(drafts.length)} threads not sent to Pi`}
               </b>
               <span className="text-caption text-fg-dim">
-                Pi handles them in one turn and publishes one version
+                {chosen.length === drafts.length
+                  ? "Pi handles them in one turn and publishes one version"
+                  : leftOutLine(drafts.length - chosen.length)}
               </span>
             </div>
             <Button
@@ -361,7 +378,10 @@ export function CommentList({
             </Button>
           </div>
         )}
-        <ErrorText size="caption">{problem}</ErrorText>
+        <ErrorText size="caption">
+          {problem ??
+            (loaded === "failed" ? "Comments couldn't be loaded." : undefined)}
+        </ErrorText>
         <ul
           aria-label={shown === "open" ? "Open comments" : "Resolved comments"}
           className="flex flex-col gap-3"
@@ -376,6 +396,7 @@ export function CommentList({
               draft={drafts.includes(thread)}
               chosen={!leftOut.has(thread.top.id)}
               expanded={thread.top.id === active}
+              focused={thread.top.id === saved}
               onChoose={(yes) => {
                 const next = new Set(leftOut);
 
@@ -410,24 +431,28 @@ export function CommentList({
             </li>
           )}
         </ul>
-        {listed.length === 0 && anchor === undefined && (
+        {loaded === true && listed.length === 0 && anchor === undefined && (
           <p className="text-label text-fg-dim">{empty(shown, artifact)}</p>
         )}
-        {artifact.access !== "view" &&
-          shown === "open" &&
-          anchor === undefined && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="self-start"
-              onClick={onWholePage}
-            >
-              Comment on the whole page
-            </Button>
-          )}
+        {artifact.access !== "view" && shown === "open" && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="self-start"
+            onClick={onWholePage}
+          >
+            Comment on the whole page
+          </Button>
+        )}
       </div>
     </div>
   );
+}
+
+function leftOutLine(count: number): string {
+  return count === 1
+    ? "The one left out stays a note for people"
+    : `The ${String(count)} left out stay notes for people`;
 }
 
 function empty(shown: "open" | "resolved", artifact: ArtifactView): string {
@@ -436,7 +461,7 @@ function empty(shown: "open" | "resolved", artifact: ArtifactView): string {
   }
 
   return artifact.access === "view"
-    ? "No comments yet."
+    ? "No comments yet. You can read comments here but not add them."
     : "Select text or click part of the page to comment on it.";
 }
 
@@ -448,6 +473,7 @@ function ThreadCard({
   draft,
   chosen,
   expanded,
+  focused,
   onChoose,
   onExpand,
   onChanged,
@@ -460,11 +486,13 @@ function ThreadCard({
   readonly draft: boolean;
   readonly chosen: boolean;
   readonly expanded: boolean;
+  readonly focused: boolean;
   readonly onChoose: (yes: boolean) => void;
   readonly onExpand: () => void;
   readonly onChanged: () => void;
 }): ReactElement {
   const api = useApi(plugin);
+  const [problem, setProblem] = useState<string>();
   const { top, replies, n } = thread;
   const pinned = top.quote !== "";
   const element = top.element !== "";
@@ -479,14 +507,13 @@ function ThreadCard({
     >
       <div className="flex min-w-0 items-center gap-2 text-caption text-fg-dim">
         {draft && (
-          <input
-            type="checkbox"
-            aria-label={`Send comment ${String(n)} to Pi`}
+          <Checkbox
+            size="sm"
+            label={<span className="sr-only">Send comment {n} to Pi</span>}
             checked={chosen}
             onChange={(event) => {
               onChoose(event.target.checked);
             }}
-            className="size-4 shrink-0 cursor-pointer accent-(--accent)"
           />
         )}
         {pinned && <PinMark n={n} />}
@@ -503,6 +530,7 @@ function ThreadCard({
       <button
         type="button"
         aria-expanded={expanded}
+        autoFocus={focused}
         aria-label={`Comment ${String(n)} by ${top.author}`}
         onClick={onExpand}
         className="flex cursor-pointer flex-col gap-1.5 rounded-md text-left focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
@@ -523,7 +551,7 @@ function ThreadCard({
       )}
       {top.sentBy !== null && !top.resolved && (
         <span className="text-caption text-fg-dim">
-          Sent to Pi by {top.sentBy === "You" ? "you" : top.sentBy}
+          Sent to Pi by {lower(top.sentBy)}
         </span>
       )}
       {!expanded && replies.length > 0 && (
@@ -545,9 +573,7 @@ function ThreadCard({
                   {reply.byPi ? "Pi" : reply.author}
                 </b>{" "}
                 {[
-                  ...(reply.byPi
-                    ? [`via ${reply.author === "You" ? "you" : reply.author}`]
-                    : []),
+                  ...(reply.byPi ? [`via ${lower(reply.author)}`] : []),
                   ago(new Date(reply.createdAt).toISOString(), now),
                 ].join(" · ")}
               </span>
@@ -564,7 +590,9 @@ function ThreadCard({
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() =>
+                onClick={() => {
+                  setProblem(undefined);
+
                   void api
                     .post(
                       `artifacts/${artifact.id}/comments/${top.id}/resolve`,
@@ -573,16 +601,27 @@ function ThreadCard({
                       },
                     )
                     .then(onChanged)
-                }
+                    .catch((error: unknown) => {
+                      setProblem(
+                        error instanceof Error ? error.message : String(error),
+                      );
+                    });
+                }}
               >
                 {top.resolved ? "Reopen" : "Resolve"}
               </Button>
             </Reply>
           )}
+          <ErrorText size="caption">{problem}</ErrorText>
         </>
       )}
     </li>
   );
+}
+
+// The viewer is "You" in what the server sends.
+function lower(name: string): string {
+  return name === "You" ? "you" : name;
 }
 
 function Reply({

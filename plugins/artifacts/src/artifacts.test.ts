@@ -437,7 +437,26 @@ test("writing @pi sends a thread at once, for people who can, and Send hands fiv
 
   await until(() => host.delivered().length === 1);
 
-  expect(await comment("ana", "email @pipeline team")).toMatchObject({
+  for (const [body, sent] of [
+    ["email @pipeline team", false],
+    ["mail x@pi.dev", false],
+    ["ask @pi-hole", false],
+    ["(@pi)", false],
+    ["first line\n@pi second", true],
+  ] as const) {
+    expect((await comment("ana", body)).sentToPi).toBe(sent);
+  }
+
+  await until(() => host.delivered().length === 2);
+
+  // A resolved thread isn't asked again by a reply naming Pi.
+  const done = await comment("ana", "Done already");
+
+  await t
+    .as("ana")
+    .post(`artifacts/${id}/comments/${done.id}/resolve`, { resolved: true });
+
+  expect(await comment("ana", "@pi again", { parent: done.id })).toMatchObject({
     sentToPi: false,
   });
 
@@ -451,21 +470,29 @@ test("writing @pi sends a thread at once, for people who can, and Send hands fiv
     threads: drafts.map((each) => each.id),
   });
 
-  await until(() => host.delivered().length === 2);
+  await until(() => host.delivered().length === 3);
 
   expect(
     drafts.every(
-      (each) => host.delivered()[1]?.text.includes(each.id) === true,
+      (each) => host.delivered()[2]?.text.includes(each.id) === true,
     ),
   ).toBe(true);
 
-  expect(host.delivered()[1]).toMatchObject({ turn: true });
+  expect(host.delivered()[2]).toMatchObject({ turn: true });
 
   expect(
     (await listed())
       .filter((each) => each.sentBy !== null)
       .map(({ body }) => body),
-  ).toEqual(["Make it blue, @Pi", "One", "Two", "Three", "Four", "Five"]);
+  ).toEqual([
+    "Make it blue, @Pi",
+    "first line\n@pi second",
+    "One",
+    "Two",
+    "Three",
+    "Four",
+    "Five",
+  ]);
 });
 
 test("only people who can act in the Session send threads to Pi", async () => {

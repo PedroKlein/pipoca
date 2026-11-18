@@ -30,8 +30,9 @@ const pickable = (element) => element instanceof Element && element !== document
 const selectorOf = (element) => {
   const path = [];
   for (let at = element; at !== null && at !== document.body; at = at.parentElement) {
-    const same = [...(at.parentElement?.children ?? [])].filter((each) => each.tagName === at.tagName);
-    path.unshift(at.tagName.toLowerCase() + ":nth-of-type(" + String(same.indexOf(at) + 1) + ")");
+    if (at.id !== "" && document.querySelectorAll("#" + CSS.escape(at.id)).length === 1) return ["#" + CSS.escape(at.id), ...path].join(" > ");
+    const same = [...(at.parentElement?.children ?? [])].filter((each) => each.localName === at.localName);
+    path.unshift(CSS.escape(at.localName) + ":nth-of-type(" + String(same.indexOf(at) + 1) + ")");
   }
   return ["body", ...path].join(" > ");
 };
@@ -42,6 +43,9 @@ document.addEventListener("mousemove", (event) => {
   if (!commenting || !pickable(event.target)) return;
   hover ??= drawn("border: 2px dashed rgb(232, 176, 74); border-radius: 4px;");
   around(hover, event.target);
+});
+document.addEventListener("keydown", (event) => {
+  if (commenting && event.key === "Escape") parent.postMessage({ pipoca: "escape" }, "*");
 });
 document.documentElement.addEventListener("mouseleave", () => {
   if (hover !== undefined) hover.style.display = "none";
@@ -87,15 +91,19 @@ const pin = () => {
     const r = target.getBoundingClientRect();
     const badge = drawn("display: grid; place-items: center; width: 22px; height: 22px; border-radius: 11px 11px 11px 2px; background: rgb(243, 197, 82); color: rgb(26, 23, 18); font: 600 11px/1 system-ui, sans-serif; pointer-events: auto; cursor: pointer; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);");
     badge.dataset.pipocaPin = String(n);
-    badge.title = "Comment " + String(n);
+    badge.setAttribute("role", "button");
+    badge.tabIndex = 0;
+    badge.setAttribute("aria-label", "Comment " + String(n));
     badge.textContent = String(n);
     badge.style.left = (selector === "" ? r.right - 8 : r.left + 18) + scrollX + "px";
     badge.style.top = r.top + scrollY - 20 + "px";
-    badge.addEventListener("click", (event) => {
+    const open = (event) => {
       event.preventDefault();
       event.stopPropagation();
       parent.postMessage({ pipoca: "pin", n }, "*");
-    });
+    };
+    badge.addEventListener("click", open);
+    badge.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") open(event); });
   }
 };
 addEventListener("resize", pin);

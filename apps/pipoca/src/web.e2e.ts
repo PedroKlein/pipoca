@@ -6110,7 +6110,7 @@ test("opens an artifact Pi published, in a sandbox, from its card in the chat", 
 
   const comment = page.getByRole("form", { name: "New comment" });
 
-  await comment.getByRole("textbox", { name: "Comment" }).fill("Add Q4");
+  await comment.getByRole("textbox", { name: "Comment text" }).fill("Add Q4");
   await comment.locator("button[type=submit]").click();
   await comment.waitFor({ state: "hidden" });
 
@@ -6210,8 +6210,23 @@ test("comments on selected text and on a clicked element, pins them on the page,
     .getByText("The retry waits three times before falling back.")
     .waitFor();
 
+  // Escape drops the comment and keeps the viewer, from the box or the page.
+  await box.getByRole("textbox", { name: "Comment text" }).press("Escape");
+  await box.waitFor({ state: "hidden" });
+  expect(await viewer.isVisible()).toBe(true);
+
+  await frame.locator("p").selectText();
+  await frame.locator("p").dispatchEvent("mouseup");
+  await box.waitFor();
+  await frame.locator("h1").press("Escape");
+  await box.waitFor({ state: "hidden" });
+  expect(await viewer.isVisible()).toBe(true);
+
+  await frame.locator("p").selectText();
+  await frame.locator("p").dispatchEvent("mouseup");
+
   await box
-    .getByRole("textbox", { name: "Comment" })
+    .getByRole("textbox", { name: "Comment text" })
     .fill("Three attempts or three retries?");
 
   await box.locator("button[type=submit]").click();
@@ -6228,7 +6243,7 @@ test("comments on selected text and on a clicked element, pins them on the page,
   await box.getByRole("button", { name: "Question" }).click();
 
   await box
-    .getByRole("textbox", { name: "Comment" })
+    .getByRole("textbox", { name: "Comment text" })
     .fill("Add the error rate here");
 
   await box.locator("button[type=submit]").click();
@@ -6260,6 +6275,7 @@ test("comments on selected text and on a clicked element, pins them on the page,
     .waitFor();
 
   await page.getByText("Looking at both").waitFor();
+  await page.locator("#status", { hasText: "idle" }).waitFor();
 
   expect(await page.getByText("Looking at both").count()).toBe(1);
 }, 30_000);
