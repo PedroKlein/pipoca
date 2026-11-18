@@ -186,7 +186,8 @@ export const server = defineServer(email, (context) => {
 
   // A mention or a review request goes to the person's own address, from a
   // mailbox they or the team send from (ADR 0081). Nothing checks that the
-  // address is theirs, so what was written stays in Pipoca.
+  // address is theirs, so what was written, the title and names stay in
+  // Pipoca.
   events.on(artifacts.events.activity, ({ fields, to }) => {
     if (fields.kind === "reply") {
       return;
@@ -205,7 +206,10 @@ export const server = defineServer(email, (context) => {
 
       send(mailbox, {
         to: address,
-        subject: fields.headline,
+        subject:
+          fields.kind === "mention"
+            ? "You were mentioned in Pipoca"
+            : "You were asked to review in Pipoca",
         text: `Open it in Pipoca: ${link}\n`,
       }).then(
         () => {

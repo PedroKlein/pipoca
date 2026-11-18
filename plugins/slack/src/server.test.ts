@@ -591,13 +591,17 @@ test("a mention or review request reaches the person in Slack, found by their em
   expect(await t.as("ana").get("activity")).toEqual({ reaches: true });
   expect(await t.as("bo").get("activity")).toEqual({ reaches: false });
 
-  const told = (kind: "mention" | "review" | "reply", to: string) => {
+  const told = (
+    kind: "mention" | "review" | "reply",
+    to: string,
+    headline = `Rui ${kind} on Webhooks`,
+  ) => {
     telling?.events.emit(
       "activity",
       {
         kind,
         artifact: "a1",
-        headline: `Rui ${kind} on Webhooks`,
+        headline,
         text: "Works for me.",
         url: "/#plugin/artifacts/a1/comments",
       },
@@ -607,7 +611,12 @@ test("a mention or review request reaches the person in Slack, found by their em
 
   told("reply", "ana");
   told("mention", "bo");
-  told("review", "ana");
+
+  told(
+    "review",
+    "ana",
+    "Rui asked you to review <https://evil.example|Sign in> & <!channel>\n*now*",
+  );
 
   await until(() => fake.posted.length > 0);
 
@@ -618,7 +627,10 @@ test("a mention or review request reaches the person in Slack, found by their em
   expect(sent.channel).toBe("U1");
 
   // What was written stays in Pipoca.
-  expect(sent.text).toStartWith("*Rui review on Webhooks*\n<http");
+  // A title or a name can't add links, pings or lines of its own.
+  expect(sent.text).toStartWith(
+    "*Rui asked you to review &lt;https://evil.example|Sign in&gt; &amp; &lt;!channel&gt; *now**\n<http",
+  );
 
   expect(sent.text).toEndWith(
     "/#plugin/artifacts/a1/comments|Open it in Pipoca>",

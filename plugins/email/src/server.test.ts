@@ -471,7 +471,10 @@ test("a mention or review request is mailed to the person's own address, a reply
 
   expect(mail.sent).toHaveLength(1);
   expect(mail.sent[0]).toContain("To: ana@example.com");
-  expect(mail.sent[0]).toContain("Subject: Rui mention on Webhooks");
+  // Nothing checks the address is theirs, so the title and names stay in
+  // Pipoca too.
+  expect(mail.sent[0]).toContain("Subject: You were mentioned in Pipoca");
+  expect(mail.sent[0]).not.toContain("Webhooks");
 
   expect(mail.sent[0]?.replace(/=\r\n/g, "")).toContain(
     "Open it in Pipoca: http",
@@ -501,6 +504,7 @@ test("a mention or review request is mailed to the person's own address, a reply
   await until(() => mail.sent.length > 1);
 
   expect(mail.sent[1]).toContain("To: bo@example.com");
+  expect(mail.sent[1]).toContain("Subject: You were asked to review in Pipoca");
 });
 
 // A plugin that starts work from mail, as routines do, so its Sessions'

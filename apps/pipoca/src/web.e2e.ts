@@ -6401,7 +6401,7 @@ test("Pi suggests an edit in a thread, accepting it saves the next version, and 
     fauxAssistantMessage([fauxText("Suggested it in the thread")]),
   ]);
 
-  await page.getByRole("link", { name: /^Plan/ }).click();
+  await page.getByRole("link", { name: /^Plan Markdown/ }).click();
   const viewer = page.getByRole("dialog", { name: "Plan" });
 
   await viewer.getByRole("button", { name: "Comment", exact: true }).click();

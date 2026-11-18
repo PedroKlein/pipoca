@@ -371,7 +371,7 @@ export const server = defineServer(slack, (context) => {
     const link = new URL(fields.url, new URL(urls.public("")).origin).href;
 
     const message = [
-      `*${fields.headline}*`,
+      `*${plain(fields.headline)}*`,
       `<${link}|Open it in Pipoca>`,
     ].join("\n");
 
@@ -461,4 +461,14 @@ export const server = defineServer(slack, (context) => {
 
 function text(value: unknown): string {
   return typeof value === "string" ? value : "";
+}
+
+// Slack reads <…> as links and pings and & as an entity, so text from a
+// title or a name is escaped and kept to one line.
+function plain(said: string): string {
+  return said
+    .replace(/\s+/g, " ")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
 }
