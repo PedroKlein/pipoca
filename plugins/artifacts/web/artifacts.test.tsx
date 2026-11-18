@@ -541,7 +541,7 @@ test("compare opens inside the viewer with both versions side by side or as a so
 
   // The older side offers only versions before the newer one.
   act(() => {
-    named(page, "Version 2. Older version")?.click();
+    named(page, "Version 2, older version")?.click();
   });
 
   expect(menuItems(page).map((each) => each.textContent)).toEqual([
@@ -558,7 +558,7 @@ test("compare opens inside the viewer with both versions side by side or as a so
   );
 
   act(() => {
-    named(page, "Version 3, the latest. Newer version")?.click();
+    named(page, "Version 3 · latest, newer version")?.click();
   });
 
   expect(menuItems(page).map((each) => each.textContent)).toEqual([
@@ -567,7 +567,7 @@ test("compare opens inside the viewer with both versions side by side or as a so
   ]);
 
   act(() => {
-    named(page, "Version 3, the latest. Newer version")?.click();
+    named(page, "Version 3 · latest, newer version")?.click();
   });
 
   act(() => {

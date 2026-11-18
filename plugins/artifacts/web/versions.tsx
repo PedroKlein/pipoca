@@ -167,7 +167,7 @@ export function Compare({
 
   const picker = (side: "from" | "to", shown: number): ReactElement => (
     <Menu
-      label={`Version ${String(shown)}${shown === artifact.versions ? ", the latest" : ""}. ${side === "from" ? "Older version" : "Newer version"}`}
+      label={`${label(shown)}, ${side === "from" ? "older" : "newer"} version`}
       variant="default"
       size="sm"
       align="end"
@@ -551,7 +551,7 @@ export function Editor({
           onChange={(event) => {
             setText(event.target.value);
           }}
-          className="size-full max-h-none min-h-0 resize-none border-line bg-elevated p-6 font-mono text-mono text-fg outline-none md:border-r"
+          className="size-full max-h-none min-h-0 resize-none border-line bg-elevated p-6 font-mono text-mono text-fg outline-none focus-visible:ring-1 focus-visible:ring-focus focus-visible:ring-inset md:border-r"
         />
         {/* Same origin only so the preview keeps its scroll as it redraws: it
             runs no scripts and loads nothing. */}

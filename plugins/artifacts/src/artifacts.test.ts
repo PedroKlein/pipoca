@@ -809,6 +809,11 @@ test("a person's edit of a Markdown artifact is a new version Pi hears about wit
     ),
   ).toEqual(["", "edited by hand", "", "edited by hand", "restored version 1"]);
 
+  // When the newer one is theirs, it says so.
+  expect(await (await saving(4)).json()).toMatchObject({
+    message: "You saved version 5 while you were editing.",
+  });
+
   await writeFile(join(cwd, "page.html"), "<p>hi</p>");
 
   const page = await part.tool("publish_artifact", { path: "page.html" });
