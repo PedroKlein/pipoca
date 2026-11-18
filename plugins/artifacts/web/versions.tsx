@@ -519,7 +519,7 @@ export function Editor({
           onChange={(event) => {
             setText(event.target.value);
           }}
-          className="size-full min-h-0 resize-none border-line bg-elevated p-6 font-mono text-mono text-fg outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-inset md:border-r"
+          className="size-full max-h-none min-h-0 resize-none border-line bg-elevated p-6 font-mono text-mono text-fg outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-inset md:border-r"
         />
         {/* Same origin only so the preview keeps its scroll as it redraws: it
             runs no scripts and loads nothing. */}
