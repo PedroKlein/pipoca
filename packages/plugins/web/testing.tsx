@@ -83,6 +83,8 @@ export function renderPart(
     readonly repositories?: readonly RepositoryChoice[];
     // What the page's requests get, in place of the network.
     readonly fetch?: (url: string, init?: RequestInit) => Promise<Response>;
+    // The address the page is at, such as #s1?artifact=a1.
+    readonly hash?: string;
   } = {},
 ): HTMLElement {
   const Part = (
@@ -97,6 +99,10 @@ export function renderPart(
 
   if (!GlobalRegistrator.isRegistered) {
     GlobalRegistrator.register();
+  }
+
+  if (o.hash !== undefined) {
+    history.replaceState(null, "", o.hash);
   }
 
   // Set once the page exists, which brings a fetch of its own.

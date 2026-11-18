@@ -19,7 +19,7 @@ import { SetupReminders } from "../setup/reminders";
 import { SetupWizard } from "../setup/wizard";
 import { Sidebar } from "./sidebar";
 import { TeamHub } from "../team/hub";
-import { MenuButton, PluginPage } from "./plugin-page";
+import { isBare, MenuButton, PluginPage } from "./plugin-page";
 
 export function App(): ReactElement {
   const { user, team } = useMe();
@@ -35,7 +35,21 @@ export function App(): ReactElement {
   return (
     <PluginShell viewer={viewer}>
       <Screens />
+      <Overlays />
     </PluginShell>
+  );
+}
+
+// What plugins show over every page, such as an artifact the address opens.
+function Overlays(): ReactElement {
+  return (
+    <>
+      {fillsOf("overlay").map(({ plugin, Component }) => (
+        <PluginBoundary key={plugin} name={plugin}>
+          <Component />
+        </PluginBoundary>
+      ))}
+    </>
   );
 }
 
@@ -165,6 +179,14 @@ function Work({ route }: { readonly route: Route }): ReactElement {
 
     return <Home onMenu={openDrawer} onNewSession={newSession} />;
   };
+
+  if (route.name === "plugin" && isBare(route.params.name, route.params.path)) {
+    return (
+      <Area>
+        <main className="flex min-w-0 flex-1 flex-col">{content()}</main>
+      </Area>
+    );
+  }
 
   return (
     <Area>

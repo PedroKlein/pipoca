@@ -6015,9 +6015,14 @@ test("opens an artifact Pi published, in a sandbox, from its card in the chat", 
   await box.press("Enter");
   await page.getByText("Published the report").waitFor();
 
-  const card = page.getByLabel("Artifact Quarterly report");
-  await card.getByText("Version 1").waitFor();
-  await card.getByRole("link", { name: "Open" }).click();
+  const card = page.getByRole("link", { name: /Quarterly report/ });
+  await card.getByText("Page · version 1 · Only you").waitFor();
+  const link = (await card.getAttribute("href")) ?? "";
+  const session = new URL(page.url()).hash;
+
+  await card.click();
+
+  const viewer = page.getByRole("dialog", { name: "Quarterly report" });
 
   const frame = page.frameLocator(
     'iframe[title="Quarterly report, version 1"]',
@@ -6025,6 +6030,55 @@ test("opens an artifact Pi published, in a sandbox, from its card in the chat", 
 
   await frame.getByRole("heading", { name: "Quarterly report" }).waitFor();
   await frame.getByText("null").waitFor();
+
+  expect(new URL(page.url()).hash).toBe(
+    `${session}?artifact=${link.split("/").at(-1) ?? ""}`,
+  );
+
+  await page.goBack();
+  await viewer.waitFor({ state: "hidden" });
+  expect(new URL(page.url()).hash).toBe(session);
+  await page.goForward();
+  await viewer.waitFor();
+  await page.reload();
+  await viewer.waitFor();
+
+  await viewer.getByRole("button", { name: "More" }).click();
+  await viewer.getByRole("menu", { name: "More" }).waitFor();
+  await page.keyboard.press("Escape");
+  await viewer.getByRole("menu", { name: "More" }).waitFor({ state: "hidden" });
+  expect(await viewer.isVisible()).toBe(true);
+  expect(new URL(page.url()).hash).toContain("?artifact=");
+
+  await viewer.getByRole("button", { name: "Share" }).click();
+
+  await page
+    .getByRole("dialog", { name: /^Share/ })
+    .getByRole("button", { name: "Cancel" })
+    .click();
+
+  await page
+    .getByRole("dialog", { name: /^Share/ })
+    .waitFor({ state: "hidden" });
+
+  expect(await viewer.isVisible()).toBe(true);
+  await page.keyboard.press("Escape");
+  await viewer.waitFor({ state: "hidden" });
+  await page.waitForURL((url) => url.hash === session);
+
+  await page.goto(`${server.url.href}${link}`);
+  await page.getByRole("heading", { name: "Quarterly report" }).waitFor();
+  await page.getByText("By pedro").waitFor();
+
+  expect(await page.getByRole("button", { name: "New session" }).count()).toBe(
+    0,
+  );
+
+  expect(await page.getByRole("button", { name: "Close" }).count()).toBe(0);
+
+  await page.goto(`${server.url.href}${session}`);
+  await card.click();
+  await viewer.waitFor();
 
   let thread = "";
 
@@ -6048,10 +6102,7 @@ test("opens an artifact Pi published, in a sandbox, from its card in the chat", 
     fauxAssistantMessage([fauxText("Answered in the thread")]),
   ]);
 
-  await page
-    .getByRole("group", { name: "Beside the artifact" })
-    .getByRole("button", { name: "Comments 0" })
-    .click();
+  await viewer.getByRole("button", { name: "Comment", exact: true }).click();
 
   const comment = page.getByRole("form", { name: "Comment" });
 
@@ -6069,6 +6120,7 @@ test("opens an artifact Pi published, in a sandbox, from its card in the chat", 
   await frame.getByRole("button", { name: "Ask Pi" }).click();
 
   await page.getByText("Answered in the thread").waitFor();
+  await viewer.waitFor({ state: "hidden" });
 
   await page
     .getByText("You sent 1 comment thread on Quarterly report")
@@ -6088,6 +6140,8 @@ test("opens an artifact Pi published, in a sandbox, from its card in the chat", 
   expect(await page.locator("#prompt-text").inputValue()).toBe(
     "Make the chart blue",
   );
+
+  await page.locator("#prompt-text:focus").waitFor();
 }, 30_000);
 
 test("signs out and back in with the password", async () => {

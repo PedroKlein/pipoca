@@ -56,16 +56,22 @@ test("a button drawn with its own content is still named by the label", () => {
   ).toBeDefined();
 });
 
-test("Escape closes it", () => {
+test("Escape closes it, and not the dialog it sits in", () => {
   const page = render(
     <Menu label="More" items={[{ label: "Copy", run: () => undefined }]} />,
   );
 
   click(byRole(page, "button", "More"));
 
+  const escape = new KeyboardEvent("keydown", {
+    key: "Escape",
+    cancelable: true,
+  });
+
   act(() => {
-    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    document.dispatchEvent(escape);
   });
 
   expect(page.querySelector('[role="menu"]')).toBeNull();
+  expect(escape.defaultPrevented).toBe(true);
 });

@@ -15,6 +15,8 @@ const sizes = {
   sm: "w-[min(480px,calc(100vw-32px))]",
   md: "w-[min(600px,calc(100vw-32px))]",
   lg: "w-[min(720px,calc(100vw-32px))]",
+  // Almost the whole window, such as a viewer; all of it on a phone.
+  full: "h-[calc(100dvh-56px)] max-h-none w-[calc(100vw-80px)] max-w-none max-sm:h-dvh max-sm:w-screen max-sm:rounded-none",
 } as const;
 
 // A modal on the browser's own dialog, which traps focus and closes on
@@ -50,6 +52,22 @@ export function Dialog({
   const dialog = useRef<HTMLDialogElement>(null);
   const titleId = useId();
 
+  // Focus goes back to what opened the dialog, also when the dialog leaves
+  // the page without closing, such as when Back takes it away.
+  useEffect(() => {
+    if (!open) {
+      return undefined;
+    }
+
+    const opener = document.activeElement;
+
+    return () => {
+      if (opener instanceof HTMLElement && opener.isConnected) {
+        opener.focus();
+      }
+    };
+  }, [open]);
+
   useEffect(() => {
     const element = dialog.current;
 
@@ -71,7 +89,12 @@ export function Dialog({
   return (
     <dialog
       ref={dialog}
-      onClose={onClose}
+      onClose={(event) => {
+        // A dialog opened from this one closes only itself.
+        if (event.target === event.currentTarget) {
+          onClose();
+        }
+      }}
       aria-labelledby={title === undefined ? labelledBy : titleId}
       className={cn(
         "m-auto overflow-visible rounded-xl border border-line bg-elevated p-0 text-fg shadow-pop backdrop:bg-scrim backdrop:backdrop-blur-scrim open:animate-pop-in",

@@ -26,12 +26,25 @@ function stored(): ThemeChoice {
   }
 }
 
+// This tab's choice, which outlives storage that refuses it.
+let chosen = stored();
+
 // Sets data-theme on the page, so every token follows the choice.
-export function applyTheme(choice: ThemeChoice = stored()): void {
+export function applyTheme(choice: ThemeChoice = chosen): void {
   const system = prefersLight().matches ? "light" : "dark";
 
   document.documentElement.dataset["theme"] =
     choice === "system" ? system : choice;
+}
+
+// Sets the theme now, and again when the system's changes, on every page,
+// with or without the sidebar.
+export function followTheme(): void {
+  applyTheme();
+
+  prefersLight().addEventListener("change", () => {
+    applyTheme();
+  });
 }
 
 // The page's theme, chosen per browser.
@@ -39,26 +52,10 @@ export function useTheme(): readonly [
   ThemeChoice,
   (choice: ThemeChoice) => void,
 ] {
-  const [choice, setChoice] = useState(stored);
+  const [choice, setChoice] = useState(() => chosen);
 
   useEffect(() => {
     applyTheme(choice);
-
-    if (choice !== "system") {
-      return undefined;
-    }
-
-    const media = prefersLight();
-
-    const follow = (): void => {
-      applyTheme(choice);
-    };
-
-    media.addEventListener("change", follow);
-
-    return () => {
-      media.removeEventListener("change", follow);
-    };
   }, [choice]);
 
   const choose = (next: ThemeChoice): void => {
@@ -68,6 +65,7 @@ export function useTheme(): readonly [
       // The choice still applies until the page reloads.
     }
 
+    chosen = next;
     setChoice(next);
   };
 

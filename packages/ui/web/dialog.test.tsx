@@ -35,6 +35,62 @@ test("a dialog shows its content only while open, named by its title", () => {
   expect(closed.length).toBeGreaterThan(0);
 });
 
+test("a dialog opened from another closes only itself", () => {
+  const closed: string[] = [];
+
+  const page = render(
+    <Dialog open title="Viewer" onClose={() => closed.push("viewer")}>
+      <Dialog open title="Share" onClose={() => closed.push("share")}>
+        <p>People</p>
+      </Dialog>
+    </Dialog>,
+  );
+
+  act(() => {
+    byRole(page, "dialog", "Share").dispatchEvent(new Event("close"));
+  });
+
+  expect(closed).toContain("share");
+  expect(closed).not.toContain("viewer");
+});
+
+function Opener(): ReactElement {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => {
+          setOpen(!open);
+        }}
+      >
+        Open
+      </button>
+      {open && (
+        <Dialog open title="Viewer" onClose={() => undefined}>
+          <button type="button">Inside</button>
+        </Dialog>
+      )}
+    </>
+  );
+}
+
+test("focus goes back to what opened a dialog, even when it leaves without closing", () => {
+  const page = render(<Opener />);
+  const opener = byRole(page, "button", "Open");
+
+  opener.focus();
+  click(opener);
+  byRole(page, "button", "Inside").focus();
+
+  act(() => {
+    opener.click();
+  });
+
+  expect(document.activeElement).toBe(opener);
+});
+
 function Asking({ answers }: { readonly answers: boolean[] }): ReactElement {
   const [confirm, dialog] = useConfirm();
   const [asked, setAsked] = useState(false);

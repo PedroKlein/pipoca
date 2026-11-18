@@ -40,6 +40,7 @@ export const web = defineWeb(greeter, {
 ## Pages and settings
 
 - `pages` are the plugin's pages, under `#plugin/<id>/<path>`. `nav` lists one in the sidebar, under More unless it is `pinned` or the person pins it, and `area` puts it on the team hub (`"hub"`) or in Team setup (`"setup"`) instead. `href(plugin, path)` links to one.
+- A page whose `bare(path)` is true for the rest of the address is drawn alone in the window, without the sidebar, as a link to one artifact is.
 - `settings` is its section on the Settings page: `form: "auto"` draws a form from its config, or give your own `Section`.
 - A page or `Section` puts its title, description and actions in `Page` from `@pipoca/ui`. Inside the app's own column it draws only those and its content.
 
@@ -67,6 +68,7 @@ export const web = defineWeb(greeter, {
 | `codeBlock:<language>`                                                               | How a fenced block of that language shows in the chat, with its text as `code`, and `complete` false while the agent is still writing it. |
 | `link:<scheme>`                                                                      | How a link with that scheme in the chat's Markdown shows.                                                                                 |
 | `home`                                                                               | The home screen, drawn by the first plugin that fills it, as the assistant is.                                                            |
+| `overlay`                                                                            | Over every page, as the artifact viewer is. It reads what to show from `useOverlay()`.                                                    |
 | `environment.section`, `template.section`                                            | A section on an Environment's or a template's page.                                                                                       |
 | `settings.general`, `settings.accounts`, `settings.profile`, `settings.base-profile` | A section on those Settings pages, or on the Server base.                                                                                 |
 
@@ -82,6 +84,7 @@ A `session.header` part can draw a `SessionTab` (`name`, `order`, `label`, `butt
 - `useLoaded(load, key, { topics, changes, everyMs })` loads data, and loads it again when a kernel topic such as `sessions` or `environments` changes, when one of the plugin's own `changes` does, or every `everyMs` for data that changes outside Pipoca.
 - `useViewer()` says who is looking.
 - `useDraft()(sessionId, text)` puts text in a Session's composer and opens it, for the person to send or not.
+- `useOverlay()` reads and changes what the address shows over the page, after a `?` in its hash: `params`, `open(params, { replace })` and `close()`. Back closes what `open` opened, and the address opens it again.
 
 ## What it can import
 

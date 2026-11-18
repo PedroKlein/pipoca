@@ -6,7 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { Button } from "./button";
+import { Button, type ButtonSize, type ButtonVariant } from "./button";
 import { cn } from "./cn";
 import { Icon, type IconName } from "./icon";
 
@@ -41,6 +41,8 @@ export function Menu({
   align = "end",
   side = "below",
   className,
+  variant = "ghost",
+  size,
   triggerClassName,
 }: {
   readonly label: string;
@@ -54,6 +56,9 @@ export function Menu({
   // Opens upward, for a button at the bottom of the screen.
   readonly side?: "below" | "above";
   readonly className?: string;
+  // The button's look, a quiet icon unless the menu says otherwise.
+  readonly variant?: ButtonVariant;
+  readonly size?: ButtonSize;
   readonly triggerClassName?: string;
 }): ReactElement {
   const [open, setOpen] = useState(false);
@@ -65,10 +70,14 @@ export function Menu({
     }
 
     const close = (event: Event): void => {
-      if (
-        event instanceof KeyboardEvent
-          ? event.key === "Escape"
-          : box.current?.contains(event.target as Node) !== true
+      if (event instanceof KeyboardEvent && event.key === "Escape") {
+        // Inside a dialog, Escape closes only the menu.
+        event.preventDefault();
+        setOpen(false);
+        box.current?.querySelector("button")?.focus();
+      } else if (
+        !(event instanceof KeyboardEvent) &&
+        box.current?.contains(event.target as Node) !== true
       ) {
         setOpen(false);
       }
@@ -86,7 +95,8 @@ export function Menu({
   return (
     <div ref={box} className={cn("relative", className)}>
       <Button
-        variant="ghost"
+        variant={variant}
+        {...(size !== undefined && { size })}
         iconOnly={trigger === undefined}
         aria-label={label}
         aria-haspopup="menu"

@@ -175,8 +175,24 @@ const shell: Omit<Shell, "viewer"> = {
     createElement(PluginBoundary, { name: plugin, children }),
   SessionView: EmbeddedSession,
   draft: (sessionId, text) => {
-    prefillComposer(sessionId, text);
-    location.hash = href("session", { id: sessionId });
+    const to = href("session", { id: sessionId });
+
+    if (location.hash === to) {
+      prefillComposer(sessionId, text);
+
+      return;
+    }
+
+    // Once the Session shows, without anything over it, such as a viewer.
+    addEventListener(
+      "hashchange",
+      () => {
+        prefillComposer(sessionId, text);
+      },
+      { once: true },
+    );
+
+    location.hash = to;
   },
   repositories: searchRepositories,
 };
