@@ -23,7 +23,7 @@ Pi publishes a page, a Markdown document, a picture, a PDF or a CSV table with `
 
 The viewer's header holds:
 
-- The **version** menu, with every version, who made it, when and what changed (`publish_artifact` takes a short `note`), and **Compare versions**. On an earlier version a bar offers to go back to the latest or restore it.
+- The **version** menu, with every version, who made it, when and what changed, and **Compare versions**. On an earlier version a bar offers to go back to the latest or restore it.
 - **Comment**, which opens the comments beside the artifact, with the number still open.
 - **Share**, for whoever steers the Session.
 - **Open in a new tab**, which shows the artifact alone in the window, without the sidebar. That's the link people share.
@@ -45,8 +45,10 @@ An artifact runs in a sandbox on an opaque origin, so it can't reach Pipoca or y
 - Pi reads sent threads with `read_artifact_comments`, answers in each thread with `reply_artifact_comment`, shown as "Pi, via" whoever sent it, and resolves the ones it finished with `resolve_artifact_comment`. A later reply from you in a sent thread reaches Pi again, until the thread is resolved. Comment text reaches Pi as data, never as instructions.
 - An archived Session can't be asked. People can still discuss its artifacts.
 - `list_artifacts` says how many comments are open on each.
-- **Compare versions** shows two versions as a line diff, or side by side for pictures and PDFs.
-- Whoever steers the Session can edit a Markdown artifact's source and save it as a new version, and Pi is told to read it before changing it again.
+- **Compare versions** opens inside the viewer. **Side by side** draws both versions with the words that changed marked, struck out in the older one and highlighted in the newer one. **Source diff** shows the source line by line. Pictures and PDFs only go side by side.
+- Whoever steers the Session can edit a Markdown artifact (**More** > **Edit**): the source sits beside a preview, and **Save** makes a new version marked "edited by hand". If someone saves a version while you edit, the viewer says so and you choose between opening theirs and saving yours anyway. **Esc** leaves the editor and asks before it drops your changes.
+- A version you save or restore shows in the chat as one row, such as "pedro saved version 3 of Rollout plan". Pi reads it before its next turn, and no turn starts.
+- `publish_artifact` takes a short `label` for what the version changed, and `base`, the version Pi changed. When someone saved a newer version meanwhile, the publish is refused with that version's number, so Pi reads it with `read_artifact` and merges its change first.
 - A page can ask for a message with `parent.postMessage({ pipoca: "draft", text }, "*")`: it lands in the Session's composer, and you decide whether to send it.
 
 Settings has a section for each of the Files, Artifacts and Projects plugins' limits.

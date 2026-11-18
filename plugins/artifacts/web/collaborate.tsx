@@ -13,7 +13,6 @@ import {
   Checkbox,
   cn,
   ErrorText,
-  Select,
   TextArea,
 } from "@pipoca/ui";
 import {
@@ -26,8 +25,8 @@ import {
 } from "react";
 import { isHttpError, type TypedClient } from "@pipoca/plugins";
 import { artifacts as plugin } from "../plugin";
-import { type ArtifactView, type Comment, isText } from "../src/artifacts";
-import { type DiffLine, lineDiff } from "../src/diff";
+import type { ArtifactView, Comment } from "../src/artifacts";
+import type { Span } from "../src/diff";
 
 export const base = "/api/ext/artifacts";
 
@@ -64,6 +63,7 @@ export function Frame({
   version,
   onSelect,
   highlights,
+  changes,
   className,
 }: {
   readonly artifact: ArtifactView;
@@ -71,6 +71,15 @@ export function Frame({
   readonly onSelect?: (text: string) => void;
   // Text comments quote, which the page marks.
   readonly highlights?: readonly string[];
+  // Words this version took out or put in, compared with another, by where
+  // they sit in a page text this long.
+  readonly changes?:
+    | {
+        readonly kind: "removed" | "added";
+        readonly length: number;
+        readonly spans: readonly (Span & { readonly text: string })[];
+      }
+    | undefined;
   // Its size and edge, in place of a bordered box three quarters as tall as
   // the window.
   readonly className?: string;
@@ -117,6 +126,17 @@ export function Frame({
 
   useEffect(highlight, [highlight]);
 
+  const markChanges = useCallback(() => {
+    if (changes !== undefined) {
+      frame.current?.contentWindow?.postMessage(
+        { pipoca: "changes", ...changes },
+        "*",
+      );
+    }
+  }, [changes]);
+
+  useEffect(markChanges, [markChanges]);
+
   return (
     <iframe
       ref={frame}
@@ -124,173 +144,15 @@ export function Frame({
       title={`${artifact.title}, version ${String(version)}`}
       src={`${base}/artifacts/${artifact.id}/view?v=${String(version)}`}
       {...(artifact.kind !== "pdf" && { sandbox })}
-      onLoad={highlight}
+      onLoad={() => {
+        highlight();
+        markChanges();
+      }}
       className={cn(
         "w-full shrink-0 bg-white",
         className ?? "h-[75vh] rounded-lg border border-line",
       )}
     />
-  );
-}
-
-async function textOf(id: string, version: number): Promise<string> {
-  const response = await fetch(
-    `${base}/artifacts/${id}/download?v=${String(version)}`,
-  );
-
-  if (!response.ok) {
-    throw new Error(`version ${String(version)} didn't load`);
-  }
-
-  return response.text();
-}
-
-// Two versions as a source diff, or side by side for pictures and PDFs.
-export function Compare({
-  artifact,
-  version,
-}: {
-  readonly artifact: ArtifactView;
-  readonly version: number;
-}): ReactElement {
-  const [against, setAgainst] = useState(Math.max(1, version - 1));
-  const text = isText(artifact.kind);
-
-  const { value: lines } = useLoaded(
-    async (): Promise<readonly DiffLine[] | undefined> =>
-      text
-        ? lineDiff(
-            await textOf(artifact.id, against),
-            await textOf(artifact.id, version),
-          )
-        : [],
-    `${artifact.id}:${String(against)}:${String(version)}`,
-  );
-
-  return (
-    <div className="flex flex-col gap-3">
-      <label className="flex flex-wrap items-center gap-2 text-label">
-        Compare version {version} with
-        <Select
-          aria-label="Compare with"
-          value={String(against)}
-          onChange={(event) => {
-            setAgainst(Number(event.target.value));
-          }}
-        >
-          {artifact.history
-            .filter((each) => each.number !== version)
-            .map((each) => (
-              <option key={each.number} value={each.number}>
-                {`Version ${String(each.number)}`}
-              </option>
-            ))}
-        </Select>
-      </label>
-      {text ? (
-        <DiffView lines={lines} />
-      ) : (
-        <div className="grid gap-3 md:grid-cols-2">
-          <Frame artifact={artifact} version={against} />
-          <Frame artifact={artifact} version={version} />
-        </div>
-      )}
-    </div>
-  );
-}
-
-const marks: Readonly<Record<DiffLine["kind"], string>> = {
-  added: "+",
-  removed: "-",
-  same: " ",
-};
-
-function DiffView({
-  lines,
-}: {
-  readonly lines: readonly DiffLine[] | undefined;
-}): ReactElement {
-  if (lines === undefined) {
-    return (
-      <p className="text-fg-dim">
-        These versions are too long to compare here. Download both to compare
-        them.
-      </p>
-    );
-  }
-
-  return (
-    <pre
-      aria-label="Changes"
-      className="max-h-[70vh] overflow-auto rounded-lg border border-line p-3 font-mono text-mono"
-    >
-      {lines.map((line, at) => (
-        <div
-          key={at}
-          className={cn(
-            "whitespace-pre-wrap",
-            line.kind === "added" && "bg-done/15",
-            line.kind === "removed" && "bg-failed/15 text-fg-dim line-through",
-          )}
-        >
-          {`${marks[line.kind]} ${line.text}`}
-        </div>
-      ))}
-    </pre>
-  );
-}
-
-// A Markdown artifact's source, saved as a new version that Pi hears about.
-export function Editor({
-  artifact,
-  onDone,
-}: {
-  readonly artifact: ArtifactView;
-  readonly onDone: () => void;
-}): ReactElement {
-  const api = useApi(plugin);
-  const [text, setText] = useState<string>();
-  const [problem, setProblem] = useState<string>();
-
-  useEffect(() => {
-    void textOf(artifact.id, artifact.versions).then(
-      setText,
-      (error: unknown) => {
-        setProblem(String(error));
-      },
-    );
-  }, [artifact.id, artifact.versions]);
-
-  const save = async (): Promise<void> => {
-    try {
-      await api.post(`artifacts/${artifact.id}/versions`, { text });
-      onDone();
-    } catch (error) {
-      setProblem(error instanceof Error ? error.message : String(error));
-    }
-  };
-
-  return (
-    <div className="flex flex-col gap-2">
-      <TextArea
-        aria-label="Markdown"
-        className="min-h-[60vh] font-mono text-mono"
-        value={text ?? ""}
-        disabled={text === undefined}
-        onChange={(event) => {
-          setText(event.target.value);
-        }}
-      />
-      <div className="flex gap-2">
-        <Button variant="primary" onClick={() => void save()}>
-          Save as a new version
-        </Button>
-        <Button variant="ghost" onClick={onDone}>
-          Cancel
-        </Button>
-      </div>
-      <ErrorText size="caption">{problem}</ErrorText>
-    </div>
   );
 }
 

@@ -253,6 +253,16 @@ function serving(
       return Response.json({ comments: [] });
     }
 
+    const version = /\/(view|download)\?v=(\d+)$/.exec(url);
+
+    if (version !== null) {
+      return new Response(
+        version[1] === "view"
+          ? `<p>same version ${String(version[2])}</p>`
+          : `same\nversion ${String(version[2])}\n`,
+      );
+    }
+
     return Response.json(
       init?.method === undefined || init.method === "GET" ? shown : {},
     );
@@ -281,6 +291,43 @@ function named(page: HTMLElement, name: string): HTMLButtonElement | undefined {
     (each) =>
       each.getAttribute("aria-label") === name || each.textContent === name,
   );
+}
+
+function versionMenu(page: HTMLElement): HTMLButtonElement | undefined {
+  return buttons(page).find(
+    (each) => each.getAttribute("aria-label")?.endsWith("Versions") === true,
+  );
+}
+
+// Types as a person does, so React hears it.
+function typeInto(field: HTMLTextAreaElement | null, text: string): void {
+  act(() => {
+    if (field === null) {
+      return;
+    }
+
+    Object.getOwnPropertyDescriptor(
+      HTMLTextAreaElement.prototype,
+      "value",
+    )?.set?.call(field, text);
+
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+
+// Answers the confirm dialog with this title.
+function asking(page: HTMLElement, title: string, answer: string): void {
+  const dialog = [...page.querySelectorAll("dialog")].find(
+    (each) => each.querySelector("h2")?.textContent === title,
+  );
+
+  if (dialog === undefined) {
+    throw new Error(`no dialog “${title}”`);
+  }
+
+  [...dialog.querySelectorAll("button")]
+    .find((each) => each.textContent === answer)
+    ?.click();
 }
 
 function menuItems(page: HTMLElement): HTMLButtonElement[] {
@@ -404,7 +451,7 @@ test("an artifact opens over the page with what can be done with it, and closes 
   expect(page.querySelector("dialog")).toBeNull();
 });
 
-test("a version the address can't name shows the latest, and compare is left behind with the version it opened on", async () => {
+test("a version the address can't name shows the latest, and the version menu lists every version with who made it", async () => {
   const asked: Served[] = [];
 
   const page = renderPart(
@@ -419,49 +466,609 @@ test("a version the address can't name shows the latest, and compare is left beh
 
   await opened(asked);
 
-  const versions = (): HTMLButtonElement | undefined =>
-    buttons(page).find(
-      (each) => each.getAttribute("aria-label")?.endsWith("Versions") === true,
-    );
-
-  expect(versions()?.textContent).toBe("Version 3 · latest");
+  expect(versionMenu(page)?.textContent).toBe("Version 3 · latest");
 
   act(() => {
     history.replaceState(null, "", "#session-1?artifact=a1&v=99");
     dispatchEvent(new HashChangeEvent("hashchange"));
   });
 
-  expect(versions()?.textContent).toBe("Version 3 · latest");
+  expect(versionMenu(page)?.textContent).toBe("Version 3 · latest");
 
   act(() => {
-    versions()?.click();
+    versionMenu(page)?.click();
+  });
+
+  const menu = page.querySelector("[role=menu]");
+
+  expect(menu?.textContent).toStartWith("Versions · every publish is kept");
+
+  expect(menuItems(page).map((each) => each.textContent)).toEqual([
+    "Version 3 latestPi · just now",
+    "Version 2Pi · just now",
+    "Version 1Pi · just now · “first draft”",
+    "Compare versions…",
+  ]);
+});
+
+test("compare opens inside the viewer with both versions side by side or as a source diff, and Back leaves it", async () => {
+  const asked: Served[] = [];
+
+  const page = renderPart(
+    web,
+    "overlay",
+    {},
+    {
+      hash: "#session-1?artifact=a1",
+      fetch: serving({ ...artifact({ versions: 3 }), ...viewed(3) }, asked),
+    },
+  );
+
+  await opened(asked);
+
+  act(() => {
+    versionMenu(page)?.click();
   });
 
   act(() => {
     item(page, "Compare versions…")?.click();
   });
 
-  expect(named(page, "Back to the page")).toBeDefined();
-  expect(page.querySelector("iframe")).toBeNull();
+  expect(page.querySelector("h2")?.textContent).toBe("Report");
+  expect(page.textContent).toContain("Comparing two versions");
+  expect(named(page, "Back to version 3")).toBeDefined();
+
+  expect(
+    [...page.querySelectorAll("section")].map((each) => [
+      each.getAttribute("aria-label"),
+      each.querySelector("p")?.textContent,
+      each.querySelector("iframe")?.getAttribute("src"),
+    ]),
+  ).toEqual([
+    [
+      "Version 2",
+      "Version 2 · Pi · just now",
+      "/api/ext/artifacts/artifacts/a1/view?v=2",
+    ],
+    [
+      "Version 3",
+      "Version 3 · Pi · just now",
+      "/api/ext/artifacts/artifacts/a1/view?v=3",
+    ],
+  ]);
+
+  await drawn(() => asked.some(({ url }) => url.endsWith("/view?v=3")));
+
+  // The older side offers only versions before the newer one.
+  act(() => {
+    named(page, "Version 2, older version")?.click();
+  });
+
+  expect(menuItems(page).map((each) => each.textContent)).toEqual([
+    "Version 2Pi · just now",
+    "Version 1Pi · just now · “first draft”",
+  ]);
 
   act(() => {
-    versions()?.click();
-  });
-
-  await act(async () => {
     item(page, "Version 1")?.click();
-    await until(() => location.hash.endsWith("v=1"));
   });
 
-  expect(named(page, "Back to the page")).toBeUndefined();
+  expect(page.querySelector("section")?.getAttribute("aria-label")).toBe(
+    "Version 1",
+  );
+
+  act(() => {
+    named(page, "Version 3 · latest, newer version")?.click();
+  });
+
+  expect(menuItems(page).map((each) => each.textContent)).toEqual([
+    "Version 3 latestPi · just now",
+    "Version 2Pi · just now",
+  ]);
+
+  act(() => {
+    named(page, "Version 3 · latest, newer version")?.click();
+  });
+
+  act(() => {
+    named(page, "Source diff")?.click();
+  });
+
+  await drawn(
+    () => page.querySelector("[aria-label=Changes][aria-busy=false]") !== null,
+  );
+
+  expect(
+    [...page.querySelectorAll("[aria-label=Changes] div")].map(
+      (each) => each.textContent,
+    ),
+  ).toEqual(["  same", "- removed: version 1", "+ added: version 3", "  "]);
+
+  // Escape steps back out of compare, and not out of the viewer.
+  act(() => {
+    named(page, "Back to version 3")?.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+    );
+  });
+
+  expect(page.textContent).not.toContain("Comparing two versions");
+  expect(location.hash).toBe("#session-1?artifact=a1");
+
+  act(() => {
+    versionMenu(page)?.click();
+  });
+
+  act(() => {
+    item(page, "Compare versions…")?.click();
+  });
+
+  // Back in the browser leaves compare with the address it opened on.
+  act(() => {
+    history.replaceState(null, "", "#session-1?artifact=a1&v=1");
+    dispatchEvent(new HashChangeEvent("hashchange"));
+  });
+
+  expect(page.textContent).not.toContain("Comparing two versions");
+  expect(versionMenu(page)?.textContent).toBe("Version 1 of 3");
+});
+
+test("pictures compare side by side only", async () => {
+  const asked: Served[] = [];
+
+  const page = renderPart(
+    web,
+    "overlay",
+    {},
+    {
+      hash: "#session-1?artifact=a1",
+      fetch: serving(
+        { ...artifact({ kind: "image", versions: 2 }), ...viewed(2) },
+        asked,
+      ),
+    },
+  );
+
+  await opened(asked);
+
+  act(() => {
+    versionMenu(page)?.click();
+  });
+
+  act(() => {
+    item(page, "Compare versions…")?.click();
+  });
+
+  expect(page.querySelectorAll("section iframe")).toHaveLength(2);
+  expect(named(page, "Source diff")).toBeUndefined();
+
+  // Their text is never read to mark changes.
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  });
+
+  expect(asked.some(({ url }) => /\/(view|download)\?v=/.test(url))).toBe(
+    false,
+  );
+});
+
+test("a Markdown artifact is edited beside its preview, saved as a version on the one it started from, and a version saved meanwhile asks first", async () => {
+  const asked: Served[] = [];
+  let shown = { ...artifact({ kind: "markdown", versions: 2 }), ...viewed(2) };
+  let stale = false;
+
+  const page = renderPart(
+    web,
+    "overlay",
+    {},
+    {
+      hash: "#session-1?artifact=a1",
+      fetch: async (url, init) => {
+        if (
+          url.endsWith("/versions") &&
+          stale &&
+          typeof init?.body === "string"
+        ) {
+          const body = JSON.parse(init.body) as { base?: number };
+
+          if (body.base === 2) {
+            asked.push({ url, method: "POST", body });
+
+            return Response.json(
+              {
+                error: "stale",
+                message: "Pi saved version 3 while you were editing.",
+              },
+              { status: 409 },
+            );
+          }
+        }
+
+        if (url.endsWith("/versions")) {
+          asked.push({
+            url,
+            method: "POST",
+            body: JSON.parse(init?.body as string) as unknown,
+          });
+
+          return Response.json({ version: 4 });
+        }
+
+        return serving(shown, asked)(url, init);
+      },
+    },
+  );
+
+  await opened(asked);
+
+  act(() => {
+    named(page, "More")?.click();
+  });
+
+  act(() => {
+    item(page, "Edit")?.click();
+  });
+
+  const source = (): HTMLTextAreaElement | null =>
+    page.querySelector("textarea[aria-label=Markdown]");
+
+  await drawn(() => source()?.value === "same\nversion 2\n");
+
+  expect(page.textContent).toContain("Markdown · Only you · editing version 2");
+  expect(page.querySelector("iframe")?.getAttribute("title")).toBe("Preview");
+
+  // Same origin only to keep its scroll: it runs no scripts.
+  expect(page.querySelector("iframe")?.getAttribute("sandbox")).toBe(
+    "allow-same-origin",
+  );
+
+  const save = (): HTMLButtonElement | undefined =>
+    named(page, "Save as version 3");
+
+  expect(save()?.disabled).toBe(true);
+
+  typeInto(source(), "same\nmine\n");
+
+  expect(page.querySelector("iframe")?.getAttribute("srcdoc")).toContain(
+    "<p>same\nmine</p>",
+  );
+
+  // Escape leaves the editor first, and asks before dropping changes.
+  act(() => {
+    source()?.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+    );
+  });
+
+  await drawn(() => named(page, "Discard") !== undefined);
+
+  act(() => {
+    asking(page, "Discard your changes?", "Cancel");
+  });
+
+  await drawn(() => named(page, "Discard") === undefined);
+
+  expect(source()?.value).toBe("same\nmine\n");
+
+  stale = true;
 
   await act(async () => {
-    named(page, "Go to latest")?.click();
-    await until(() => !location.hash.includes("v="));
+    save()?.click();
+    await until(() => asked.some(({ method }) => method === "POST"));
   });
 
-  expect(named(page, "Back to the page")).toBeUndefined();
-  expect(page.querySelector("iframe")).not.toBeNull();
+  await drawn(() => page.querySelector("[role=alert]") !== null);
+
+  expect(asked.find(({ method }) => method === "POST")?.body).toEqual({
+    text: "same\nmine\n",
+    base: 2,
+  });
+
+  // Until the newer version loads, the bar says what the server said.
+  expect(page.querySelector("[role=alert]")?.textContent).toBe(
+    "Pi saved version 3 while you were editing.Open the latestSave anyway",
+  );
+
+  expect(save()).toBeUndefined();
+
+  shown = { ...artifact({ kind: "markdown", versions: 3 }), ...viewed(3) };
+
+  act(() => {
+    changed("artifacts.artifacts");
+  });
+
+  await drawn(() => named(page, "Open version 3") !== undefined);
+
+  expect(page.querySelector("[role=alert]")?.textContent).toBe(
+    "Pi saved version 3 while you were editing.Open version 3Save anyway as version 4",
+  );
+
+  expect(source()?.value).toBe("same\nmine\n");
+
+  act(() => {
+    named(page, "Open version 3")?.click();
+  });
+
+  await drawn(() => named(page, "Discard") !== undefined);
+
+  act(() => {
+    asking(page, "Open version 3 and discard your changes?", "Cancel");
+  });
+
+  await drawn(() => named(page, "Discard") === undefined);
+
+  await act(async () => {
+    named(page, "Save anyway as version 4")?.click();
+
+    await until(
+      () => asked.filter(({ method }) => method === "POST").length === 2,
+    );
+  });
+
+  // On the version the bar names, so a later one still asks.
+  expect(asked.filter(({ method }) => method === "POST").at(-1)?.body).toEqual({
+    text: "same\nmine\n",
+    base: 3,
+  });
+
+  await drawn(() => source() === null);
+
+  expect(location.hash).toBe("#session-1?artifact=a1");
+
+  expect(page.querySelector("[role=status]")?.textContent).toBe(
+    "Saved as version 4",
+  );
+});
+
+async function editing(
+  fetch: (url: string, init?: RequestInit) => Promise<Response>,
+  asked: Served[],
+): Promise<HTMLElement> {
+  const page = renderPart(
+    web,
+    "overlay",
+    {},
+    { hash: "#session-1?artifact=a1", fetch },
+  );
+
+  await opened(asked);
+
+  act(() => {
+    named(page, "More")?.click();
+  });
+
+  act(() => {
+    item(page, "Edit")?.click();
+  });
+
+  return page;
+}
+
+const escape = (page: HTMLElement): void => {
+  act(() => {
+    page
+      .querySelector("textarea")
+      ?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      );
+  });
+};
+
+test("leaving the editor asks only when there are changes, and drops them once the person says so", async () => {
+  const asked: Served[] = [];
+
+  const shown = {
+    ...artifact({ kind: "markdown", versions: 2 }),
+    ...viewed(2),
+  };
+
+  const page = await editing(serving(shown, asked), asked);
+
+  const source = (): HTMLTextAreaElement | null =>
+    page.querySelector("textarea[aria-label=Markdown]");
+
+  await drawn(() => source()?.value === "same\nversion 2\n");
+
+  escape(page);
+
+  await drawn(() => source() === null);
+
+  expect(named(page, "Discard")).toBeUndefined();
+
+  act(() => {
+    named(page, "More")?.click();
+  });
+
+  act(() => {
+    item(page, "Edit")?.click();
+  });
+
+  await drawn(() => source()?.value === "same\nversion 2\n");
+
+  typeInto(source(), "mine\n");
+  escape(page);
+
+  await drawn(() => named(page, "Discard") !== undefined);
+
+  act(() => {
+    asking(page, "Discard your changes?", "Discard");
+  });
+
+  await drawn(() => source() === null);
+
+  expect(asked.some(({ method }) => method === "POST")).toBe(false);
+  expect(page.querySelector("[role=status]")?.textContent ?? "").toBe("");
+});
+
+test("a version that doesn't load in the editor says so and loads on another try", async () => {
+  const asked: Served[] = [];
+
+  const shown = {
+    ...artifact({ kind: "markdown", versions: 2 }),
+    ...viewed(2),
+  };
+
+  const serve = serving(shown, asked);
+  let failing = true;
+
+  const page = await editing(async (url, init) => {
+    if (failing && url.includes("/download")) {
+      failing = false;
+
+      return Response.json({ error: "down" }, { status: 503 });
+    }
+
+    return serve(url, init);
+  }, asked);
+
+  await drawn(() => named(page, "Try again") !== undefined);
+
+  expect(page.querySelector("[role=alert]")?.textContent).toBe(
+    "Version 2 didn't load. Check your connection and try again.",
+  );
+
+  expect(named(page, "Save as version 3")).toBeUndefined();
+  expect(page.querySelector("textarea")?.disabled).toBe(true);
+
+  act(() => {
+    named(page, "Try again")?.click();
+  });
+
+  await drawn(
+    () => page.querySelector("textarea")?.value === "same\nversion 2\n",
+  );
+
+  expect(page.querySelector("[role=alert]")).toBeNull();
+  expect(named(page, "Save as version 3")).toBeDefined();
+});
+
+test("a version saved meanwhile by the person themselves says it was them", async () => {
+  const asked: Served[] = [];
+  let shown = { ...artifact({ kind: "markdown", versions: 2 }), ...viewed(2) };
+
+  const page = await editing(
+    async (url, init) => serving(shown, asked)(url, init),
+    asked,
+  );
+
+  await drawn(
+    () => page.querySelector("textarea")?.value === "same\nversion 2\n",
+  );
+
+  const third = viewed(3);
+
+  shown = {
+    ...artifact({ kind: "markdown", versions: 3 }),
+    ...third,
+    history: third.history.map((each) =>
+      each.number === 3 ? { ...each, author: "user:ana", by: "Ana" } : each,
+    ),
+  };
+
+  act(() => {
+    changed("artifacts.artifacts");
+  });
+
+  await drawn(() => page.querySelector("[role=alert]") !== null);
+
+  expect(page.querySelector("[role=alert] span")?.textContent).toBe(
+    "You saved version 3 while you were editing.",
+  );
+});
+
+test("a version a person saved shows in the chat as a row that opens it", async () => {
+  const asked: Served[] = [];
+
+  const page = renderPart(
+    web,
+    "notice:artifact_version",
+    { text: "Ana saved version 2", data: { artifact: "a1", version: 2 } },
+    {
+      hash: "#session-1",
+      fetch: serving(
+        {
+          ...artifact({ title: "Rollout plan", kind: "markdown", versions: 2 }),
+          ...viewed(2),
+          history: [
+            viewed(1).history[0],
+            { ...viewed(2).history[1], author: "user:ana", by: "Ana" },
+          ],
+        },
+        asked,
+      ),
+    },
+  );
+
+  await drawn(() => page.textContent.includes("Rollout plan"));
+
+  expect(page.textContent).toContain("Ana saved version 2 of Rollout plan");
+
+  const open = page.querySelector("a");
+
+  expect(open?.getAttribute("href")).toBe("#plugin/artifacts/a1/v/2");
+
+  await act(async () => {
+    open?.click();
+    await until(() => location.hash.includes("?"));
+  });
+
+  expect(location.hash).toBe("#session-1?artifact=a1&v=2");
+});
+
+test("a restored version shows in the chat as restored", async () => {
+  const restored = { ...viewed(3) };
+
+  const page = renderPart(
+    web,
+    "notice:artifact_version",
+    { text: "Ana restored version 1", data: { artifact: "a1", version: 3 } },
+    {
+      fetch: serving(
+        {
+          ...artifact({ title: "Rollout plan", kind: "markdown", versions: 3 }),
+          ...restored,
+          history: restored.history.map((each) =>
+            each.number === 3
+              ? {
+                  ...each,
+                  author: "user:ana",
+                  by: "Ana",
+                  note: "restored version 1",
+                }
+              : each,
+          ),
+        },
+        [],
+      ),
+    },
+  );
+
+  await drawn(() => page.textContent.includes("Rollout plan"));
+
+  expect(page.textContent).toContain(
+    "Ana restored version 1 as version 3 of Rollout plan",
+  );
+});
+
+test("a version row without its version says only that there's a new one", async () => {
+  const page = renderPart(
+    web,
+    "notice:artifact_version",
+    { text: "Ana saved a version", data: { artifact: "a1" } },
+    {
+      fetch: serving(
+        { ...artifact({ title: "Rollout plan" }), ...viewed(2) },
+        [],
+      ),
+    },
+  );
+
+  await drawn(() => page.querySelector("a") !== null);
+
+  expect(page.textContent).toContain("A new version of an artifact");
+
+  expect(page.querySelector("a")?.getAttribute("href")).toBe(
+    "#plugin/artifacts/a1",
+  );
 });
 
 test("a refresh that fails keeps the artifact shown", async () => {

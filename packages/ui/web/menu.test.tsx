@@ -75,3 +75,23 @@ test("Escape closes it, and not the dialog it sits in", () => {
   expect(page.querySelector('[role="menu"]')).toBeNull();
   expect(escape.defaultPrevented).toBe(true);
 });
+
+test("a heading says what the list holds, and a badge marks an item", () => {
+  const page = render(
+    <Menu
+      label="Versions"
+      heading="Versions · every publish is kept"
+      items={[
+        { label: "Version 2", badge: "latest", checked: true, run: () => 0 },
+        { label: "Version 1", checked: false, run: () => 0 },
+      ]}
+    />,
+  );
+
+  click(byRole(page, "button", "Versions"));
+
+  const menu = byRole(page, "menu", "Versions");
+
+  expect(menu.textContent).toStartWith("Versions · every publish is kept");
+  expect(byRole(menu, "menuitemradio", "Version 2 latest")).toBeDefined();
+});

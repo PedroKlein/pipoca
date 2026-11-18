@@ -10,7 +10,7 @@ import {
 } from "@pipoca/testing";
 import { until } from "@pipoca/testing/until";
 import type { ArtifactSummary, ArtifactView, Comment } from "./artifacts";
-import { lineDiff } from "./diff";
+import { lineDiff, textChanges } from "./diff";
 import { parseCsv } from "./render";
 import { server } from "./server";
 import { session } from "./session";
@@ -84,7 +84,8 @@ test("Pi publishes a file as an artifact and adds versions at the same link", as
     await part.tool("publish_artifact", {
       path: "report.md",
       id,
-      note: "raised the number",
+      label: "raised the number",
+      base: 1,
     }),
   ).toMatchObject({ details: { id, version: 2, kind: "markdown" } });
 
@@ -674,7 +675,62 @@ test("Pi reads the comments on an artifact, open ones unless it asks for resolve
   ).toMatchObject({ isError: true });
 });
 
-test("a person's edit of a Markdown artifact is a new version Pi hears about", async () => {
+test("a publish built on an older version is refused with the newer one, so Pi merges it", async () => {
+  const { t, cwd, part } = await setUp();
+
+  await writeFile(join(cwd, "plan.md"), "one\n");
+
+  const { details } = await part.tool("publish_artifact", { path: "plan.md" });
+  const { id } = details as { id: string };
+
+  await t.as("ana").post(`artifacts/${id}/versions`, { text: "two\n" });
+  await writeFile(join(cwd, "plan.md"), "one, changed\n");
+
+  const refused = await part.tool("publish_artifact", {
+    path: "plan.md",
+    id,
+    base: 1,
+  });
+
+  expect(refused.isError).toBe(true);
+
+  expect(refused.text).toBe(
+    `Version 2 of “plan.md” is newer than version 1: Ana made it (edited by hand). Read it with read_artifact, merge your change into it, and publish again with base 2.`,
+  );
+
+  expect(
+    (await t.as("ana").get<ArtifactView>(`artifacts/${id}`)).versions,
+  ).toBe(2);
+
+  expect(
+    await part.tool("publish_artifact", { path: "plan.md", id, base: 9 }),
+  ).toMatchObject({
+    isError: true,
+    text: "there's no version 9; the latest is 2",
+  });
+
+  expect(
+    await part.tool("publish_artifact", { path: "plan.md", id, base: 2 }),
+  ).toMatchObject({ isError: false, details: { version: 3 } });
+
+  await t.as("ana").post(`artifacts/${id}/versions`, { text: "four\n" });
+
+  expect(
+    await part.tool("publish_artifact", { path: "plan.md", id, base: 3 }),
+  ).toMatchObject({
+    isError: true,
+    text: expect.stringMatching(
+      /^Version 4 of “plan\.md” is newer than version 3: Ana made it/,
+    ) as unknown,
+  });
+
+  // Without a base, a publish adds a version over whatever is there.
+  expect(
+    await part.tool("publish_artifact", { path: "plan.md", id }),
+  ).toMatchObject({ isError: false, details: { version: 5 } });
+});
+
+test("a person's edit of a Markdown artifact is a new version Pi hears about without a turn", async () => {
   const { t, host, cwd, part } = await setUp();
 
   await writeFile(join(cwd, "notes.md"), "draft\n");
@@ -683,7 +739,9 @@ test("a person's edit of a Markdown artifact is a new version Pi hears about", a
   const { id } = details as { id: string };
 
   expect(
-    await t.as("ana").post(`artifacts/${id}/versions`, { text: "edited\n" }),
+    await t
+      .as("ana")
+      .post(`artifacts/${id}/versions`, { text: "edited\n", base: 1 }),
   ).toEqual({ version: 2 });
 
   expect(
@@ -695,8 +753,65 @@ test("a person's edit of a Markdown artifact is a new version Pi hears about", a
   await until(() => host.delivered().length === 1);
 
   expect(host.delivered()[0]).toMatchObject({
-    text: `Ana edited the artifact “notes.md” (${id}): it's now version 2. Read it with read_artifact before you change it.`,
+    text: `Ana saved version 2 of the artifact “notes.md” (${id}). Read it with read_artifact before you change it.`,
     turn: false,
+    notice: { kind: "artifact_version", data: { artifact: id, version: 2 } },
+  });
+
+  const saving = async (base: number): Promise<Response> =>
+    t.as("ana").raw(`artifacts/${id}/versions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text: "late\n", base }),
+    });
+
+  // Saving over a version someone saved meanwhile asks first, naming them.
+  await writeFile(join(cwd, "notes.md"), "Pi's\n");
+  await part.tool("publish_artifact", { path: "notes.md", id });
+
+  const stale = await saving(1);
+
+  expect(stale.status).toBe(409);
+
+  expect(await stale.json()).toMatchObject({
+    error: "stale",
+    message: "Pi saved version 3 while you were editing.",
+  });
+
+  const ahead = await saving(7);
+
+  expect(ahead.status).toBe(400);
+
+  expect(await ahead.json()).toMatchObject({
+    message: "there's no version 7; the latest is 3",
+  });
+
+  // Saving anyway is a save without a base.
+  expect(
+    await t.as("ana").post(`artifacts/${id}/versions`, { text: "late\n" }),
+  ).toEqual({ version: 4 });
+
+  expect(
+    await t.as("ana").post(`artifacts/${id}/restore`, { version: 1 }),
+  ).toEqual({ version: 5 });
+
+  await until(() => host.delivered().length === 3);
+
+  expect(host.delivered()[2]).toMatchObject({
+    text: `Ana restored version 1 of the artifact “notes.md” (${id}) as version 5. Read it with read_artifact before you change it.`,
+    turn: false,
+    notice: { kind: "artifact_version", data: { artifact: id, version: 5 } },
+  });
+
+  expect(
+    (await t.as("ana").get<ArtifactView>(`artifacts/${id}`)).history.map(
+      ({ note }) => note,
+    ),
+  ).toEqual(["", "edited by hand", "", "edited by hand", "restored version 1"]);
+
+  // When the newer one is theirs, it says so.
+  expect(await (await saving(4)).json()).toMatchObject({
+    message: "You saved version 5 while you were editing.",
   });
 
   await writeFile(join(cwd, "page.html"), "<p>hi</p>");
@@ -752,4 +867,69 @@ test("a line diff keeps what both versions share and marks the rest", () => {
     { kind: "same", text: "c" },
     { kind: "added", text: "d" },
   ]);
+});
+
+test("a text diff marks the words each version changed, by where they sit", () => {
+  const before = "The retry waits three times. Each wait adds 180 ms.";
+  const after = "The retry makes one attempt. Each retry adds 180 ms.";
+  const changes = textChanges([before], [after]);
+
+  expect(
+    changes?.removed.map(({ start, end }) => before.slice(start, end)),
+  ).toEqual(["waits three times.", "wait"]);
+
+  expect(
+    changes?.added.map(({ start, end }) => after.slice(start, end)),
+  ).toEqual(["makes one attempt.", "retry"]);
+
+  expect(textChanges(["same words"], ["same words"])).toEqual({
+    removed: [],
+    added: [],
+  });
+
+  // A word ends where its element does.
+  expect(textChanges(["180 ms."], ["180 ms.", "0.4%"])?.added).toEqual([
+    { start: 7, end: 11 },
+  ]);
+});
+
+test("a line diff takes what was taken out before what was put in, and compares long texts that changed little", () => {
+  expect(lineDiff("a\nx\nc", "a\ny\nc")).toEqual([
+    { kind: "same", text: "a" },
+    { kind: "removed", text: "x" },
+    { kind: "added", text: "y" },
+    { kind: "same", text: "c" },
+  ]);
+
+  const common = Array.from({ length: 5000 }, (_, at) => `line ${String(at)}`);
+
+  expect(
+    lineDiff(
+      [...common, "old"].join("\n"),
+      [...common, "new"].join("\n"),
+    )?.filter(({ kind }) => kind !== "same"),
+  ).toEqual([
+    { kind: "removed", text: "old" },
+    { kind: "added", text: "new" },
+  ]);
+
+  expect(
+    lineDiff(
+      common.slice(0, 4001).join("\n"),
+      common
+        .map((each) => `${each}!`)
+        .slice(0, 4001)
+        .join("\n"),
+    ),
+  ).toBeUndefined();
+
+  const words = common.join(" ");
+
+  expect(textChanges([words, " old"], [words, " new"])?.added).toEqual([
+    { start: words.length + 1, end: words.length + 4 },
+  ]);
+
+  expect(
+    textChanges([words], [common.map((each) => `${each}!`).join(" ")]),
+  ).toBeUndefined();
 });

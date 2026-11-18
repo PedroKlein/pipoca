@@ -6144,6 +6144,127 @@ test("opens an artifact Pi published, in a sandbox, from its card in the chat", 
   await page.locator("#prompt-text:focus").waitFor();
 }, 30_000);
 
+test("edits a Markdown artifact beside its preview and compares the versions with the changed words marked", async () => {
+  const folder = join(root, "plan");
+  await mkdir(folder, { recursive: true });
+
+  await writeFile(
+    join(folder, "plan.md"),
+    "# Rollout plan\n\nv2 retries three times with a backoff.\n",
+  );
+
+  faux.setResponses([
+    fauxAssistantMessage(
+      [
+        fauxToolCall("publish_artifact", {
+          path: "plan.md",
+          title: "Rollout plan",
+        }),
+      ],
+      { stopReason: "toolUse" },
+    ),
+    fauxAssistantMessage([fauxText("Published the plan")]),
+  ]);
+
+  await page.goto(server.url.href);
+  await page.getByRole("button", { name: "New session" }).click();
+  const form = page.locator("form#create");
+
+  await pickWorkspace(form, folder);
+  await form.getByRole("button", { name: "Start session" }).click();
+  await page.locator("#status", { hasText: "idle" }).waitFor();
+
+  const box = page.locator("#prompt-text");
+  await box.fill("write the plan");
+  await box.press("Enter");
+  await page.getByText("Published the plan").waitFor();
+
+  await page.getByRole("link", { name: /Rollout plan/ }).click();
+
+  const viewer = page.getByRole("dialog", { name: "Rollout plan" });
+
+  await viewer.getByRole("button", { name: "More" }).click();
+  await viewer.getByRole("menuitem", { name: "Edit" }).click();
+
+  const source = viewer.getByRole("textbox", { name: "Markdown" });
+
+  await viewer.locator("textarea:focus").waitFor();
+  expect(await source.inputValue()).toContain("three times");
+
+  await source.fill(
+    "# Rollout plan\n\nv2 retries five times with a backoff.\n",
+  );
+
+  await page
+    .frameLocator('iframe[title="Preview"]')
+    .getByText("v2 retries five times")
+    .waitFor();
+
+  // Escape asks before it drops the change, and leaves the viewer open.
+  await source.press("Escape");
+  await page.getByRole("button", { name: "Discard" }).waitFor();
+
+  const discard = page.getByRole("dialog", { name: "Discard your changes?" });
+
+  await page.keyboard.press("Escape");
+  await discard.waitFor({ state: "hidden" });
+  await viewer.locator("textarea:focus").waitFor();
+  await source.press("Escape");
+  await discard.getByRole("button", { name: "Cancel" }).click();
+  await discard.waitFor({ state: "hidden" });
+
+  expect(await viewer.isVisible()).toBe(true);
+  expect(await source.inputValue()).toContain("five times");
+
+  await viewer.getByRole("button", { name: "Save as version 2" }).click();
+  await source.waitFor({ state: "hidden" });
+  await viewer.getByRole("status").getByText("Saved as version 2").waitFor();
+
+  await viewer
+    .getByRole("button", { name: "Version 2, the latest. Versions" })
+    .waitFor();
+
+  await viewer
+    .getByRole("button", { name: "Version 2, the latest. Versions" })
+    .click();
+
+  await viewer
+    .getByRole("menuitemradio", { name: /^Version 2 latest/ })
+    .getByText("pedro · just now · edited by hand")
+    .waitFor();
+
+  await viewer.getByRole("menuitem", { name: "Compare versions…" }).click();
+  await viewer.getByText("Comparing two versions").waitFor();
+
+  await page
+    .frameLocator('iframe[title="Rollout plan, version 1"]')
+    .locator('mark[data-pipoca-change="removed"]', { hasText: "three" })
+    .waitFor();
+
+  await page
+    .frameLocator('iframe[title="Rollout plan, version 2"]')
+    .locator('mark[data-pipoca-change="added"]', { hasText: "five" })
+    .waitFor();
+
+  await viewer.getByRole("button", { name: "Source diff" }).click();
+
+  await viewer
+    .getByLabel("Changes")
+    .getByText("+ added: v2 retries five times with a backoff.")
+    .waitFor();
+
+  // Escape steps back out of compare, then closes the viewer.
+  await page.keyboard.press("Escape");
+  await viewer.getByText("Comparing two versions").waitFor({ state: "hidden" });
+  await page.keyboard.press("Escape");
+  await viewer.waitFor({ state: "hidden" });
+
+  await page
+    .locator("#chat")
+    .getByText("pedro saved version 2 of Rollout plan")
+    .waitFor();
+}, 30_000);
+
 test("signs out and back in with the password", async () => {
   await page.goto(server.url.href);
   await page.getByRole("button", { name: "Account" }).click();

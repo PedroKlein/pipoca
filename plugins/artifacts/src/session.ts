@@ -35,10 +35,17 @@ export const session = defineSession(artifacts, (s) => {
             "The id an earlier publish_artifact returned, to add a version to it. Leave it out for a new artifact.",
         }),
       ),
-      note: Type.Optional(
+      label: Type.Optional(
         Type.String({
           description:
             "What this version changed, in a few words, such as added the commit list",
+        }),
+      ),
+      base: Type.Optional(
+        Type.Integer({
+          minimum: 1,
+          description:
+            "The version you changed, as read_artifact gave it. A newer one is refused and named, so you merge it first.",
         }),
       ),
     }),
@@ -48,7 +55,7 @@ export const session = defineSession(artifacts, (s) => {
     prompt: {
       snippet: "Publish a page, document or picture for people to open",
       guidelines: [
-        "When you make something for people to look at, such as a report, a page or a chart, publish it with publish_artifact, and publish changes to it as new versions with its id.",
+        "When you make something for people to look at, such as a report, a page or a chart, publish it with publish_artifact, and publish changes to it as new versions with its id, the version you changed as base and a short label.",
       ],
     },
     run: async (input, { cwd, signal }) => {
@@ -81,7 +88,10 @@ export const session = defineSession(artifacts, (s) => {
           hash,
           ...(input.title !== undefined && { title: input.title }),
           ...(input.id !== undefined && { id: input.id }),
-          ...(input.note !== undefined && { note: input.note.slice(0, 200) }),
+          ...(input.label !== undefined && {
+            note: input.label.slice(0, 200),
+          }),
+          ...(input.base !== undefined && { base: input.base }),
         },
         signal === undefined ? {} : { signal },
       );

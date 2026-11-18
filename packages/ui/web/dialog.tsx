@@ -230,15 +230,28 @@ export function useConfirm(): readonly [
   ReactElement,
 ] {
   const [asking, setAsking] = useState<
-    ConfirmOptions & { readonly answer: (yes: boolean) => void }
+    ConfirmOptions & {
+      readonly asked: number;
+      readonly answer: (yes: boolean) => void;
+    }
   >();
 
+  const asked = useRef(0);
+  const waiting = useRef<(yes: boolean) => void>(undefined);
+
+  // A new question answers the one still open no.
   const ask = useCallback(
     async (options: ConfirmOptions) =>
       new Promise<boolean>((resolve) => {
+        waiting.current?.(false);
+        waiting.current = resolve;
+        asked.current++;
+
         setAsking({
           ...options,
+          asked: asked.current,
           answer: (yes) => {
+            waiting.current = undefined;
             setAsking(undefined);
             resolve(yes);
           },
@@ -247,8 +260,11 @@ export function useConfirm(): readonly [
     [],
   );
 
+  // Each question gets its own dialog: Escape closes the last one at once
+  // but says so a moment later, by when the next may be asking.
   const dialog = (
     <ConfirmDialog
+      key={asking?.asked}
       open={asking !== undefined}
       title={asking?.title ?? ""}
       description={asking?.description}

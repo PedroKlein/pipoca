@@ -137,3 +137,27 @@ test("confirm resolves with the person's answer", async () => {
   expect(answers).toEqual([true, false]);
   expect(page.textContent).not.toContain("Delete the routine?");
 });
+
+test("a confirm asked again before the last one's close arrives stays open", async () => {
+  const answers: boolean[] = [];
+  const page = render(<Asking answers={answers} />);
+
+  click(byRole(page, "button", "Ask"));
+
+  const dialog = byRole(page, "dialog", "Delete the routine?");
+
+  dialog.removeAttribute("open");
+  click(byRole(page, "button", "Asked"));
+
+  act(() => {
+    dialog.dispatchEvent(new Event("close"));
+  });
+
+  await act(async () => Promise.resolve());
+
+  const again = byRole(page, "dialog", "Delete the routine?");
+
+  expect(answers).toEqual([false]);
+  expect(again).not.toBe(dialog);
+  expect(again.hasAttribute("open")).toBe(true);
+});
