@@ -113,5 +113,12 @@ alter table artifacts_comments add column element text not null default '';`,
   created_at integer not null,
   primary key (comment_id, user_id, emoji)
 ) strict, without rowid;`,
+    // 6: when each person last opened an artifact, for the gallery.
+    `create table artifacts_opened (
+  user_id text not null references users (id) on delete cascade,
+  artifact_id text not null references artifacts_artifacts (id) on delete cascade,
+  opened_at integer not null,
+  primary key (user_id, artifact_id)
+) strict, without rowid;`,
   ],
 });

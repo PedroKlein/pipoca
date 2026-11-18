@@ -30,7 +30,11 @@ const maxFiles = 10_000;
 // agreed with the server, so a sync can tell its own changes from others'.
 // One sync runs at a time and a sync asked for meanwhile runs once after
 // it; a failed one tries again later, longer each time.
-export function folderSync(s: Context): {
+export function folderSync(
+  s: Context,
+  // What a push wrote, once the server has it.
+  onWritten: (files: readonly FolderFile[]) => void,
+): {
   readonly dir: string;
   readonly run: () => void;
   readonly synced: () => Promise<void>;
@@ -157,6 +161,22 @@ export function folderSync(s: Context): {
 
     const answer = await s.api.post<FolderSync>("folder", { changes });
     const server = new Map(answer.files.map((file) => [file.path, file.hash]));
+
+    const copies = new Map(
+      answer.conflicts.map(({ path, copy }) => [path, copy]),
+    );
+
+    const written = new Set(
+      changes.flatMap(({ path, hash }) =>
+        hash === null ? [] : [copies.get(path) ?? path],
+      ),
+    );
+
+    const kept = answer.files.filter((file) => written.has(file.path));
+
+    if (kept.length > 0) {
+      onWritten(kept);
+    }
 
     for (const change of changes) {
       const now = server.get(change.path);

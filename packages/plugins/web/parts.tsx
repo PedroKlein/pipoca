@@ -16,12 +16,14 @@ import type {
   CodeBlockProps,
   EmbeddedSessionProps,
   EnvironmentSectionProps,
+  FileActionsProps,
   HomeProps,
   LinkProps,
   MountedSession,
   NavItemsProps,
   NoticeProps,
   PageProps,
+  SessionAttachProps,
   SessionFilesProps,
   SessionPartProps,
   SettingsGroup,
@@ -42,12 +44,18 @@ export interface Slots {
   "session.composer": SessionPartProps;
   "session.header": SessionPartProps;
   "session.files": SessionFilesProps;
+  // Rows of the composer's + menu (AttachRow) and the pickers they open.
+  "session.attach": SessionAttachProps;
   [call: `session.toolCall:${string}`]: ToolCallProps;
+  // Beside Download in the file viewer, such as publishing it.
+  "file.actions": FileActionsProps;
   [ask: `session.permission:${string}`]: ToolPermissionProps;
   [notice: `notice:${string}`]: NoticeProps;
   [link: `link:${string}`]: LinkProps;
   [block: `codeBlock:${string}`]: CodeBlockProps;
   home: HomeProps;
+  // A Project's artifacts, by the Sessions of the Project.
+  "project.artifacts": { readonly sessions: readonly string[] };
   // Over every page, such as a viewer the address opens (useOverlay).
   overlay: Nothing;
   "environment.section": EnvironmentSectionProps;
@@ -145,6 +153,12 @@ export function Slot<K extends keyof Slots>(
       ))}
     </>
   );
+}
+
+// Whether an enabled plugin fills the slot, for a way in that only
+// leads somewhere when one does.
+export function useFilled(name: keyof Slots): boolean {
+  return useShell().fills(name).length > 0;
 }
 
 // The app's Session view: chat, composer, prompts and header, inside a

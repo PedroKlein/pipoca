@@ -6,6 +6,7 @@ import {
   useContext,
 } from "react";
 import type { Person, RepositoryChoice } from "@pipoca/protocol";
+import type { Attachment } from "./attach-menu";
 import type { EmbeddedSessionProps } from "./index";
 
 export interface Viewer {
@@ -26,8 +27,14 @@ export interface Shell {
   readonly part: (plugin: string, children: ReactNode) => ReactNode;
   // The app's own Session view, which a page embeds (ADR 0028).
   readonly SessionView: ComponentType<EmbeddedSessionProps>;
-  // Opens the Session with text in its composer for the person to send.
-  readonly draft: (sessionId: string, text: string) => void;
+  // Puts text, and things attached, in the Session's composer for the
+  // person to send, opening the Session unless its composer already shows.
+  // Empty text keeps what the person typed.
+  readonly draft: (
+    sessionId: string,
+    text: string,
+    attachments?: readonly Attachment[],
+  ) => void;
   // What every plugin's repository search finds for the query.
   readonly repositories: (
     query: string,

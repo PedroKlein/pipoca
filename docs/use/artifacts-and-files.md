@@ -9,11 +9,11 @@ What a Session keeps lives on the server, wherever the Session runs, so it outla
 
 ## Files
 
-Pi writes files meant for you in its `outputs/` folder, which is saved after every turn (the `files` plugin). Files you add in the composer reach Pi in `uploads/`, and Send waits until they're uploaded. Both sit in the Session's own folder, outside the workspace, and the panel's **Files** tab downloads them.
+Pi writes files meant for you in its `outputs/` folder, which is saved after every turn (the `files` plugin). Files you add in the composer reach Pi in `uploads/`, and Send waits until they're uploaded. Both sit in the Session's own folder, outside the workspace. What Pi saves in a turn shows as cards under its reply, and the header's **Files** menu lists the Session's files, with a filter; a file opens in a viewer over the chat. Whoever steers the Session can **Publish** a file from the viewer as an artifact.
 
 - `files.maxFileBytes` sets the largest file (200 MB by default).
-- Past `files.perPersonBytes` (10 GB) of files across the Sessions a person owns, the Files panel warns them, and Settings > Files lists them for admins, with what Session files take and what's free on the data volume. Nothing is deleted or refused.
-- On a Kubernetes pod without a disk of its own, the Files tab also lists each checkout's unfinished work kept on the server, with the files Pi changed but didn't commit ([Runner pods](../admin/environments.md#runner-pods)).
+- Past `files.perPersonBytes` (10 GB) of files across the Sessions a person owns, the Files menu warns them, and Settings > Files lists them for admins, with what Session files take and what's free on the data volume. Nothing is deleted or refused.
+- On a Kubernetes pod without a disk of its own, the Files menu also lists each checkout's unfinished work kept on the server, with the files Pi changed but didn't commit ([Runner pods](../admin/environments.md#runner-pods)).
 
 A [Project](projects.md#the-project-folder) also has a folder its Sessions share.
 
@@ -29,7 +29,9 @@ The viewer's header holds:
 - **Open in a new tab**, which shows the artifact alone in the window, without the sidebar. That's the link people share.
 - **More**: download, copy a link to the latest or to this version, pin to the sidebar, restore, edit a Markdown artifact, go to the Session, and delete.
 
-The **Artifacts** page lists yours, the ones shared with you and the team's, with a search over titles and Session names, each row saying who opens it and how many comments are open. A row, a pinned artifact in the sidebar and a comment row in the chat open the same viewer.
+The composer's **+** menu attaches a file from your computer, an artifact, or a file of the Project folder; an artifact or folder file goes by name, and nothing is copied.
+
+The **Artifacts** page lists yours, the ones shared with you and the team's, as cards that show each one's first screen, with a search over titles and Session names, filters for kind and open comments, and an order by when you last opened it or when it changed. A Project's header opens the same list for the Project's Sessions. A row, a pinned artifact in the sidebar and a comment row in the chat open the same viewer.
 
 ### Who sees it
 

@@ -4,7 +4,7 @@ import {
   Icon,
   type IconName,
   popClass,
-  TextInput,
+  SearchInput,
   useDismiss,
 } from "@pipoca/ui";
 import {
@@ -182,21 +182,15 @@ export function FilesMenu(): ReactElement | null {
         )}
       >
         <div className="flex gap-2 border-b border-line p-3">
-          <span className="relative min-w-0 flex-1">
-            <Icon
-              name="search"
-              className="pointer-events-none absolute top-1/2 left-3 size-3.5 -translate-y-1/2 text-fg-dim"
-            />
-            <TextInput
-              aria-label="Filter files"
-              placeholder="Filter"
-              className="w-full pl-8"
-              value={host.menu.filter}
-              onChange={(event) => {
-                host.setFilter(event.target.value);
-              }}
-            />
-          </span>
+          <SearchInput
+            aria-label="Filter files"
+            placeholder="Filter"
+            className="flex-1"
+            value={host.menu.filter}
+            onChange={(event) => {
+              host.setFilter(event.target.value);
+            }}
+          />
           {sections
             .filter(({ acts }) => acts)
             .map(({ name }) => (

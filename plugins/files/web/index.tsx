@@ -1,11 +1,14 @@
 import {
   ago,
+  AttachedCard,
   ConfigForm,
   defineWeb,
+  FileCard,
   FilesRow,
   FilesSection,
   FileViewer,
   type MountedSession,
+  type NoticeProps,
   type SessionFilesProps,
   uploadBlob,
   useApi,
@@ -21,7 +24,6 @@ import {
   ViewerTitle,
 } from "@pipoca/plugins/web";
 import {
-  Chip,
   FileButton,
   Dialog,
   ErrorText,
@@ -38,6 +40,7 @@ import {
   bytes as size,
   type FilesState,
   type Place,
+  type SavedNoticeData,
   type SessionFile,
   type SnapshotChange,
 } from "../src/files";
@@ -48,6 +51,7 @@ export const web = defineWeb(plugin, {
     "session.header": SessionFiles,
     "session.files": Attached,
     "notice:files": UploadNotice,
+    "notice:saved": SavedCards,
     overlay: FileOverlay,
   },
 });
@@ -446,6 +450,7 @@ function SessionFileViewer({
       view={`${where}/view${query}&v=${shown.hash}`}
       download={`${where}${query}`}
       titleId={titleId}
+      {...(listed?.steers === true && { session: sessionId })}
       stepper={{
         at: at + 1,
         of: kept.length,
@@ -565,32 +570,25 @@ function Attached({
   }
 
   return (
-    <ul aria-label="Attached files" className="flex flex-col gap-1 pt-1">
+    <ul aria-label="Attached files" className="flex flex-wrap gap-2">
       {files.map((file, index) => {
         const each = progress.get(file) ?? { sent: 0 };
+        const saving = each.path === undefined && each.problem === undefined;
 
         return (
-          <li
-            key={`${String(index)}-${file.name}`}
-            className="flex flex-wrap items-center gap-2"
-          >
-            <Chip
-              mono
+          <li key={`${String(index)}-${file.name}`} className="min-w-0">
+            <AttachedCard
+              icon="file"
+              title={file.name}
+              detail={status(file.size, each)}
+              failed={each.problem !== undefined}
+              {...(saving && {
+                progress: file.size === 0 ? 0 : each.sent / file.size,
+              })}
               onRemove={() => {
                 onRemove(file);
               }}
-              removeLabel={`Remove ${file.name}`}
-            >
-              {file.name}
-            </Chip>
-            <span className="text-caption text-fg-dim">
-              {size(file.size)} · {status(file.size, each)}
-            </span>
-            {each.problem !== undefined && (
-              <ErrorText inline size="caption">
-                {each.problem}
-              </ErrorText>
-            )}
+            />
           </li>
         );
       })}
@@ -600,16 +598,16 @@ function Attached({
 
 function status(total: number, { sent, path, problem }: Progress): string {
   if (problem !== undefined) {
-    return "not uploaded";
+    return `Not saved: ${problem}`;
   }
 
   if (path !== undefined) {
-    return "saved, Pi gets it with your next message";
+    return `${size(total)} · saved`;
   }
 
   return total === 0
-    ? "uploading"
-    : `uploading ${String(Math.floor((sent / total) * 100))}%`;
+    ? "Saving"
+    : `Saving · ${String(Math.floor((sent / total) * 100))}%`;
 }
 
 // What the chat shows for the notice Pi gets when a person adds an upload.
@@ -619,5 +617,28 @@ function UploadNotice({ text }: { readonly text: string }): ReactElement {
       <Icon name="paperclip" className="size-4 shrink-0" />
       <span className="truncate">{text}</span>
     </p>
+  );
+}
+
+// The outputs Pi's turn wrote, as cards under its reply, like Claude Code's
+// attached files. Each opens in the viewer.
+function SavedCards({ data, session }: NoticeProps): ReactElement {
+  const { open } = useOverlay();
+  const { files = [] } = (data ?? {}) as Partial<SavedNoticeData>;
+
+  return (
+    <ul aria-label="Files Pi saved" className="flex flex-wrap gap-2 py-1">
+      {files.map((file) => (
+        <li key={file.path} className="min-w-0">
+          <FileCard
+            title={file.path}
+            detail={`outputs · ${size(file.size)}`}
+            onOpen={() => {
+              open({ session: session.id, file: `outputs/${file.path}` });
+            }}
+          />
+        </li>
+      ))}
+    </ul>
   );
 }

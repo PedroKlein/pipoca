@@ -32,6 +32,8 @@ async function setUp(o: { readonly maxFileBytes?: number } = {}) {
   const host = await t.session({ owner: person("ana") });
   const published: FilesState[] = [];
   let offline = false;
+  // The next save of the outputs list waits for it.
+  let held: Promise<void> | undefined;
 
   const runner = async () => {
     // The plugin's folder for the Session, which tests write in as Pi does.
@@ -50,6 +52,13 @@ async function setUp(o: { readonly maxFileBytes?: number } = {}) {
       request: async (path, init) => {
         if (offline) {
           throw new TypeError("fetch failed");
+        }
+
+        if (path.endsWith("session/outputs") && held !== undefined) {
+          const waiting = held;
+
+          held = undefined;
+          await waiting;
         }
 
         return host.api.raw(path, init);
@@ -94,6 +103,15 @@ async function setUp(o: { readonly maxFileBytes?: number } = {}) {
     offline: (on: boolean) => {
       offline = on;
     },
+    hold: (): (() => void) => {
+      let release = (): void => undefined;
+
+      held = new Promise((resolve) => {
+        release = resolve;
+      });
+
+      return release;
+    },
   };
 }
 
@@ -126,6 +144,139 @@ test("what Pi writes in outputs/ is saved after its turn and downloads whole", a
 
   expect(await download.text()).toBe("# Q3");
   expect(download.headers.get("content-disposition")).toContain("report.md");
+});
+
+test("the outputs a turn wrote reach the chat as one notice once they're saved, and the ones already there don't", async () => {
+  const { runner, published } = await setUp();
+  const { cwd, part } = await runner();
+
+  await write(cwd, "outputs/old.md", "kept");
+
+  await part.event(
+    "session_start",
+    {},
+    { sessionManager: { getBranch: () => [] } },
+  );
+
+  await until(() => published.length === 1);
+  await write(cwd, "outputs/joined.csv", "a,b");
+  await write(cwd, "outputs/old.md", "changed");
+  await part.event("agent_settled");
+
+  await until(() => part.sent().length === 1);
+
+  expect(part.sent()[0]).toMatchObject({
+    content:
+      "Saved for the person after your turn: outputs/joined.csv (3 B), outputs/old.md (7 B).",
+    details: {
+      plugin: "files",
+      kind: "saved",
+      data: {
+        files: [
+          { path: "joined.csv", size: 3 },
+          { path: "old.md", size: 7 },
+        ],
+      },
+    },
+    options: { triggerTurn: false },
+  });
+
+  // A turn that wrote nothing says nothing, and neither does a save that
+  // isn't a turn's.
+  await part.event("agent_settled");
+  await write(cwd, "outputs/late.md", "late");
+  await part.event("session_shutdown");
+
+  expect(part.sent()).toHaveLength(1);
+});
+
+test("a turn that ends while the last one's outputs are still saving gets its own notice", async () => {
+  const { runner, published, hold } = await setUp();
+  const { cwd, part } = await runner();
+
+  await part.event(
+    "session_start",
+    {},
+    { sessionManager: { getBranch: () => [] } },
+  );
+
+  await until(() => published.length === 1);
+  const release = hold();
+
+  await write(cwd, "outputs/first.md", "1");
+  await part.event("agent_settled");
+  await write(cwd, "outputs/second.md", "2");
+  await part.event("agent_settled");
+  release();
+
+  await until(() => part.sent().length === 2);
+
+  expect(
+    part
+      .sent()
+      .map(
+        (each) =>
+          (each as { details: { data: { files: unknown[] } } }).details.data
+            .files,
+      ),
+  ).toEqual([
+    [{ path: "first.md", size: 1 }],
+    [{ path: "second.md", size: 1 }],
+  ]);
+});
+
+test("a turn's outputs that couldn't be saved get their notice once they are, and not before", async () => {
+  const { runner, published, offline } = await setUp();
+  const { cwd, part } = await runner();
+
+  await part.event(
+    "session_start",
+    {},
+    { sessionManager: { getBranch: () => [] } },
+  );
+
+  await until(() => published.length === 1);
+  offline(true);
+  await write(cwd, "outputs/summary.md", "done");
+  await part.event("agent_settled");
+  await until(() => published.length === 2);
+
+  expect(part.sent()).toEqual([]);
+
+  offline(false);
+  await part.event("session_shutdown");
+
+  expect(part.sent()).toMatchObject([
+    {
+      display: true,
+      details: { data: { files: [{ path: "summary.md", size: 4 }] } },
+    },
+  ]);
+});
+
+test("a turn's outputs get their notice when the server was out of reach as the runner started", async () => {
+  const { runner, published, offline } = await setUp();
+  const { cwd, part } = await runner();
+
+  await write(cwd, "outputs/old.md", "old");
+  offline(true);
+
+  await part.event(
+    "session_start",
+    {},
+    { sessionManager: { getBranch: () => [] } },
+  );
+
+  await until(() => published.length === 1);
+  offline(false);
+  await write(cwd, "outputs/summary.md", "done");
+  await part.event("agent_settled");
+  await until(() => part.sent().length === 1);
+  await part.event("session_shutdown");
+
+  expect(part.sent()).toMatchObject([
+    { details: { data: { files: [{ path: "summary.md", size: 4 }] } } },
+  ]);
 });
 
 test("a file opens as the page a viewer shows, or as its source, and only for people who see its Session", async () => {

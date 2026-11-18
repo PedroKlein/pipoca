@@ -58,6 +58,8 @@ export interface ProjectView {
   readonly threadModel: string | null;
   readonly coordinatorId: string;
   readonly coordinatorState: RunState;
+  // The person steers its coordinator, so changes the Project.
+  readonly steers: boolean;
   // The person's Pipoca assistant (ADR 0052).
   readonly assistant: boolean;
   readonly team: boolean;
@@ -100,6 +102,15 @@ export interface FolderFile {
   readonly size: number;
   readonly actor: string;
   readonly updatedAt: number;
+}
+
+// The notice the chat shows as cards under Pi's reply: what its turn wrote
+// in the folder, once the server has it.
+export const folderSaved = "folder_saved";
+
+export interface FolderSavedData {
+  readonly projectId: string;
+  readonly files: readonly { readonly path: string; readonly size: number }[];
 }
 
 // One write to the folder; hash is null when the file was removed. A

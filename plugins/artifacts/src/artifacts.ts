@@ -44,6 +44,8 @@ export interface ArtifactSummary {
   readonly openComments: number;
   readonly versions: number;
   readonly updatedAt: number;
+  // When the viewer last opened it, or null.
+  readonly openedAt: number | null;
 }
 
 export type Role = "view" | "comment";
@@ -141,11 +143,13 @@ export interface Published {
 const kindLabels: Readonly<Record<Kind, string>> = {
   html: "Page",
   markdown: "Markdown",
+  csv: "Table",
   svg: "SVG",
   image: "Image",
   pdf: "PDF",
-  csv: "Table",
 };
+
+export const kinds = Object.keys(kindLabels) as readonly Kind[];
 
 export function kindLabel(kind: Kind): string {
   return kindLabels[kind];

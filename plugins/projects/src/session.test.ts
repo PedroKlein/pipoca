@@ -116,6 +116,21 @@ test("Sessions in a Project share its folder, and a change one makes reaches the
 
   await until(async () => (await filesOf()).length === 1);
 
+  // The chat shows what the turn wrote as cards under Pi's reply.
+  expect(a.sent()).toMatchObject([
+    {
+      content: "Saved in the Project folder: project/notes/plan.md (4 B).",
+      details: {
+        plugin: "projects",
+        kind: "folder_saved",
+        data: { projectId, files: [{ path: "notes/plan.md", size: 4 }] },
+      },
+      display: true,
+      // Shown when the turn ends, never steering the one that runs.
+      options: { triggerTurn: false },
+    },
+  ]);
+
   await b.event("before_agent_start");
 
   expect(
@@ -127,6 +142,10 @@ test("Sessions in a Project share its folder, and a change one makes reaches the
   await rm(join(there, "project", "notes", "plan.md"));
   await b.event("agent_settled");
   await until(async () => (await filesOf()).length === 0);
+
+  // A removal makes no card.
+  expect(b.sent()).toEqual([]);
+
   await a.event("before_agent_start");
 
   await until(
@@ -205,6 +224,11 @@ test("when two Sessions change one file, the later one is kept as a copy named a
   expect(await contentOf(join(there, "project", "notes (from Docs).md"))).toBe(
     "three\n",
   );
+
+  // A change kept as a copy names the copy.
+  expect(b.sent()).toMatchObject([
+    { details: { data: { files: [{ path: "notes (from Docs).md" }] } } },
+  ]);
 
   const { writes } = await t
     .as("ana")

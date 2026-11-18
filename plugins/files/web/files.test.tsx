@@ -71,9 +71,7 @@ test("a file added in the composer uploads at once, holds Send until it's saved,
 
   await act(async () => until(() => sent.length === 4));
 
-  expect(page.textContent).toContain(
-    "ledger.csv3 B · saved, Pi gets it with your next message",
-  );
+  expect(page.textContent).toContain("ledger.csv3 B · saved");
 
   expect(sent.at(-1)).toBe("POST /api/ext/files/sessions/session-1/uploads");
   expect(uploading).toEqual([true, false]);
@@ -725,6 +723,50 @@ test("a file over 5 MB offers a download instead of a preview", async () => {
   ]);
 });
 
+test("a Session file's viewer offers plugins' actions, such as Publish, only to people who steer the Session", async () => {
+  let steers = false;
+
+  const fills = {
+    "file.actions": ({ session }: { readonly session: string }) => (
+      <span data-action={session} />
+    ),
+  };
+
+  renderPart(
+    web,
+    "overlay",
+    {},
+    {
+      fills,
+      fetch: async (url) =>
+        url.endsWith("/files") ? json({ files, steers }) : listing(url),
+      hash: "#session-1?session=session-1&file=outputs%2Fmismatches.csv",
+    },
+  );
+
+  await settle(() => document.querySelector("dialog iframe") !== null);
+
+  expect(document.querySelector("[data-action]")).toBeNull();
+
+  steers = true;
+
+  act(() => {
+    history.replaceState(
+      null,
+      "",
+      "#session-2?session=session-2&file=outputs%2Fmismatches.csv",
+    );
+
+    dispatchEvent(new HashChangeEvent("hashchange"));
+  });
+
+  await settle(() => document.querySelector("[data-action]") !== null);
+
+  expect(
+    document.querySelector("[data-action]")?.getAttribute("data-action"),
+  ).toBe("session-2");
+});
+
 test("someone who only sees the Session gets no Upload in the Files menu", async () => {
   renderPart(
     web,
@@ -873,4 +915,31 @@ test("Settings shows sizes in MB or GB and saves them in bytes, with the snapsho
       snapshots: { enabled: true, maxBytes: 524_288_000 },
     },
   });
+});
+
+test("what Pi's turn saved shows as cards under its reply, and a card opens the file over the chat", () => {
+  const page = renderPart(
+    web,
+    "notice:saved",
+    {
+      text: "Saved for the person after your turn: outputs/joined.csv (6 KB).",
+      data: { files: [{ path: "joined.csv", size: 6144 }] },
+      session: sessionWith({}),
+    },
+    { hash: "#session-1" },
+  );
+
+  const card = page.querySelector<HTMLButtonElement>(
+    "[aria-label='Files Pi saved'] button",
+  );
+
+  expect(card?.textContent).toBe("joined.csvoutputs · 6 KB");
+
+  act(() => {
+    card?.click();
+  });
+
+  expect(location.hash).toBe(
+    "#session-1?session=session-1&file=outputs%2Fjoined.csv",
+  );
 });

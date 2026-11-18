@@ -1,3 +1,4 @@
+import type { MountedSession } from "@pipoca/plugins/web";
 import { cn, Icon } from "@pipoca/ui";
 import type { ReactElement, ReactNode } from "react";
 import { PluginBoundary } from "../../plugin-boundary";
@@ -120,8 +121,10 @@ function WorkItem({
 
 export function Notice({
   notice: { text, tag },
+  session,
 }: {
   readonly notice: NonNullable<Turn["notice"]>;
+  readonly session: MountedSession;
 }): ReactElement {
   const Drawn = fillsOf(`notice:${tag.kind}`).find(
     ({ plugin }) => plugin === tag.plugin,
@@ -129,7 +132,7 @@ export function Notice({
 
   return Drawn ? (
     <PluginBoundary name={tag.plugin}>
-      <Drawn text={text} data={tag.data} />
+      <Drawn text={text} data={tag.data} session={session} />
     </PluginBoundary>
   ) : (
     <WorkNote kind="note" text={text} />

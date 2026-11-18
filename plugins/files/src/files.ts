@@ -23,6 +23,14 @@ export interface UploadNoticeData {
   readonly size: number;
 }
 
+// The notice the chat shows as cards under Pi's reply: the outputs its turn
+// wrote, once the server has them.
+export const savedNotice = "saved";
+
+export interface SavedNoticeData {
+  readonly files: readonly { readonly path: string; readonly size: number }[];
+}
+
 // What the Session part publishes under "files" for its view.
 export interface FilesState {
   // Outputs the server doesn't have yet.

@@ -2,7 +2,8 @@ import type { ReactElement, ReactNode, TdHTMLAttributes } from "react";
 import { cardClass } from "./card";
 import { cn } from "./cn";
 
-// A table on a card that scrolls sideways on a phone. Rows are Cell rows.
+// A table on a card, which scrolls sideways on a phone while it keeps its
+// columns wide enough to read. Rows are Cell rows.
 export function Table({
   label,
   columns,
@@ -46,7 +47,14 @@ export function Table({
   return bare ? (
     table
   ) : (
-    <div className={cn("relative overflow-x-auto", cardClass, className)}>
+    <div
+      className={cn(
+        "relative",
+        minWidth && "overflow-x-auto",
+        cardClass,
+        className,
+      )}
+    >
       {table}
     </div>
   );

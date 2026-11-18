@@ -7,10 +7,16 @@ import {
   ToolError,
   Type,
 } from "@pipoca/plugins";
-import { profilePath } from "@pipoca/protocol";
+import { noticeType, profilePath } from "@pipoca/protocol";
 import { projects } from "../plugin";
 import { folderSync } from "./folder-sync";
-import { bytes, type FolderFile, type Membership } from "./model";
+import {
+  bytes,
+  type FolderFile,
+  folderSaved,
+  type FolderSavedData,
+  type Membership,
+} from "./model";
 
 type Context = SessionContext<typeof projects>;
 
@@ -33,7 +39,7 @@ export const session = defineSession(projects, async (s) => {
     return;
   }
 
-  folderTools(s);
+  folderTools(s, member.projectId);
 
   if (member.assistant) {
     installTools(s);
@@ -96,8 +102,12 @@ function asksUnhinted({ extension, askPermission }: Context): void {
 // in the background as a turn starts and pushed after it ends (ADR 0078).
 // Nothing waits on the network before a turn: Pi starts a second run if a
 // prompt arrives meanwhile.
-function folderTools(s: Context): void {
-  const sync = folderSync(s);
+function folderTools(s: Context, projectId: string): void {
+  let tell: ((files: readonly FolderFile[]) => void) | undefined;
+
+  const sync = folderSync(s, (files) => {
+    tell?.(files);
+  });
 
   s.tools.define({
     name: "list_project_files",
@@ -144,6 +154,23 @@ function folderTools(s: Context): void {
   });
 
   s.extension((pi) => {
+    tell = (files) => {
+      const data: FolderSavedData = {
+        projectId,
+        files: files.map(({ path, size }) => ({ path, size })),
+      };
+
+      pi.sendMessage(
+        {
+          customType: noticeType,
+          content: `Saved in the Project folder: ${files.map(({ path, size }) => `project/${path} (${bytes(size)})`).join(", ")}.`,
+          display: true,
+          details: { plugin: projects.id, kind: folderSaved, data },
+        },
+        { triggerTurn: false },
+      );
+    };
+
     pi.on("session_start", () => {
       sync.run();
     });

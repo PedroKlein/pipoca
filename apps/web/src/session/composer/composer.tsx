@@ -4,9 +4,20 @@ import {
   type Quote,
   teamTalkSince,
 } from "@pipoca/protocol";
-import type { MountedSession } from "@pipoca/plugins/web";
+import {
+  type Attachment,
+  AttachedCard,
+  type MountedSession,
+} from "@pipoca/plugins/web";
 import { Button, Icon, isComposing, sendsOnEnter } from "@pipoca/ui";
-import { type ReactElement, useEffect, useId, useRef, useState } from "react";
+import {
+  type ReactElement,
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from "react";
 import { command } from "../../data/client";
 import { PluginBoundary } from "../../plugin-boundary";
 import { fillsOf, useSessionPlugins } from "../../plugins";
@@ -101,12 +112,25 @@ export function Composer({
     };
   }, [sessionId, columns, generation, hosted]);
 
-  usePrefill(sessionId, text, feed.editorText);
+  const [attachments, setAttachments] = useState<readonly Attachment[]>([]);
 
-  const fileParts = fillsOf("session.files", useSessionPlugins(team));
+  const add = useCallback((added: readonly Attachment[]): void => {
+    setAttachments((now) => [
+      ...now.filter(({ key }) => !added.some((each) => each.key === key)),
+      ...added,
+    ]);
+  }, []);
+
+  usePrefill(sessionId, text, feed.editorText, add);
+
+  const plugins = useSessionPlugins(team);
+  const fileParts = fillsOf("session.files", plugins);
+  const attachParts = fillsOf("session.attach", plugins);
   const [uploading, setUploading] = useState(false);
 
   const { images, setImages, files, setFiles, attach, send } = useSend({
+    attachments,
+    setAttachments,
     sessionId,
     keepsFiles: fileParts.length > 0,
     uploading,
@@ -218,26 +242,50 @@ export function Composer({
               }
             />
           )}
-          <AttachedImages
-            images={images}
-            onRemove={(id) => {
-              setImages((current) => current.filter((each) => each.id !== id));
-            }}
-          />
-          {fileParts.map(({ plugin, Component }) => (
-            <PluginBoundary key={plugin} name={plugin}>
-              <Component
-                session={session}
-                files={files}
-                onRemove={(file) => {
-                  setFiles((current) =>
-                    current.filter((each) => each !== file),
-                  );
-                }}
-                onUploading={setUploading}
-              />
-            </PluginBoundary>
-          ))}
+          <div className="flex flex-wrap gap-2 pt-1 empty:hidden">
+            <AttachedImages
+              images={images}
+              onRemove={(id) => {
+                setImages((current) =>
+                  current.filter((each) => each.id !== id),
+                );
+              }}
+            />
+            {fileParts.map(({ plugin, Component }) => (
+              <PluginBoundary key={plugin} name={plugin}>
+                <Component
+                  session={session}
+                  files={files}
+                  onRemove={(file) => {
+                    setFiles((current) =>
+                      current.filter((each) => each !== file),
+                    );
+                  }}
+                  onUploading={setUploading}
+                />
+              </PluginBoundary>
+            ))}
+            {attachments.length > 0 && (
+              <ul aria-label="Attached" className="flex flex-wrap gap-2">
+                {attachments.map((each) => (
+                  <li key={each.key} className="min-w-0">
+                    <AttachedCard
+                      icon={each.icon}
+                      title={each.title}
+                      detail={each.detail}
+                      onRemove={() => {
+                        setAttachments((now) =>
+                          now.filter(({ key }) => key !== each.key),
+                        );
+
+                        text.current?.focus();
+                      }}
+                    />
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
           <textarea
             ref={text}
             id={textId}
@@ -297,7 +345,18 @@ export function Composer({
             starting={starting}
             attach={attach}
             report={report}
-          />
+          >
+            {attachParts.map(({ plugin, Component }) => (
+              <PluginBoundary key={plugin} name={plugin}>
+                <Component
+                  session={session}
+                  add={(attachment) => {
+                    add([attachment]);
+                  }}
+                />
+              </PluginBoundary>
+            ))}
+          </Toolbar>
         </form>
       )}
 

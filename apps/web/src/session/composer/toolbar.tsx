@@ -1,6 +1,7 @@
 import { type Environment, imageTypes, type ModelInfo } from "@pipoca/protocol";
-import { Button, FileButton, Icon, Segmented } from "@pipoca/ui";
-import type { ReactElement, RefObject } from "react";
+import { AttachMenu } from "@pipoca/plugins/web";
+import { Button, Icon, Segmented } from "@pipoca/ui";
+import type { ReactElement, ReactNode, RefObject } from "react";
 import { command } from "../../data/client";
 import type { Feed } from "../feed";
 import { ModelMenu } from "./model-menu";
@@ -29,6 +30,7 @@ export function Toolbar({
   starting,
   attach,
   report,
+  children,
 }: {
   readonly sessionId: string;
   readonly feed: Feed;
@@ -47,20 +49,18 @@ export function Toolbar({
   readonly starting: boolean;
   readonly attach: (files: readonly File[]) => void;
   readonly report: (error: unknown) => void;
+  // The plugins' rows of the + menu.
+  readonly children: ReactNode;
 }): ReactElement {
   return (
     <div className="flex items-center gap-2">
-      <FileButton
-        variant="ghost"
-        iconOnly
-        icon="paperclip"
-        title={anyFile ? "Attach files" : "Attach images"}
-        aria-label={anyFile ? "Attach files" : "Attach images"}
-        multiple
+      <AttachMenu
+        label={anyFile ? "Attach files" : "Attach images"}
         {...(!anyFile && { accept: imageTypes.join(",") })}
         onFiles={attach}
-        className="-ml-2"
-      />
+      >
+        {children}
+      </AttachMenu>
       {feed.settings && (
         <ModelMenu
           settings={feed.settings}

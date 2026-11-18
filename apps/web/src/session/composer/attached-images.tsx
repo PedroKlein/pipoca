@@ -43,7 +43,7 @@ export function AttachedImages({
   }
 
   return (
-    <ul aria-label="Attached images" className="flex flex-wrap gap-2 pt-1">
+    <ul aria-label="Attached images" className="flex flex-wrap gap-2">
       {images.map((image) => (
         <li key={image.id} className="relative">
           <img

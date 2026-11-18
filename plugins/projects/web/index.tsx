@@ -8,12 +8,13 @@ import {
   useLoaded,
   useNow,
   defineWeb,
-  href as pageHref,
   ModelField,
   pickerModels,
   RepositoryField,
   SessionView,
+  Slot,
   useApi,
+  useFilled,
 } from "@pipoca/plugins/web";
 import {
   checkoutName,
@@ -73,7 +74,14 @@ import {
   useAssistant,
   useEnvironments,
 } from "./assistant";
+import {
+  AttachFolderFile,
+  FolderSavedCards,
+  ProjectFileOverlay,
+  ProjectFiles,
+} from "./files";
 import { Folder } from "./folder";
+import { link, projectLink, teamAssistantPath, teamProjects } from "./links";
 import {
   type ProjectNotices,
   type ProjectSummary,
@@ -84,9 +92,6 @@ import {
   type WorkState,
   workStates,
 } from "../src/model";
-
-const teamProjects = "projects";
-const teamAssistantPath = "team-assistant";
 
 // Thread states follow their Sessions.
 const watched = { topics: ["sessions"], changes: ["projects"] };
@@ -132,7 +137,11 @@ export const web = defineWeb(projects, {
   sessionPath: (session) => `${session.plugin?.key ?? ""}/${session.id}`,
   slots: {
     home: Home,
+    "session.header": ProjectFiles,
+    "session.attach": AttachFolderFile,
+    overlay: ProjectFileOverlay,
     "notice:thread": ThreadNotice,
+    "notice:folder_saved": FolderSavedCards,
     "notice:thread_message": ThreadMessageNotice,
     "notice:coordinator_message": CoordinatorMessageNotice,
     "link:thread": ThreadLink,
@@ -147,26 +156,6 @@ async function teamList(api: TypedClient): Promise<ProjectSummary[]> {
   const response = await api.raw("team/projects");
 
   return response.ok ? ((await response.json()) as ProjectSummary[]) : [];
-}
-
-// Team Projects open only in the team's area, wherever the link came from.
-function link(path: string, team = false): string {
-  return team
-    ? `#team/plugin/${projects.id}/${teamProjects}/${path}`
-    : pageHref(projects, path);
-}
-
-// Where a Project and the panel open in it live: a person's Team assistant
-// under its own team entry, as a person's assistant is under theirs.
-function projectLink(
-  project: Pick<ProjectView, "id" | "team" | "assistant">,
-  rest: string,
-): string {
-  if (project.team && project.assistant) {
-    return `#team/plugin/${projects.id}/${teamAssistantPath}/${rest}`;
-  }
-
-  return link(rest === "" ? project.id : `${project.id}/${rest}`, project.team);
 }
 
 function useThread(id: string | undefined): ThreadLinkView | undefined {
@@ -1160,6 +1149,7 @@ type Panel =
   | { readonly kind: "none" }
   | { readonly kind: "settings" }
   | { readonly kind: "folder" }
+  | { readonly kind: "artifacts" }
   | { readonly kind: "thread"; readonly id: string; readonly full: boolean };
 
 // "" is the coordinator alone, "settings" its settings beside it, and a
@@ -1167,7 +1157,7 @@ type Panel =
 function panelOf(rest: string, project: ProjectView): Panel {
   const [first = "", second] = rest.split("/");
 
-  if (first === "settings" || first === "folder") {
+  if (first === "settings" || first === "folder" || first === "artifacts") {
     return { kind: first };
   }
 
@@ -1225,6 +1215,7 @@ function ProjectPage({
 
   const path = `projects/${encodeURIComponent(id)}`;
   const [railOpen, setRailOpen] = useRail();
+  const published = useFilled("project.artifacts");
 
   const { value: project, reload } = useLoaded(
     async () => {
@@ -1295,6 +1286,7 @@ function ProjectPage({
         if (
           beside === "settings" ||
           beside === "folder" ||
+          beside === "artifacts" ||
           beside === "thread"
         ) {
           go("");
@@ -1358,28 +1350,32 @@ function ProjectPage({
             title={project.name}
             actions={
               <>
-                <Button
-                  variant="ghost"
-                  iconOnly
-                  aria-label="Project folder"
-                  aria-pressed={panel.kind === "folder"}
-                  onClick={() => {
-                    go(panel.kind === "folder" ? "" : "folder");
-                  }}
-                >
-                  <Icon name="paperclip" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  iconOnly
-                  aria-label="Project settings"
-                  aria-pressed={panel.kind === "settings"}
-                  onClick={() => {
-                    go(panel.kind === "settings" ? "" : "settings");
-                  }}
-                >
-                  <Icon name="settings" />
-                </Button>
+                {(
+                  [
+                    ["folder", "Project folder", "folder"],
+                    ...(published
+                      ? ([
+                          ["artifacts", "Project artifacts", "layout-grid"],
+                        ] as const)
+                      : []),
+                    ["settings", "Project settings", "settings"],
+                  ] as const
+                ).map(([kind, label, icon]) => (
+                  <Button
+                    key={kind}
+                    variant="ghost"
+                    iconOnly
+                    title={label}
+                    aria-label={label}
+                    aria-pressed={panel.kind === kind}
+                    className="aria-pressed:bg-hover aria-pressed:text-fg-strong"
+                    onClick={() => {
+                      go(panel.kind === kind ? "" : kind);
+                    }}
+                  >
+                    <Icon name={icon} />
+                  </Button>
+                ))}
                 {railToggle}
               </>
             }
@@ -1496,7 +1492,40 @@ function ProjectPage({
             </Button>
           </header>
           <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto p-4">
-            <Folder path={path} />
+            <Folder project={project} />
+          </div>
+        </aside>
+      )}
+
+      {beside === "artifacts" && (
+        <aside
+          aria-label="Project artifacts"
+          className={cn(column, "w-[min(44rem,55%)] bg-bg")}
+        >
+          <header className="flex min-h-14 items-center gap-2 border-b border-line px-4">
+            <h2 className="flex-1 text-title font-semibold text-fg-strong">
+              Artifacts
+            </h2>
+            <Button
+              variant="ghost"
+              iconOnly
+              aria-label="Close artifacts"
+              onClick={() => {
+                go("");
+              }}
+            >
+              <Icon name="x" />
+            </Button>
+          </header>
+          <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto p-4">
+            <Slot
+              name="project.artifacts"
+              sessions={[
+                project.coordinatorId,
+                ...project.formerCoordinators,
+                ...project.threads.map(({ sessionId }) => sessionId),
+              ]}
+            />
           </div>
         </aside>
       )}
@@ -1522,10 +1551,11 @@ function ProjectPage({
 function besideOf(
   panel: Panel,
   railOpen: boolean,
-): "thread" | "settings" | "folder" | "list" | undefined {
+): "thread" | "settings" | "folder" | "artifacts" | "list" | undefined {
   if (
     panel.kind === "settings" ||
     panel.kind === "folder" ||
+    panel.kind === "artifacts" ||
     (panel.kind === "thread" && !panel.full)
   ) {
     return panel.kind;
