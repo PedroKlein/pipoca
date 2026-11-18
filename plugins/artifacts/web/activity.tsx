@@ -118,7 +118,10 @@ export function ActivityPage(): ReactElement {
         ) : (
           <ul
             aria-label="Activity"
-            className={cn(cardClass, "divide-y divide-line p-0")}
+            className={cn(
+              cardClass,
+              "divide-y divide-line overflow-hidden p-0",
+            )}
           >
             {items.map((item) => (
               <li key={item.id}>
@@ -213,7 +216,7 @@ function ActivitySettingsCard(): ReactElement {
   return (
     <section
       aria-labelledby="activity-settings"
-      className={cn(cardClass, "flex max-w-155 flex-col gap-3")}
+      className={cn(cardClass, "flex max-w-155 flex-col gap-3 px-4.5 py-4")}
     >
       <h2 id="activity-settings" className="text-ui font-medium text-fg-strong">
         Tell me about artifact activity

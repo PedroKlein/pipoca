@@ -610,9 +610,11 @@ test("a mention or review request reaches the person in Slack, found by their em
   const sent = fake.posted[0] as { channel: string; text: string };
 
   expect(sent.channel).toBe("U1");
+
   expect(sent.text).toStartWith(
     "*Rui review on Webhooks*\n> Works for me.\n<http",
   );
+
   expect(sent.text).toEndWith(
     "/#plugin/artifacts/a1/comments|Open it in Pipoca>",
   );

@@ -41,6 +41,7 @@ export function EditProfile({
   const save = (event: SubmitEvent<HTMLFormElement>): void => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
+
     const text = (key: string): string => {
       const value = form.get(key);
 
