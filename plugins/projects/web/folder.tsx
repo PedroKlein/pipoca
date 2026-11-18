@@ -3,6 +3,7 @@ import {
   uploadBlob,
   useApi,
   useDraft,
+  useFilled,
   useLoaded,
   useNow,
   useOverlay,
@@ -40,6 +41,7 @@ export function Folder({
   const path = `projects/${encodeURIComponent(project.id)}`;
   const { open } = useOverlay();
   const draft = useDraft();
+  const publishes = useFilled("file.actions");
   const time = useNow();
   const [confirm, confirmDialog] = useConfirm();
 
@@ -330,6 +332,18 @@ export function Folder({
                           saveAs(fileHref(file.path), file.path);
                         },
                       },
+                      // The file's viewer holds the publish button, which
+                      // the artifacts plugin draws.
+                      ...(publishes
+                        ? [
+                            {
+                              label: "Publish as artifact…",
+                              run: () => {
+                                open({ project: project.id, path: file.path });
+                              },
+                            },
+                          ]
+                        : []),
                       {
                         label: "Attach to a new message",
                         run: () => {

@@ -7059,6 +7059,9 @@ test("reads a design doc with its status, an outline of its sections and its com
 
   await level();
 
+  // The card beside it numbers nothing, so the passage has no badge.
+  expect(await frame.locator("[data-pipoca-pin]").count()).toBe(0);
+
   await frame.locator("body").evaluate("scrollBy(0, 120)");
 
   await level();

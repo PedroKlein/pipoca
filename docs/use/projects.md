@@ -29,7 +29,7 @@ Each Project has a folder of files shared by its Sessions, which each see it as 
 
 - A Session pulls others' changes in the background as a turn starts and sends its own after the turn.
 - When two Sessions change one file, the later one is kept beside it as `name (from <thread>).ext`. A conflict copy shows a badge and opens side by side with the file it was saved beside.
-- The folder button on the Project's page uploads, downloads and removes files, opens subfolders, searches the folder, makes new folders and lists recent writes, with who last wrote each file.
+- The folder button on the Project's page uploads, downloads and removes files, opens subfolders, searches the folder, makes new folders and lists recent writes, with who last wrote each file. Each file's More menu holds Open, Download, Publish as artifact, Attach to a new message, Earlier versions and Delete.
 - Earlier versions stay downloadable for `projects.folderHistoryDays` (30 by default), and a file can be up to `projects.maxFileBytes` (200 MB).
 - Past `projects.perProjectBytes` (5 GB), its people get a warning. Nothing is deleted or refused.
 - Pi finds files by words in their paths with `list_project_files`.

@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { drafts, renderPart } from "@pipoca/plugins/web/testing";
 import { until } from "@pipoca/testing/until";
-import { act } from "react";
+import { act, type ComponentType } from "react";
 import { Folder } from "./folder";
 import { web } from "./index";
 
@@ -234,4 +234,63 @@ test("the Project folder opens subfolders, finds files, says who wrote each and 
   await act(async () => until(() => deleted.length === 1));
 
   expect(deleted).toEqual(["/api/ext/projects/projects/p1/file?path=notes.md"]);
+});
+
+test("a file's More menu offers Publish as artifact only where artifacts can be published, and opens the file to publish it", async () => {
+  const items = async (
+    fills: Readonly<Record<string, ComponentType<never>>>,
+  ): Promise<string[]> => {
+    let asked = 0;
+
+    const page = renderPart(
+      { ...web, slots },
+      "folder",
+      { project: { id: "p1", coordinatorId: "c1" } },
+      {
+        fills,
+        fetch: async (url) => {
+          await Promise.resolve();
+          asked += 1;
+
+          return Response.json(
+            url.endsWith("/files")
+              ? {
+                  perProjectBytes: 1024,
+                  historyDays: 14,
+                  files: [file("notes.md", "Ana")],
+                }
+              : { writes: [] },
+          );
+        },
+      },
+    );
+
+    await act(async () => until(() => asked === 2));
+
+    act(() => {
+      page
+        .querySelector<HTMLButtonElement>('[aria-label="More for notes.md"]')
+        ?.click();
+    });
+
+    return [...document.querySelectorAll<HTMLElement>("[role=menuitem]")].map(
+      (each) => each.textContent,
+    );
+  };
+
+  expect(await items({})).not.toContain("Publish as artifact…");
+
+  location.hash = "#session-1";
+
+  expect(
+    await items({ "file.actions": () => <span data-publish /> }),
+  ).toContain("Publish as artifact…");
+
+  act(() => {
+    [...document.querySelectorAll<HTMLElement>("[role=menuitem]")]
+      .find((each) => each.textContent === "Publish as artifact…")
+      ?.click();
+  });
+
+  expect(location.hash).toContain("?project=p1&path=notes.md");
 });

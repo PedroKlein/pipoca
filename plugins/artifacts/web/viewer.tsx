@@ -413,6 +413,19 @@ function Shown({
   const [confirm, confirmDialog] = useConfirm();
   const now = useNow();
   const latest = shown === artifact.versions;
+
+  // A version Pi publishes while the person has the artifact open, often
+  // answering their threads; what was there when it opened isn't news.
+  const [heard, setHeard] = useState(artifact.versions);
+  const newest = artifact.history.at(-1);
+
+  const fromPi =
+    latest &&
+    artifact.versions > heard &&
+    newest?.author.startsWith("session:") === true
+      ? newest
+      : undefined;
+
   const steers = artifact.access === "steer";
   const dock = useDock();
   const phone = usePhone();
@@ -877,6 +890,42 @@ function Shown({
           </Button>
         </div>
       )}
+      {fromPi !== undefined && (
+        <div
+          role="status"
+          aria-label="New version"
+          className="flex flex-wrap items-center gap-2 border-b border-line bg-done-tint px-4.5 py-2 text-label text-fg"
+        >
+          <Icon name="check" className="size-3.5 text-done" />
+          <span className="min-w-0 flex-1 truncate">
+            {fromPi.by} published version {fromPi.number}
+            {fromPi.note !== "" && ` · “${fromPi.note}”`}
+          </span>
+          {fromPi.number > 1 && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setHeard(fromPi.number);
+                setBody("compare");
+              }}
+            >
+              Compare with {fromPi.number - 1}
+            </Button>
+          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            iconOnly
+            aria-label="Dismiss"
+            onClick={() => {
+              setHeard(fromPi.number);
+            }}
+          >
+            <Icon name="x" className="size-3.5" />
+          </Button>
+        </div>
+      )}
       {doc !== null && (
         <ReviewBar
           doc={doc}
@@ -921,6 +970,7 @@ function Shown({
             version={shown}
             commenting={commenting && canComment}
             pins={pins}
+            badges={!(roomy && commenting)}
             className="min-h-0 flex-1"
             onPick={pick}
             onPin={showPin}

@@ -4,6 +4,7 @@ import {
   type NavItemsProps,
   type NoticeProps,
   type PageProps,
+  type SessionPartProps,
   type ToolCallProps,
   useApi,
   useLoaded,
@@ -48,6 +49,7 @@ export const web = defineWeb(plugin, {
     overlay: ArtifactOverlay,
     dock: ArtifactDock,
     "session.header": SessionArtifacts,
+    "session.composer": Waiting,
     "file.actions": PublishFile,
     "session.attach": AttachArtifact,
     "project.artifacts": Gallery,
@@ -293,6 +295,33 @@ function VersionNotice({ data }: NoticeProps): ReactElement {
         </ArtifactLink>
       )}
     </div>
+  );
+}
+
+// Threads sent while Pi works, which it reads in one more turn once this
+// one ends.
+function Waiting({ session }: SessionPartProps): ReactElement | null {
+  const api = useApi(plugin);
+
+  const { value } = useLoaded(
+    async () =>
+      api.get<{ threads: number }>("waiting", { session: session.id }),
+    `${session.id}:waiting`,
+    { changes: ["artifacts"] },
+  );
+
+  if (value === undefined || value.threads === 0) {
+    return null;
+  }
+
+  return (
+    <p className="flex min-w-0 items-center gap-2 text-caption text-fg-dim">
+      <span className="flex shrink-0 items-center gap-1.5 rounded-full border border-line bg-panel px-2.5 py-1 text-label text-fg">
+        <Icon name="chat" className="size-3.5" />
+        {plural(value.threads, "more thread")} waiting
+      </span>
+      <span className="truncate">Pi reads them when this turn ends</span>
+    </p>
   );
 }
 

@@ -1121,7 +1121,7 @@ test("an archived Session can't be asked, and people still discuss its threads",
 
 test("threads asked while Pi works go in one notice when its turn ends", async () => {
   const setup = await setUp();
-  const { host, part } = setup;
+  const { t, host, part } = setup;
   const { comment, status } = await shared(setup);
   const first = await comment("bo", "Friday is too soon");
   const second = await comment("bo", "Name an owner");
@@ -1141,8 +1141,17 @@ test("threads asked while Pi works go in one notice when its turn ends", async (
 
   expect(host.delivered()).toEqual([]);
 
+  const waiting = async (who: string) =>
+    t.as(who).get("waiting", { session: host.id });
+
+  // People who see the Session see how many wait, and no one else.
+  expect(await waiting("ana")).toEqual({ threads: 3 });
+  expect(await waiting("bo")).toEqual({ threads: 0 });
+
   await host.turn([reply("Working on it")]);
   await until(() => host.delivered().length === 1);
+
+  expect(await waiting("ana")).toEqual({ threads: 0 });
 
   const [told] = host.delivered();
 

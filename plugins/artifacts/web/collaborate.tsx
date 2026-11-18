@@ -75,6 +75,7 @@ export function Frame({
   version,
   commenting = false,
   pins,
+  badges = true,
   onPick,
   onPin,
   onEscape,
@@ -89,6 +90,8 @@ export function Frame({
   // Clicking an element picks it instead of following it.
   readonly commenting?: boolean;
   readonly pins?: readonly Pin[];
+  // Numbered badges by the pins, unless cards beside the page number them.
+  readonly badges?: boolean;
   readonly onPick?: (picked: Picked) => void;
   readonly onPin?: (n: number) => void;
   // Escape pressed in the page while commenting.
@@ -225,10 +228,10 @@ export function Frame({
     window?.postMessage({ pipoca: "commenting", on: commenting }, "*");
 
     window?.postMessage(
-      { pipoca: "pins", pins: JSON.parse(pinned) as unknown },
+      { pipoca: "pins", pins: JSON.parse(pinned) as unknown, badges },
       "*",
     );
-  }, [commenting, pinned]);
+  }, [badges, commenting, pinned]);
 
   useEffect(tell, [tell]);
 
