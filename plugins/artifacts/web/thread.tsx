@@ -1,4 +1,4 @@
-import { ago, useApi, useNow } from "@pipoca/plugins/web";
+import { ago, useApi, useNow, useViewer } from "@pipoca/plugins/web";
 import {
   Avatar,
   Badge,
@@ -280,6 +280,7 @@ function Message({
 }): ReactElement {
   const api = useApi(plugin);
   const [problem, setProblem] = useState<string>();
+  const viewer = useViewer();
   const who = comment.byPi ? "Pi" : comment.author;
 
   const react = (emoji: Reaction["emoji"], on: boolean): void => {
@@ -296,16 +297,17 @@ function Message({
       });
   };
 
+  const mine = (emoji: Reaction["emoji"]): boolean =>
+    comment.reactions.some((each) => each.emoji === emoji && each.mine);
+
   return (
-    <li className="flex gap-2.5">
+    <li className="group flex gap-2.5">
       <Avatar
-        name={who}
-        {...(comment.byPi && { className: "bg-butter text-on-butter" })}
-      >
-        {comment.byPi ? "Pi" : undefined}
-      </Avatar>
+        name={comment.author === "You" ? viewer.person.name : comment.author}
+        pi={comment.byPi}
+      />
       <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <span className="flex flex-wrap items-baseline gap-x-2 text-caption text-fg-dim">
+        <span className="flex min-h-6 flex-wrap items-center gap-x-2 text-caption text-fg-dim">
           <b className="text-label font-medium text-fg-strong">{who}</b>
           {[
             ...(comment.byPi
@@ -314,11 +316,30 @@ function Message({
             ago(new Date(comment.createdAt).toISOString(), now),
           ].join(" · ")}
           {children}
+          {canReact && (
+            <span className="ml-auto focus-within:opacity-100 group-hover:opacity-100 has-aria-expanded:opacity-100 pointer-fine:opacity-0">
+              <Menu
+                label="Add a reaction"
+                align="end"
+                size="sm"
+                variant="ghost"
+                icon="smile-plus"
+                items={reactionEmoji.map((emoji) => ({
+                  label: reactionNames[emoji],
+                  mark: <span aria-hidden="true">{emoji}</span>,
+                  checked: mine(emoji),
+                  run: () => {
+                    react(emoji, !mine(emoji));
+                  },
+                }))}
+              />
+            </span>
+          )}
         </span>
         <p className="text-label whitespace-pre-wrap text-fg">
           <Said text={comment.body} names={names} />
         </p>
-        {(comment.reactions.length > 0 || canReact) && (
+        {comment.reactions.length > 0 && (
           <div className="flex flex-wrap items-center gap-1.5">
             {comment.reactions.map((each) => (
               <button
@@ -341,30 +362,6 @@ function Message({
                 <span aria-hidden="true">{each.people.join(", ")}</span>
               </button>
             ))}
-            {canReact && (
-              <Menu
-                label="Add a reaction"
-                align="start"
-                size="sm"
-                variant="ghost"
-                icon="smile-plus"
-                items={reactionEmoji.map((emoji) => ({
-                  label: reactionNames[emoji],
-                  mark: <span aria-hidden="true">{emoji}</span>,
-                  checked: comment.reactions.some(
-                    (each) => each.emoji === emoji && each.mine,
-                  ),
-                  run: () => {
-                    react(
-                      emoji,
-                      !comment.reactions.some(
-                        (each) => each.emoji === emoji && each.mine,
-                      ),
-                    );
-                  },
-                }))}
-              />
-            )}
           </div>
         )}
         <ErrorText size="caption">{problem}</ErrorText>
@@ -434,6 +431,7 @@ function Composer({
         {mentions.menu}
         <TextArea
           aria-label="Reply"
+          className="w-full"
           placeholder={
             artifact.askable
               ? "Reply to the thread. @ mentions people or Pi."

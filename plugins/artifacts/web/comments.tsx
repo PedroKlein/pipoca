@@ -240,6 +240,7 @@ export function CommentBox({
         {mentions.menu}
         <TextArea
           aria-label="Comment text"
+          className="w-full"
           placeholder={
             artifact.askable
               ? "Add a comment, or @pi to ask now"

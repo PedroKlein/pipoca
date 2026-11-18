@@ -754,7 +754,12 @@ function Shown({
         {commenting && (
           <aside
             aria-label="Comments"
-            className="flex w-[340px] shrink-0 flex-col border-l border-line bg-elevated max-sm:w-full"
+            className={cn(
+              "flex shrink-0 flex-col border-l border-line bg-elevated max-sm:w-full",
+              threads.some(({ top }) => top.id === active)
+                ? "w-[440px]"
+                : "w-[340px]",
+            )}
           >
             <CommentList
               artifact={artifact}
