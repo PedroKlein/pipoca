@@ -2,6 +2,7 @@ import type { Person, ToolCall, ToolDef } from "@pipoca/plugins";
 import {
   checkBody,
   fieldsOf,
+  routeUrl,
   toolAnswer,
   toolSpecOf,
 } from "@pipoca/plugins/host";
@@ -271,9 +272,6 @@ export function definedTool(
 // so what a tool opens stays a page of Pipoca.
 const appRoute = /^[\w-]+(\/[\w-]+)*$/;
 
-// Never sent anywhere: the request goes straight to the server's handler.
-const internalOrigin = "http://pipoca.internal";
-
 export async function runRouteTool(
   found: RouteTool,
   input: unknown,
@@ -395,24 +393,6 @@ export async function routeToolQuestion(
 
 function baseOf(found: RouteTool): string {
   return found.plugin === undefined ? "/api/" : `/api/ext/${found.plugin}/`;
-}
-
-// A tool's path stays under its own routes: dot segments, plain or
-// percent-encoded, would let input such as an id name another route.
-function routeUrl(path: string, base: string): string | undefined {
-  const [pathname = ""] = path.split("?");
-
-  const dotted = pathname.split("/").some((segment) => {
-    try {
-      return [".", ".."].includes(decodeURIComponent(segment));
-    } catch {
-      return true;
-    }
-  });
-
-  const url = new URL(path, internalOrigin);
-
-  return dotted || !url.pathname.startsWith(base) ? undefined : url.href;
 }
 
 function textIn(input: Input, key: string): string {

@@ -188,13 +188,14 @@ export function Frame({
         return;
       }
 
-      // Only while the person uses the page, so it can't write their
-      // message behind their back.
+      // Only just after the person clicked or typed in the page, so it
+      // can't write their message behind their back.
       if (
         data.pipoca === "draft" &&
         sessionId !== null &&
         steers &&
         document.activeElement === frame.current &&
+        navigator.userActivation.isActive &&
         data.text.length <= maxDraft
       ) {
         draft(sessionId, data.text);

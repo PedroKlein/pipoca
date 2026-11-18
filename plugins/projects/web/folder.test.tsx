@@ -37,7 +37,7 @@ test("the Project folder opens subfolders, finds files, says who wrote each and 
   const page = renderPart(
     { ...web, slots },
     "folder",
-    { project: { id: "p1", coordinatorId: "c1" } },
+    { project: { id: "p1", coordinatorId: "c1", steers: true } },
     {
       fetch: async (url, init) => {
         await Promise.resolve();
@@ -236,16 +236,17 @@ test("the Project folder opens subfolders, finds files, says who wrote each and 
   expect(deleted).toEqual(["/api/ext/projects/projects/p1/file?path=notes.md"]);
 });
 
-test("a file's More menu offers Publish as artifact only where artifacts can be published, and opens the file to publish it", async () => {
+test("a file's More menu offers Publish as artifact to whoever steers the Project where artifacts can be published, and opens the file to publish it", async () => {
   const items = async (
     fills: Readonly<Record<string, ComponentType<never>>>,
+    steers: boolean,
   ): Promise<string[]> => {
     let asked = 0;
 
     const page = renderPart(
       { ...web, slots },
       "folder",
-      { project: { id: "p1", coordinatorId: "c1" } },
+      { project: { id: "p1", coordinatorId: "c1", steers } },
       {
         fills,
         fetch: async (url) => {
@@ -278,13 +279,15 @@ test("a file's More menu offers Publish as artifact only where artifacts can be 
     );
   };
 
-  expect(await items({})).not.toContain("Publish as artifact…");
+  const publish = { "file.actions": () => <span data-publish /> };
+
+  expect(await items({}, true)).not.toContain("Publish as artifact…");
+  location.hash = "#session-1";
+  expect(await items(publish, false)).not.toContain("Publish as artifact…");
 
   location.hash = "#session-1";
 
-  expect(
-    await items({ "file.actions": () => <span data-publish /> }),
-  ).toContain("Publish as artifact…");
+  expect(await items(publish, true)).toContain("Publish as artifact…");
 
   act(() => {
     [...document.querySelectorAll<HTMLElement>("[role=menuitem]")]

@@ -2,8 +2,9 @@ import { cn } from "@pipoca/ui";
 import { type ReactElement, type ReactNode, useEffect, useRef } from "react";
 
 // The sidebar, which on a phone slides in over a scrim while open. It takes
-// focus, gives it back on closing, and closes on Escape, on following a
-// link, or when the screen grows wide enough to show it beside the page.
+// focus, keeps it from what sits behind, gives it back on closing, and
+// closes on Escape, on following a link, or once the window has room to
+// show it beside the page.
 export function Drawer({
   open,
   onClose,
@@ -31,10 +32,32 @@ export function Drawer({
       ?.querySelector<HTMLElement>("a[href], button:not(:disabled), input")
       ?.focus();
 
-    const wide = matchMedia("(width >= 48rem)");
+    // The page and whatever is docked beside it.
+    const behind = [...(aside.current?.parentElement?.children ?? [])].filter(
+      (each): each is HTMLElement =>
+        each instanceof HTMLElement &&
+        each !== aside.current &&
+        each.getAttribute("aria-hidden") !== "true" &&
+        !each.inert,
+    );
+
+    for (const each of behind) {
+      each.inert = true;
+    }
 
     const shut = (): void => {
       close.current();
+    };
+
+    // A docked artifact also makes it a drawer, so the window's width alone
+    // doesn't say when it sits beside the page again.
+    const beside = (): void => {
+      if (
+        aside.current !== null &&
+        getComputedStyle(aside.current).position !== "fixed"
+      ) {
+        shut();
+      }
     };
 
     const shutOnEscape = (event: KeyboardEvent): void => {
@@ -43,12 +66,16 @@ export function Drawer({
       }
     };
 
-    wide.addEventListener("change", shut);
+    addEventListener("resize", beside);
     document.addEventListener("keydown", shutOnEscape);
 
     return () => {
-      wide.removeEventListener("change", shut);
+      removeEventListener("resize", beside);
       document.removeEventListener("keydown", shutOnEscape);
+
+      for (const each of behind) {
+        each.inert = false;
+      }
 
       if (opener instanceof HTMLElement && opener.isConnected) {
         opener.focus();

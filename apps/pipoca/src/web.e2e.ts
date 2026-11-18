@@ -6177,7 +6177,7 @@ test("opens an artifact Pi published, in a sandbox, from its card in the chat", 
 
   await writeFile(
     join(folder, "report.html"),
-    "<h1>Quarterly report</h1><script>document.body.append(String(window.origin)); parent.postMessage({ pipoca: 'draft', text: 'Unasked' }, '*')</script><button onclick=\"parent.postMessage({ pipoca: 'draft', text: 'Make the chart blue' }, '*')\">Ask Pi</button>",
+    "<h1>Quarterly report</h1><script>document.body.append(String(window.origin)); parent.postMessage({ pipoca: 'draft', text: 'Unasked' }, '*')</script><button onclick=\"parent.postMessage({ pipoca: 'draft', text: 'Make the chart blue' }, '*')\">Ask Pi</button><button onclick=\"setTimeout(() => { parent.postMessage({ pipoca: 'draft', text: 'Later' }, '*'); document.body.append('posted later') }, 5500)\">Later</button>",
   );
 
   faux.setResponses([
@@ -6326,6 +6326,16 @@ test("opens an artifact Pi published, in a sandbox, from its card in the chat", 
   // In comment mode a click picks what to comment on; out of it, the page
   // works as itself.
   await viewer.getByRole("button", { name: /^Comment/, pressed: true }).click();
+
+  // Long after a click, while the page still has focus, a draft isn't the
+  // person's doing.
+  await frame.getByRole("button", { name: "Later" }).click();
+  // Waiting without looking: each look Playwright takes counts as a click.
+  await page.waitForTimeout(6500);
+  await frame.getByText("posted later").waitFor();
+  expect(await viewer.isVisible()).toBe(true);
+  expect(await page.locator("#prompt-text").inputValue()).toBe("");
+
   await frame.getByRole("button", { name: "Ask Pi" }).click();
 
   await page.getByText("Answered in the thread").waitFor();
@@ -6351,7 +6361,7 @@ test("opens an artifact Pi published, in a sandbox, from its card in the chat", 
   );
 
   await page.locator("#prompt-text:focus").waitFor();
-}, 30_000);
+}, 45_000);
 
 test("Pi suggests an edit in a thread, accepting it saves the next version, and Activity tells the person who asked", async () => {
   const folder = join(root, "suggested");
@@ -6932,7 +6942,26 @@ test("docks an artifact beside the chat on a wide window, and on a phone keeps i
     expect(chat?.width).toBeGreaterThan(500);
     await page.getByRole("button", { name: "Open sessions" }).click();
     await page.getByRole("button", { name: "New session" }).waitFor();
+
+    // Behind the open sidebar the docked artifact takes no focus.
+    const dockInert = "document.querySelector('[data-dock]').inert";
+    expect(await page.evaluate(dockInert)).toBe(true);
     await page.keyboard.press("Escape");
+    expect(await page.evaluate(dockInert)).toBe(false);
+
+    // Narrowed past the dock, the sidebar sits beside the page again and
+    // the page isn't left unusable behind a closed drawer.
+    await page.getByRole("button", { name: "Open sessions" }).click();
+    await page.getByRole("button", { name: "New session" }).waitFor();
+    await page.setViewportSize({ width: 1000, height: 900 });
+
+    await until(
+      async () => page.evaluate("document.querySelector('main').inert"),
+      (inert) => inert === false,
+    );
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await docked.waitFor();
 
     await docked.getByRole("button", { name: "Dock beside the page" }).click();
     await viewer.waitFor();
@@ -7060,7 +7089,10 @@ test("reads a design doc with its status, an outline of its sections and its com
   await level();
 
   // The card beside it numbers nothing, so the passage has no badge.
-  expect(await frame.locator("[data-pipoca-pin]").count()).toBe(0);
+  await until(
+    async () => frame.locator("[data-pipoca-pin]").count(),
+    (count) => count === 0,
+  );
 
   await frame.locator("body").evaluate("scrollBy(0, 120)");
 

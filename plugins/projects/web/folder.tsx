@@ -35,7 +35,11 @@ type Named<T> = T & { readonly by: string };
 export function Folder({
   project,
 }: {
-  readonly project: { readonly id: string; readonly coordinatorId: string };
+  readonly project: {
+    readonly id: string;
+    readonly coordinatorId: string;
+    readonly steers: boolean;
+  };
 }): ReactElement {
   const api = useApi(projects);
   const path = `projects/${encodeURIComponent(project.id)}`;
@@ -334,7 +338,7 @@ export function Folder({
                       },
                       // The file's viewer holds the publish button, which
                       // the artifacts plugin draws.
-                      ...(publishes
+                      ...(publishes && project.steers
                         ? [
                             {
                               label: "Publish as artifact…",

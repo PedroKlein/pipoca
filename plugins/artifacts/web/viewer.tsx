@@ -890,42 +890,44 @@ function Shown({
           </Button>
         </div>
       )}
-      {fromPi !== undefined && (
-        <div
-          role="status"
-          aria-label="New version"
-          className="flex flex-wrap items-center gap-2 border-b border-line bg-done-tint px-4.5 py-2 text-label text-fg"
-        >
-          <Icon name="check" className="size-3.5 text-done" />
-          <span className="min-w-0 flex-1 truncate">
-            {fromPi.by} published version {fromPi.number}
-            {fromPi.note !== "" && ` · “${fromPi.note}”`}
-          </span>
-          {fromPi.number > 1 && (
+      <div role="status" className="contents">
+        {fromPi !== undefined && (
+          <div
+            role="group"
+            aria-label="New version"
+            className="flex flex-wrap items-center gap-2 border-b border-line bg-done-tint px-4.5 py-2 text-label text-fg"
+          >
+            <Icon name="check" className="size-3.5 text-done" />
+            <span className="min-w-0 flex-1 truncate">
+              {fromPi.by} published version {fromPi.number}
+              {fromPi.note !== "" && ` · “${fromPi.note}”`}
+            </span>
+            {fromPi.number > 1 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setHeard(fromPi.number);
+                  setBody("compare");
+                }}
+              >
+                Compare with {fromPi.number - 1}
+              </Button>
+            )}
             <Button
               variant="ghost"
               size="sm"
+              iconOnly
+              aria-label="Dismiss"
               onClick={() => {
                 setHeard(fromPi.number);
-                setBody("compare");
               }}
             >
-              Compare with {fromPi.number - 1}
+              <Icon name="x" className="size-3.5" />
             </Button>
-          )}
-          <Button
-            variant="ghost"
-            size="sm"
-            iconOnly
-            aria-label="Dismiss"
-            onClick={() => {
-              setHeard(fromPi.number);
-            }}
-          >
-            <Icon name="x" className="size-3.5" />
-          </Button>
-        </div>
-      )}
+          </div>
+        )}
+      </div>
       {doc !== null && (
         <ReviewBar
           doc={doc}
@@ -970,7 +972,14 @@ function Shown({
             version={shown}
             commenting={commenting && canComment}
             pins={pins}
-            badges={!(roomy && commenting)}
+            badges={
+              !(
+                roomy &&
+                commenting &&
+                listed === "open" &&
+                active === undefined
+              )
+            }
             className="min-h-0 flex-1"
             onPick={pick}
             onPin={showPin}

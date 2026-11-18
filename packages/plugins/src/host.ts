@@ -11,6 +11,7 @@ export {
 } from "./config";
 export { type EventBus, eventBus, pluginEvents } from "./events";
 export { fieldsOf, isObject, readJson } from "./http";
+export { routeUrl } from "./route";
 export { envSecrets, secretRefs } from "./secrets";
 export type {
   ModelOffer,
