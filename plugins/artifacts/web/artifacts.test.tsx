@@ -231,10 +231,9 @@ interface Served {
   readonly url: string;
   readonly method: string;
   readonly body?: unknown;
+  readonly keepalive?: true;
 }
 
-// The plugin's routes as a fake server, with the artifact these tests open
-// and its comments. Writing a comment answers with a new thread's id.
 // Answers who's looking for a fake that doesn't, and keeps those calls out
 // of what it hears.
 function lively(
@@ -246,6 +245,8 @@ function lively(
       : fetch(url, init);
 }
 
+// The plugin's routes as a fake server, with the artifact these tests open
+// and its comments. Writing a comment answers with a new thread's id.
 function serving(
   shown: object,
   asked: Served[],
@@ -272,6 +273,7 @@ function serving(
       ...(typeof init?.body === "string" && {
         body: JSON.parse(init.body) as unknown,
       }),
+      ...(init?.keepalive === true && { keepalive: true as const }),
     };
 
     if (url.endsWith("/presence")) {
@@ -2430,10 +2432,53 @@ test("a pin opens its thread from the page with the comments closed, and @pi sen
   );
 });
 
+// What the viewer told the server about being here, without its page id.
+function told(beats: readonly Served[]): unknown[] {
+  return beats
+    .filter(({ method }) => method === "POST")
+    .map(({ body, keepalive }) => {
+      const { page, ...rest } = body as { page: unknown };
+
+      expect(typeof page).toBe("string");
+
+      return keepalive === true ? { ...rest, keepalive } : rest;
+    });
+}
+
 test("a thread is a small chat: who's here, reactions, mentions and who's typing", async () => {
   const asked: Served[] = [];
   const beats: Served[] = [];
   let here: Presence[] = [{ name: "Ana", typing: null }];
+  let held: (() => void) | undefined;
+
+  const comments = [
+    thread({
+      id: "t1",
+      author: "Rui",
+      quote: "A sender retries with exponential backoff for 24 hours",
+      body: "Too long. @Ana what do you think?",
+      sentBy: "Rui",
+      reactions: [{ emoji: "👍", people: ["Ana"], mine: false }],
+    }),
+    thread({
+      id: "t2",
+      parent: "t1",
+      author: "Pi",
+      byPi: true,
+      body: "x@Ana @Anabel @ana @AxB @Zed @pi",
+    }),
+  ];
+
+  const serve = serving(
+    { ...artifact({ versions: 2 }), ...viewed(2), askable: true },
+    asked,
+    {
+      people: ["A.B", "Ana", "Bo"],
+      here: () => here,
+      beats,
+      comments: () => comments,
+    },
+  );
 
   const page = renderPart(
     web,
@@ -2441,32 +2486,25 @@ test("a thread is a small chat: who's here, reactions, mentions and who's typing
     {},
     {
       hash: "#session-1?artifact=a1&comments=1",
-      fetch: serving(
-        { ...artifact({ versions: 2 }), ...viewed(2), askable: true },
-        asked,
-        {
-          people: ["Ana", "Bo"],
-          here: () => here,
-          beats,
-          comments: () => [
-            thread({
-              id: "t1",
-              author: "Rui",
-              quote: "24 hours",
-              body: "Too long. @Ana what do you think?",
-              sentBy: "Rui",
-              reactions: [{ emoji: "👍", people: ["Ana"], mine: false }],
-            }),
-            thread({
-              id: "t2",
-              parent: "t1",
-              author: "Pi",
-              byPi: true,
-              body: "12 hours covers it.",
-            }),
-          ],
-        },
-      ),
+      fetch: async (url, init) => {
+        if (url.endsWith("/t1/reactions") && typeof init?.body === "string") {
+          const { on } = JSON.parse(init.body) as { on: boolean };
+
+          await new Promise<void>((resolve) => {
+            held = resolve;
+          });
+
+          comments[0] = thread({
+            ...comments[0],
+            id: "t1",
+            reactions: [
+              { emoji: "👍", people: on ? ["Ana", "You"] : ["Ana"], mine: on },
+            ],
+          });
+        }
+
+        return serve(url, init);
+      },
     },
   );
 
@@ -2478,95 +2516,241 @@ test("a thread is a small chat: who's here, reactions, mentions and who's typing
       named(page, "Comment 1 by Rui") !== undefined,
   );
 
-  expect(beats).toContainEqual({
-    url: "/api/ext/artifacts/artifacts/a1/presence",
-    method: "POST",
-    body: { here: true },
-  });
+  expect(told(beats)[0]).toEqual({ here: true });
 
   act(() => {
     named(page, "Comment 1 by Rui")?.click();
   });
 
-  const thread_ = (): HTMLElement | null =>
+  const section = (): HTMLElement | null =>
     page.querySelector("section[aria-label=Thread]");
 
-  expect(thread_()?.querySelector("h3")?.textContent).toBe(
-    "Thread on “24 hours”",
+  // A long quote keeps its start and end, and says all of it on hover.
+  const title = section()?.querySelector("h3");
+
+  expect(title?.textContent).toBe(
+    "Thread on “A sender retries … off for 24 hours”",
   );
 
-  expect(thread_()?.textContent).toContain("Sent to Pi");
+  expect(title?.getAttribute("title")).toBe(
+    "A sender retries with exponential backoff for 24 hours",
+  );
 
-  const messages = [
-    ...(thread_()?.querySelectorAll("ol[aria-label=Messages] > li") ?? []),
+  expect(title?.parentElement?.textContent).toContain("Sent to Pi");
+
+  const messages = (): Element[] => [
+    ...(section()?.querySelectorAll("ol[aria-label=Messages] > li") ?? []),
   ];
 
-  expect(messages.map((each) => each.querySelector("b")?.textContent)).toEqual([
-    "Rui",
-    "Pi",
+  expect(
+    messages().map((each) => each.querySelector("b")?.textContent),
+  ).toEqual(["Rui", "Pi"]);
+
+  // Only whole names of people who can see it, and Pi, stand out.
+  const bold = (at: number): (string | null)[] =>
+    [...(messages()[at]?.querySelectorAll("p b") ?? [])].map(
+      (each) => each.textContent,
+    );
+
+  expect(bold(0)).toEqual(["@Ana"]);
+  expect(bold(1)).toEqual(["@ana", "@pi"]);
+
+  // A reaction is added to, and a second press before it lands does
+  // nothing; once it's back, pressing it again takes it off.
+  const pill = (): HTMLButtonElement | undefined =>
+    buttons(page).find(
+      (each) =>
+        each.getAttribute("aria-label")?.startsWith("Thumbs up from") === true,
+    );
+
+  act(() => {
+    pill()?.click();
+  });
+
+  await act(async () => until(() => held !== undefined));
+
+  expect(pill()?.disabled).toBe(true);
+
+  act(() => {
+    pill()?.click();
+  });
+
+  act(() => {
+    held?.();
+    held = undefined;
+  });
+
+  await drawn(() => pill()?.getAttribute("aria-pressed") === "true");
+
+  expect(pill()?.getAttribute("aria-label")).toBe("Thumbs up from Ana, You");
+
+  act(() => {
+    pill()?.click();
+  });
+
+  await act(async () => until(() => held !== undefined));
+
+  act(() => {
+    held?.();
+    held = undefined;
+  });
+
+  await drawn(() => pill()?.getAttribute("aria-pressed") === "false");
+
+  expect(
+    asked
+      .filter(({ url }) => url.endsWith("/reactions"))
+      .map(({ body }) => body),
+  ).toEqual([
+    { emoji: "👍", on: true },
+    { emoji: "👍", on: false },
   ]);
 
-  expect(messages[0]?.querySelector("p b")?.textContent).toBe("@Ana");
-
-  // Someone else's reaction can be added to, and a new one picked.
+  // Any of the four can be picked from the message's menu.
   act(() => {
-    named(page, "Thumbs up from Ana")?.click();
+    messages()[1]
+      ?.querySelector<HTMLButtonElement>("button[aria-label='Add a reaction']")
+      ?.click();
+  });
+
+  act(() => {
+    [...page.querySelectorAll<HTMLButtonElement>("[role=menuitemradio]")]
+      .find((each) => each.textContent.includes("Celebrate"))
+      ?.click();
   });
 
   await act(async () =>
-    until(() => asked.some(({ url }) => url.endsWith("/reactions"))),
+    until(() => asked.some(({ url }) => url.endsWith("/t2/reactions"))),
   );
 
-  expect(asked.find(({ url }) => url.endsWith("/reactions"))).toEqual({
-    url: "/api/ext/artifacts/artifacts/a1/comments/t1/reactions",
-    method: "PUT",
-    body: { emoji: "👍", on: true },
+  expect(asked.find(({ url }) => url.endsWith("/t2/reactions"))?.body).toEqual({
+    emoji: "🎉",
+    on: true,
   });
 
-  // @ lists the people who can see it and Pi, and picking one fills it in.
+  // @ lists the people who can see it and Pi; arrows move and wrap, and
+  // Enter picks.
   const box = (): HTMLTextAreaElement | null =>
     page.querySelector("form[aria-label=Reply] textarea");
-
-  typeInto(box(), "Fine by me @");
 
   const options = (): string[] =>
     [...page.querySelectorAll("[role=listbox][aria-label=People] li")].map(
       (each) => each.querySelector("span")?.textContent ?? "",
     );
 
-  expect(options()).toEqual(["@pi", "@Ana", "@Bo"]);
+  typeInto(box(), "Fine by me @");
 
+  expect(options()).toEqual(["@pi", "@A.B", "@Ana", "@Bo"]);
+
+  // A name that starts with what's typed comes before one that has it.
   typeInto(box(), "Fine by me @b");
 
-  expect(options()).toEqual(["@Bo"]);
+  expect(options()).toEqual(["@Bo", "@A.B"]);
+
+  typeInto(box(), "Fine by me @");
 
   act(() => {
-    page
-      .querySelector("[role=listbox] li")
-      ?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    box()?.focus();
+
+    box()?.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }),
+    );
+  });
+
+  act(() => {
+    box()?.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+    );
   });
 
   expect(box()?.value).toBe("Fine by me @Bo ");
 
-  // Typing tells the others, at most every few seconds.
+  // Typing tells the others once in a burst, and sending says it stopped.
   await act(async () =>
-    until(() => beats.some(({ body }) => Bun.deepEquals(body, typingIn))),
+    until(() => told(beats).some((each) => Bun.deepEquals(each, typingIn))),
   );
 
   expect(
-    beats.filter(({ body }) => Bun.deepEquals(body, typingIn)),
+    told(beats).filter((each) => Bun.deepEquals(each, typingIn)),
   ).toHaveLength(1);
 
-  // Someone else typing here shows under the messages.
-  here = [{ name: "Ana", typing: "t1" }];
+  await act(async () => {
+    page
+      .querySelector<HTMLFormElement>("form[aria-label=Reply]")
+      ?.requestSubmit();
+
+    await until(() =>
+      told(beats).some((each) =>
+        Bun.deepEquals(each, { here: true, typing: null }),
+      ),
+    );
+  });
+
+  // Who else types here shows under the messages, and not who types in
+  // another thread.
+  const typing = (): string | undefined =>
+    section()?.querySelector("[role=status]")?.textContent;
+
+  here = [
+    { name: "Ana", typing: "t1" },
+    { name: "Bo", typing: "t1" },
+  ];
 
   changed("artifacts.presence");
+  await drawn(() => typing() === "Ana and Bo are typing…");
 
-  await drawn(
-    () =>
-      thread_()?.querySelector("[role=status]")?.textContent ===
-      "Ana is typing…",
-  );
+  here = [{ name: "Ana", typing: "t9" }];
+
+  changed("artifacts.presence");
+  await drawn(() => typing() === "");
+
+  // Leaving the page says so, even as it closes.
+  await act(async () => {
+    dispatchEvent(new Event("pagehide"));
+
+    await until(() => told(beats).some((each) => Bun.deepEquals(each, gone)));
+  });
+
+  expect(told(beats).at(-1)).toEqual({ here: false, keepalive: true });
 });
 
 const typingIn = { here: true, typing: "t1" };
+const gone = { here: false, keepalive: true };
+
+test("people who only view read a thread but don't react or reply", async () => {
+  const asked: Served[] = [];
+
+  const page = renderPart(
+    web,
+    "overlay",
+    {},
+    {
+      hash: "#session-1?artifact=a1&comments=1",
+      fetch: serving(
+        { ...artifact({ versions: 2 }), ...viewed(2), access: "view" },
+        asked,
+        {
+          comments: () => [
+            thread({
+              id: "t1",
+              body: "Ship it",
+              reactions: [{ emoji: "🎉", people: ["Bo"], mine: false }],
+            }),
+          ],
+        },
+      ),
+    },
+  );
+
+  await opened(asked);
+  await drawn(() => named(page, "Comment 1 by Ana") !== undefined);
+
+  act(() => {
+    named(page, "Comment 1 by Ana")?.click();
+  });
+
+  expect(named(page, "Celebrate from Bo")?.disabled).toBe(true);
+  expect(named(page, "Add a reaction")).toBeUndefined();
+  expect(named(page, "Resolve")).toBeUndefined();
+  expect(page.querySelector("form[aria-label=Reply]")).toBeNull();
+});

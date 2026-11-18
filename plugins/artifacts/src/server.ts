@@ -913,15 +913,22 @@ export const server = defineServer(
     routes.get(
       "artifacts/:id/presence",
       { auth: "person" },
-      ({ caller, params }) => ({
-        people: looking
-          .list(theirs(params.id, caller).id)
-          .filter(({ person }) => person !== caller.person.id)
-          .map(({ person, typing }) => ({
-            name: personName(person, null),
-            typing,
-          })),
-      }),
+      ({ caller, params }) => {
+        const artifact = theirs(params.id, caller);
+
+        return {
+          people: looking
+            .list(artifact.id)
+            .filter(
+              ({ person }) =>
+                person !== caller.person.id && sees(artifact, person),
+            )
+            .map(({ person, typing }) => ({
+              name: personName(person, null),
+              typing,
+            })),
+        };
+      },
     );
 
     routes.post(
@@ -929,12 +936,26 @@ export const server = defineServer(
       {
         auth: "person",
         body: Type.Object({
+          page: Type.String({ minLength: 1, maxLength: 64 }),
           here: Type.Boolean(),
-          typing: Type.Optional(Type.String({ minLength: 1, maxLength: 100 })),
+          typing: Type.Optional(
+            Type.Union([
+              Type.String({ minLength: 1, maxLength: 100 }),
+              Type.Null(),
+            ]),
+          ),
         }),
       },
       ({ caller, params, body }) => {
-        looking.beat(theirs(params.id, caller).id, caller.person.id, body);
+        // Typing is where a reply is coming, so only for people who reply.
+        const typing = typeof body.typing === "string";
+        const artifact = (typing ? commenter : theirs)(params.id, caller);
+
+        if (typing) {
+          thread(artifact, body.typing);
+        }
+
+        looking.beat(artifact.id, caller.person.id, body);
 
         return { here: body.here };
       },

@@ -26,7 +26,7 @@ import {
   type Presence,
 } from "../src/artifacts";
 import type { Box, Picked, Pin } from "./collaborate";
-import { mentionable, ThreadView, useMentions } from "./thread";
+import { mentionable, Said, ThreadView, useMentions } from "./thread";
 
 // What a new thread is on: what the person picked, or the whole page.
 export type Anchor = Picked | { readonly page: true };
@@ -240,6 +240,7 @@ export function CommentBox({
         {mentions.menu}
         <TextArea
           aria-label="Comment text"
+          aria-keyshortcuts="Control+Enter Meta+Enter"
           className="w-full"
           placeholder={
             artifact.askable
@@ -359,7 +360,7 @@ export function CommentList({
   // looking now.
   readonly people: readonly string[];
   readonly presence: readonly Presence[];
-  readonly onTyping: (thread: string) => void;
+  readonly onTyping: (thread: string | null) => void;
 }): ReactElement {
   const api = useApi(plugin);
   const now = useNow();
@@ -431,8 +432,8 @@ export function CommentList({
         }}
         onSaid={onSaid}
         onChanged={onChanged}
-        onTyping={() => {
-          onTyping(opened.top.id);
+        onTyping={(on) => {
+          onTyping(on ? opened.top.id : null);
         }}
       />
     );
@@ -537,6 +538,7 @@ export function CommentList({
               onOpen={() => {
                 onActive(thread.top.id);
               }}
+              names={mentionable(artifact, people)}
             />
           ))}
           {shown === "open" && anchor !== undefined && (
@@ -600,9 +602,12 @@ function ThreadCard({
   onFocused,
   onChoose,
   onOpen,
+  names,
 }: {
   readonly version: number;
   readonly thread: Thread;
+  // Who its text can mention, to show them.
+  readonly names: readonly string[];
   readonly now: number;
   // Not sent to Pi yet, and the viewer can send it.
   readonly draft: boolean;
@@ -643,7 +648,11 @@ function ThreadCard({
       </div>
       <button
         type="button"
-        aria-describedby={said}
+        aria-describedby={[
+          said,
+          ...(replies.length > 0 ? [`${said}-replies`] : []),
+          ...(top.sentBy !== null && !top.resolved ? [`${said}-sent`] : []),
+        ].join(" ")}
         autoFocus={focused}
         onFocus={focused ? onFocused : undefined}
         aria-label={`Comment ${String(n)} by ${top.author}`}
@@ -656,22 +665,22 @@ function ThreadCard({
           </span>
         )}
         <span id={said} className="text-label whitespace-pre-wrap text-fg">
-          {top.body}
+          <Said text={top.body} names={names} />
         </span>
+        {replies.length > 0 && (
+          <span id={`${said}-replies`} className="text-caption text-fg-dim">
+            {replies.length === 1
+              ? "1 reply"
+              : `${String(replies.length)} replies`}
+          </span>
+        )}
       </button>
       {draft && !chosen && (
         <span className="text-caption text-fg-dim">Left out of this send</span>
       )}
       {top.sentBy !== null && !top.resolved && (
-        <span className="text-caption text-fg-dim">
+        <span id={`${said}-sent`} className="text-caption text-fg-dim">
           Sent to Pi by {lower(top.sentBy)}
-        </span>
-      )}
-      {replies.length > 0 && (
-        <span className="text-caption text-fg-dim">
-          {replies.length === 1
-            ? "1 reply"
-            : `${String(replies.length)} replies`}
         </span>
       )}
     </li>

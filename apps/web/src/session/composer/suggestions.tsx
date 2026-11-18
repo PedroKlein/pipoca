@@ -1,4 +1,4 @@
-import { useCompletion } from "@pipoca/ui";
+import { type Completion, useCompletion } from "@pipoca/ui";
 import type { Feed } from "../feed";
 import { ranked, type Trigger, trigger } from "./suggest";
 
@@ -17,10 +17,7 @@ export function useSuggestions(feed: Feed): ReturnType<typeof useCompletion> {
   });
 }
 
-function optionsFor(
-  typed: Trigger,
-  feed: Feed,
-): readonly { value: string; detail: string | null }[] {
+function optionsFor(typed: Trigger, feed: Feed): readonly Completion[] {
   switch (typed.kind) {
     case "command":
       return ranked(feed.commands, typed.query, ({ name }) => name).map(

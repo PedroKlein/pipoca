@@ -4,21 +4,17 @@ const hereMs = 45_000;
 const typingMs = 6000;
 
 interface Seen {
+  readonly person: string;
   readonly at: number;
   readonly typing: { readonly thread: string; readonly at: number } | null;
 }
 
-export interface Presences {
-  // A page says every so often that it's open, and in which thread its
-  // person types; here false says it closed.
-  readonly beat: (
-    artifact: string,
-    person: string,
-    beat: { readonly here: boolean; readonly typing?: string },
-  ) => void;
-  readonly list: (
-    artifact: string,
-  ) => readonly { readonly person: string; readonly typing: string | null }[];
+interface Beat {
+  // One open page, so a person's other tabs keep them here when one closes.
+  readonly page: string;
+  readonly here: boolean;
+  // The thread typed in, null once the person stopped, or left as it was.
+  readonly typing?: string | null;
 }
 
 // Who is looking at each artifact and typing in which thread. It lives
@@ -32,18 +28,23 @@ export function presences({
   readonly clock: Clock;
   readonly timer: Timer;
   readonly changed: () => void;
-}): Presences {
+}): {
+  readonly beat: (artifact: string, person: string, beat: Beat) => void;
+  readonly list: (
+    artifact: string,
+  ) => readonly { readonly person: string; readonly typing: string | null }[];
+} {
   const rooms = new Map<string, Map<string, Seen>>();
 
   const live = (artifact: string): Map<string, Seen> => {
     const room = rooms.get(artifact) ?? new Map<string, Seen>();
     const now = clock.now();
 
-    for (const [person, seen] of room) {
+    for (const [page, seen] of room) {
       if (now - seen.at >= hereMs) {
-        room.delete(person);
+        room.delete(page);
       } else if (seen.typing !== null && now - seen.typing.at >= typingMs) {
-        room.set(person, { ...seen, typing: null });
+        room.set(page, { ...seen, typing: null });
       }
     }
 
@@ -54,38 +55,55 @@ export function presences({
     return room;
   };
 
+  const people = (
+    room: Map<string, Seen>,
+  ): { readonly person: string; readonly typing: string | null }[] => {
+    const typing = new Map<string, string | null>();
+
+    for (const seen of room.values()) {
+      typing.set(
+        seen.person,
+        seen.typing?.thread ?? typing.get(seen.person) ?? null,
+      );
+    }
+
+    return [...typing].map(([person, thread]) => ({ person, typing: thread }));
+  };
+
   const shape = (room: Map<string, Seen>): string =>
-    JSON.stringify(
-      [...room].map(([person, seen]) => [person, seen.typing?.thread]),
-    );
+    JSON.stringify(people(room));
 
   const later = (artifact: string, ms: number): void => {
     const before = shape(live(artifact));
 
     timer.after(ms, async () => {
-      await Promise.resolve();
-
       if (shape(live(artifact)) !== before) {
         changed();
       }
+
+      return Promise.resolve();
     });
   };
 
   return {
-    beat: (artifact, person, { here, typing }) => {
+    beat: (artifact, person, { page, here, typing }) => {
       const room = live(artifact);
       const before = shape(room);
       const now = clock.now();
+      const key = `${person}:${page}`;
 
       if (here) {
-        room.set(person, {
-          at: now,
-          typing: typing === undefined ? null : { thread: typing, at: now },
-        });
+        let typed = room.get(key)?.typing ?? null;
+
+        if (typing !== undefined) {
+          typed = typing === null ? null : { thread: typing, at: now };
+        }
+
+        room.set(key, { person, at: now, typing: typed });
 
         rooms.set(artifact, room);
       } else {
-        room.delete(person);
+        room.delete(key);
       }
 
       if (shape(room) !== before) {
@@ -93,13 +111,13 @@ export function presences({
       }
 
       if (here) {
-        later(artifact, typing === undefined ? hereMs : typingMs);
+        later(artifact, hereMs);
+      }
+
+      if (typeof typing === "string") {
+        later(artifact, typingMs);
       }
     },
-    list: (artifact) =>
-      [...live(artifact)].map(([person, seen]) => ({
-        person,
-        typing: seen.typing?.thread ?? null,
-      })),
+    list: (artifact) => people(live(artifact)),
   };
 }

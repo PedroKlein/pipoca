@@ -6306,9 +6306,14 @@ test("comments on selected text and on a clicked element, pins them on the page,
 
   await frame.locator('[data-pipoca-pin="1"]').click();
 
-  await list
-    .getByRole("button", { name: "Comment 1 by You", expanded: true })
+  // A pin opens its thread, and Back returns to the list.
+  const opened = viewer.getByRole("region", { name: "Thread" });
+
+  await opened
+    .getByRole("heading", { name: /^Thread on “The retry/ })
     .waitFor();
+
+  await opened.getByRole("button", { name: "All comments" }).click();
 
   faux.setResponses([fauxAssistantMessage([fauxText("Looking at both")])]);
 
@@ -6430,7 +6435,7 @@ test("two people chat in a comment thread, seeing who's here, who's typing and e
 
     // Each sees the other is here.
     await viewer.getByRole("img", { name: "Also here: rui" }).waitFor();
-    await rui.getByRole("img", { name: /^Also here: / }).waitFor();
+    await rui.getByRole("img", { name: "Also here: pedro" }).waitFor();
 
     // Rui mentions Pedro from the list, and Pedro sees Rui typing.
     const reply = rui.getByRole("form", { name: "Reply" }).getByRole("textbox");
@@ -6453,7 +6458,10 @@ test("two people chat in a comment thread, seeing who's here, who's typing and e
 
     const messages = viewer.getByRole("list", { name: "Messages" });
     await messages.getByText(/12 hours is enough/).waitFor();
-    await viewer.getByText("rui is typing…").waitFor({ state: "hidden" });
+
+    await viewer
+      .getByText("rui is typing…")
+      .waitFor({ state: "hidden", timeout: 3000 });
 
     // Pedro reacts, and Rui sees it.
     await messages
@@ -6461,6 +6469,17 @@ test("two people chat in a comment thread, seeing who's here, who's typing and e
       .last()
       .getByRole("button", { name: "Add a reaction" })
       .click();
+
+    // The menu opens inside the comments, where nothing covers it.
+    const menu = await page
+      .getByRole("menu", { name: "Add a reaction" })
+      .boundingBox();
+
+    const aside = await viewer
+      .getByRole("complementary", { name: "Comments" })
+      .boundingBox();
+
+    expect(menu !== null && aside !== null && menu.x >= aside.x).toBe(true);
 
     await page.getByRole("menuitemradio", { name: "Thumbs up" }).click();
 
@@ -6474,7 +6493,7 @@ test("two people chat in a comment thread, seeing who's here, who's typing and e
 
     await viewer
       .getByRole("img", { name: "Also here: rui" })
-      .waitFor({ state: "hidden" });
+      .waitFor({ state: "hidden", timeout: 5000 });
   } finally {
     await other.close();
 

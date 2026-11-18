@@ -629,44 +629,86 @@ test("people see who else is looking and who is typing in which thread, until th
 
   const here = async (
     who: string,
-    body: { readonly here: boolean; readonly typing?: string },
-  ) => t.as(who).post(`artifacts/${id}/presence`, body);
+    body: { readonly here: boolean; readonly typing?: string | null },
+    page = "tab",
+  ) => t.as(who).post(`artifacts/${id}/presence`, { page, ...body });
 
   const seen = async (who: string) =>
     (await t.as(who).get<{ people: unknown[] }>(`artifacts/${id}/presence`))
       .people;
+
+  const told = () =>
+    t.topics.filter((topic) => topic === "artifacts.presence").length;
 
   await here("ana", { here: true });
   await here("bo", { here: true });
 
   expect(await seen("ana")).toEqual([{ name: "Bo", typing: null }]);
   expect(await seen("bo")).toEqual([{ name: "Ana", typing: null }]);
-  expect(t.topics).toContain("artifacts.presence");
 
   await here("bo", { here: true, typing: thread.id });
 
+  // The page's regular beat leaves typing as it was.
+  await here("bo", { here: true });
+
   expect(await seen("ana")).toEqual([{ name: "Bo", typing: thread.id }]);
 
-  // Typing stops by itself a few seconds after the last key.
+  // Typing stops by itself a few seconds after the last key, and the
+  // others hear it without asking.
+  const before = told();
   await t.clock.advance("7s");
+
+  expect(told()).toBe(before + 1);
+  expect(await seen("ana")).toEqual([{ name: "Bo", typing: null }]);
+
+  // Sending the reply stops it at once.
+  await here("bo", { here: true, typing: thread.id });
+  await here("bo", { here: true, typing: null });
 
   expect(await seen("ana")).toEqual([{ name: "Bo", typing: null }]);
 
-  // Someone whose page stopped saying it's open is gone after a while.
-  await here("ana", { here: true });
+  // Someone whose page stopped saying it's open is gone after a while,
+  // also right after typing, and the others hear that too.
   await t.clock.advance("50s");
+  await here("bo", { here: true, typing: thread.id });
+  await t.clock.advance("44s");
   await here("ana", { here: true });
+  const silent = told();
+  await t.clock.advance("2s");
+
+  expect(told()).toBeGreaterThan(silent);
+  expect(await seen("ana")).toEqual([]);
+
+  // Closing one of two tabs keeps the person here; closing both doesn't.
+  await here("bo", { here: true }, "one");
+  await here("bo", { here: true }, "two");
+  await here("bo", { here: false }, "one");
+
+  expect(await seen("ana")).toEqual([{ name: "Bo", typing: null }]);
+
+  await here("bo", { here: false }, "two");
 
   expect(await seen("ana")).toEqual([]);
 
-  // Closing the viewer says so at once.
+  // Only people who can reply type, and only in a thread of this artifact.
+  const typing = async (who: string, where: string) =>
+    (
+      await t.as(who).raw(`artifacts/${id}/presence`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ page: "tab", here: true, typing: where }),
+      })
+    ).status;
+
+  expect(await typing("cy", thread.id)).toBe(403);
+  expect(await typing("bo", "elsewhere")).toBe(404);
+
+  // Nobody who can't see the artifact learns who looks at it, or shows as
+  // looking.
   await here("bo", { here: true });
-  await here("bo", { here: false });
+  await t.as("ana").put(`artifacts/${id}/shares`, { shares: [] });
 
   expect(await seen("ana")).toEqual([]);
-
-  // Nobody who can't see the artifact learns who looks at it.
-  await t.as("ana").put(`artifacts/${id}/shares`, { shares: [] });
 
   expect(
     (await t.as("bo").raw(`artifacts/${id}/presence`, { method: "GET" }))

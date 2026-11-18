@@ -146,7 +146,8 @@ export function ThreadView({
   readonly onBack: () => void;
   readonly onSaid: (text: string) => void;
   readonly onChanged: () => void;
-  readonly onTyping: () => void;
+  // Whether the person is typing a reply, false once it's sent.
+  readonly onTyping: (on: boolean) => void;
 }): ReactElement {
   const api = useApi(plugin);
   const now = useNow();
@@ -195,12 +196,13 @@ export function ThreadView({
         <h3
           ref={heading}
           tabIndex={-1}
+          title={top.quote === "" ? undefined : top.quote}
           className="min-w-0 flex-1 truncate text-ui font-medium text-fg-strong focus:outline-none"
         >
           {titleOf(top)}
         </h3>
         {top.sentBy !== null && !top.resolved && (
-          <span className="rounded-md bg-butter/40 px-1.5 py-0.5 text-caption text-fg-strong">
+          <span className="rounded-md bg-butter px-1.5 py-0.5 text-caption text-on-butter">
             Sent to Pi
           </span>
         )}
@@ -248,12 +250,20 @@ export function ThreadView({
   );
 }
 
+const quoteShown = 32;
+
+// Long quotes keep their start and end, as the page shows both.
 function titleOf(top: Comment): string {
   if (top.quote === "") {
     return "Thread on the whole page";
   }
 
-  return `Thread on “${top.quote}”`;
+  const { quote } = top;
+  const half = quoteShown / 2;
+
+  return quote.length <= quoteShown
+    ? `Thread on “${quote}”`
+    : `Thread on “${quote.slice(0, half).trimEnd()} … ${quote.slice(-half).trimStart()}”`;
 }
 
 function kindWord(kind: Comment["kind"]): string {
@@ -281,9 +291,18 @@ function Message({
   const api = useApi(plugin);
   const [problem, setProblem] = useState<string>();
   const viewer = useViewer();
+  // The reactions a press was made on: until they load again, another press
+  // would repeat it rather than undo it.
+  const [pressedOn, setPressedOn] = useState<readonly Reaction[]>();
+  const busy = pressedOn === comment.reactions;
   const who = comment.byPi ? "Pi" : comment.author;
 
   const react = (emoji: Reaction["emoji"], on: boolean): void => {
+    if (busy) {
+      return;
+    }
+
+    setPressedOn(comment.reactions);
     setProblem(undefined);
 
     void api
@@ -293,6 +312,7 @@ function Message({
       })
       .then(onChanged)
       .catch((error: unknown) => {
+        setPressedOn(undefined);
         setProblem(error instanceof Error ? error.message : String(error));
       });
   };
@@ -347,7 +367,7 @@ function Message({
                 type="button"
                 aria-pressed={each.mine}
                 aria-label={`${reactionNames[each.emoji]} from ${each.people.join(", ")}`}
-                disabled={!canReact}
+                disabled={!canReact || busy}
                 onClick={() => {
                   react(each.emoji, !each.mine);
                 }}
@@ -382,7 +402,7 @@ function Composer({
   readonly version: number;
   readonly thread: Comment;
   readonly names: readonly string[];
-  readonly onTyping: () => void;
+  readonly onTyping: (on: boolean) => void;
   readonly onChanged: () => void;
 }): ReactElement {
   const api = useApi(plugin);
@@ -408,6 +428,7 @@ function Composer({
       })
       .then(() => {
         setBody("");
+        onTyping(false);
         onChanged();
       })
       .catch((error: unknown) => {
@@ -431,6 +452,7 @@ function Composer({
         {mentions.menu}
         <TextArea
           aria-label="Reply"
+          aria-keyshortcuts="Control+Enter Meta+Enter"
           className="w-full"
           placeholder={
             artifact.askable
@@ -442,7 +464,7 @@ function Composer({
           {...mentions.box}
           onChange={(event) => {
             setBody(event.target.value);
-            onTyping();
+            onTyping(true);
           }}
           onKeyDown={(event) => {
             if (mentions.keyDown(event)) {
@@ -465,6 +487,7 @@ function Composer({
           size="sm"
           variant="primary"
           disabled={body.trim() === "" || sending}
+          title="Reply (Ctrl+Enter or ⌘↵)"
         >
           Reply
         </Button>

@@ -754,12 +754,7 @@ function Shown({
         {commenting && (
           <aside
             aria-label="Comments"
-            className={cn(
-              "flex shrink-0 flex-col border-l border-line bg-elevated max-sm:w-full",
-              threads.some(({ top }) => top.id === active)
-                ? "w-[440px]"
-                : "w-[340px]",
-            )}
+            className="flex w-[420px] shrink-0 flex-col border-l border-line bg-elevated max-sm:w-full"
           >
             <CommentList
               artifact={artifact}
@@ -815,9 +810,9 @@ function Here({
       title={`Also here: ${people.join(", ")}`}
       className="flex -space-x-1.5"
     >
-      {people.slice(0, 3).map((name) => (
+      {people.slice(0, 3).map((name, at) => (
         <Avatar
-          key={name}
+          key={`${String(at)}:${name}`}
           name={name}
           size="xs"
           className="ring-2 ring-elevated"
