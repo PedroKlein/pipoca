@@ -3,7 +3,12 @@ import { AttachMenu } from "@pipoca/plugins/web";
 import { renderPart, resize, sessionWith } from "@pipoca/plugins/web/testing";
 import { until } from "@pipoca/testing/until";
 import { act } from "react";
-import type { ArtifactSummary, Comment, Presence } from "../src/artifacts";
+import type {
+  ActivityItem,
+  ArtifactSummary,
+  Comment,
+  Presence,
+} from "../src/artifacts";
 import { web } from "./index";
 
 // The page's change stream, which tells only what a test says changed.
@@ -4690,4 +4695,205 @@ test("a design doc's outline lists its sections with their open threads, goes to
   act(() => {
     named(page, "Dock beside the page")?.click();
   });
+});
+
+test("Activity lists what's for the person, opens each where it happened and marks it read, and says what they're told of where", async () => {
+  const asked: Served[] = [];
+
+  const entry = (o: Partial<ActivityItem> & { readonly id: string }) => ({
+    kind: "mention" as const,
+    artifact: "a1",
+    title: "Webhooks v2 delivery design",
+    thread: "t1",
+    quote: "retries",
+    by: "Rui",
+    byPi: false,
+    suggested: false,
+    excerpt: "Works for me. @Ana ok to accept?",
+    doc: null,
+    version: 5,
+    at: Date.now() - 1000,
+    read: false,
+    ...o,
+  });
+
+  let read = new Set<string>();
+
+  const mine = () => {
+    const items = [
+      entry({ id: "i1" }),
+      entry({
+        id: "i2",
+        kind: "review",
+        by: "Pedro",
+        thread: null,
+        quote: "",
+        excerpt: "",
+        doc: "design",
+      }),
+      entry({
+        id: "i3",
+        kind: "reply",
+        by: "Pi",
+        byPi: true,
+        suggested: true,
+        excerpt: "12 hours covers the March outage",
+      }),
+      entry({
+        id: "i4",
+        kind: "comment",
+        artifact: "a2",
+        title: "Rollout checklist",
+        thread: "t9",
+        excerpt: "Add a step",
+      }),
+    ].map((each) => ({ ...each, read: read.has(each.id) }));
+
+    return { items, unread: items.filter((each) => !each.read).length };
+  };
+
+  let settings = { asked: true, replies: true, comments: false };
+
+  const page = renderPart(
+    web,
+    "page:activity",
+    { path: "" },
+    {
+      hash: "#plugin/artifacts/activity",
+      fills: { "activity.channel": () => <> · push</> },
+      fetch: async (url, init) => {
+        await Promise.resolve();
+
+        const body =
+          typeof init?.body === "string"
+            ? (JSON.parse(init.body) as Record<string, unknown>)
+            : undefined;
+
+        asked.push({ url, method: init?.method ?? "GET", body });
+
+        if (url.endsWith("/activity/read")) {
+          const ids = body?.["ids"] as string[] | undefined;
+
+          read = new Set(ids ?? mine().items.map(({ id }) => id));
+          changed("artifacts.artifacts");
+
+          return Response.json({ read: true });
+        }
+
+        if (url.endsWith("/activity/settings")) {
+          if (init?.method === "PUT") {
+            settings = { ...settings, [String(body?.["topic"])]: body?.["on"] };
+          }
+
+          return Response.json(settings);
+        }
+
+        if (url.includes("/activity?view=following")) {
+          return Response.json({
+            items: [
+              entry({ id: "f1", read: true, kind: "reply", excerpt: "Me" }),
+            ],
+            unread: 0,
+          });
+        }
+
+        return Response.json(mine());
+      },
+    },
+  );
+
+  const rows = (): HTMLElement[] => [
+    ...page.querySelectorAll<HTMLElement>("ul[aria-label=Activity] button"),
+  ];
+
+  await drawn(() => rows().length === 4);
+
+  const text = (at: number): string => rows()[at]?.textContent ?? "";
+
+  expect(text(0)).toContain(
+    "Unread: Rui mentioned you on Webhooks v2 delivery design",
+  );
+
+  expect(text(0)).toContain(
+    "“Works for me. @Ana ok to accept?” · thread on retries · ",
+  );
+
+  expect(text(0)).toEndWith("Mention");
+
+  expect(text(1)).toContain(
+    "Pedro asked you to review Webhooks v2 delivery design",
+  );
+
+  expect(text(1)).toContain("Design doc · version 5 · ");
+  expect(text(2)).toContain("Pi suggested an edit in a thread you're in");
+  expect(text(3)).toContain("Rui commented on Rollout checklist");
+  expect(text(3)).toContain("Your artifact · ");
+
+  // A row opens the artifact at its thread and marks it read.
+  act(() => {
+    rows()[3]?.click();
+  });
+
+  expect(location.hash).toBe(
+    "#plugin/artifacts/activity?artifact=a2&comments=1&thread=t9",
+  );
+
+  await drawn(() => !text(3).includes("Unread"));
+
+  expect(asked.find(({ url }) => url.endsWith("/activity/read"))?.body).toEqual(
+    {
+      ids: ["i4"],
+    },
+  );
+
+  act(() => {
+    named(page, "Mark all read")?.click();
+  });
+
+  await drawn(() =>
+    rows().every((each) => !each.textContent.includes("Unread")),
+  );
+
+  expect(named(page, "Mark all read")?.disabled).toBe(true);
+
+  // What they're told of, and where.
+  const card = page.querySelector("section[aria-labelledby=activity-settings]");
+
+  expect(
+    [...(card?.querySelectorAll("li") ?? [])].map((each) => [
+      each.querySelector("span")?.textContent,
+      each.querySelector("span + span")?.textContent,
+      each.querySelector("[role=switch]")?.getAttribute("aria-checked"),
+    ]),
+  ).toEqual([
+    ["Mentions and review requests", "Here · push", "true"],
+    ["Replies in threads I'm in", "Here · push", "true"],
+    ["Every new comment on my artifacts", "Here · push", "false"],
+  ]);
+
+  act(() => {
+    card?.querySelectorAll<HTMLElement>("[role=switch]")[2]?.click();
+  });
+
+  await drawn(
+    () =>
+      card
+        ?.querySelectorAll("[role=switch]")[2]
+        ?.getAttribute("aria-checked") === "true",
+  );
+
+  expect(asked.findLast(({ method }) => method === "PUT")?.body).toEqual({
+    topic: "comments",
+    on: true,
+  });
+
+  // Everything they follow, without a mark of its own.
+  act(() => {
+    named(page, "Everything I follow")?.click();
+  });
+
+  await drawn(() => rows().length === 1);
+
+  expect(text(0)).toContain("Rui replied in a thread you're in");
+  expect(named(page, "Mark all read")).toBeUndefined();
 });

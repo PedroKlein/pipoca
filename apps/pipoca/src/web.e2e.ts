@@ -6347,6 +6347,111 @@ test("opens an artifact Pi published, in a sandbox, from its card in the chat", 
   await page.locator("#prompt-text:focus").waitFor();
 }, 30_000);
 
+test("Pi suggests an edit in a thread, accepting it saves the next version, and Activity tells the person who asked", async () => {
+  const folder = join(root, "suggested");
+  await mkdir(folder, { recursive: true });
+  await writeFile(join(folder, "plan.md"), "# Plan\n\nShip Friday.\n");
+
+  faux.setResponses([
+    fauxAssistantMessage(
+      [fauxToolCall("publish_artifact", { path: "plan.md", title: "Plan" })],
+      { stopReason: "toolUse" },
+    ),
+    fauxAssistantMessage([fauxText("Published the plan")]),
+  ]);
+
+  await page.goto(server.url.href);
+  await page.getByRole("button", { name: "New session" }).click();
+  const form = page.locator("form#create");
+
+  await pickWorkspace(form, folder);
+  await form.getByRole("button", { name: "Start session" }).click();
+  await page.locator("#status", { hasText: "idle" }).waitFor();
+
+  const box = page.locator("#prompt-text");
+  await box.fill("write the plan");
+  await box.press("Enter");
+  await page.getByText("Published the plan").waitFor();
+
+  faux.setResponses([
+    (context) => {
+      const thread =
+        /thread ([0-9a-f-]{36})/.exec(
+          JSON.stringify(context.messages.at(-1)),
+        )?.[1] ?? "";
+
+      return fauxAssistantMessage(
+        [
+          fauxToolCall("suggest_artifact_edit", {
+            thread,
+            find: "Ship Friday.",
+            replace: "Ship Monday.",
+            text: "Monday leaves a day for review.",
+          }),
+        ],
+        { stopReason: "toolUse" },
+      );
+    },
+    fauxAssistantMessage([fauxText("Suggested it in the thread")]),
+  ]);
+
+  await page.getByRole("link", { name: /^Plan/ }).click();
+  const viewer = page.getByRole("dialog", { name: "Plan" });
+
+  await viewer.getByRole("button", { name: "Comment", exact: true }).click();
+
+  await viewer
+    .getByRole("button", { name: "Comment on the whole page" })
+    .click();
+
+  const comment = page.getByRole("form", { name: "New comment" });
+
+  await comment
+    .getByRole("textbox", { name: "Comment text" })
+    .fill("@pi ship Monday instead?");
+
+  await comment.locator("button[type=submit]").click();
+  await page.getByText("Suggested it in the thread").waitFor();
+
+  await viewer.getByRole("button", { name: /^Comment 1 by You/ }).click();
+
+  const edit = viewer.getByRole("figure", { name: "Suggested edit" });
+
+  await edit.getByText("Accepting saves version 2").waitFor();
+  await edit.getByRole("button", { name: "Accept" }).click();
+  await edit.getByText("Accepted by You as version 2").waitFor();
+
+  await page
+    .frameLocator('iframe[title="Plan, version 2"]')
+    .getByText("Ship Monday.")
+    .waitFor();
+
+  await page.keyboard.press("Escape");
+  await viewer.waitFor({ state: "hidden" });
+
+  // Pi's answer is news for the person who asked it.
+  const nav = page.locator("#plugin-nav");
+  const activity = nav.getByRole("link", { name: /^Activity/ });
+
+  await activity.getByText("1 unread").waitFor();
+  await activity.click();
+
+  const row = page
+    .getByRole("list", { name: "Activity" })
+    .getByRole("button", {
+      name: /Pi suggested an edit in a thread you're in/,
+    });
+
+  await row.click();
+
+  await viewer
+    .getByRole("region", { name: "Thread" })
+    .getByText("Monday leaves a day for review.")
+    .waitFor();
+
+  await activity.getByText("1 unread").waitFor({ state: "detached" });
+}, 30_000);
+
 test("comments on selected text and on a clicked element, pins them on the page, and sends the drafts to Pi in one turn", async () => {
   const folder = join(root, "pinned");
   await mkdir(folder, { recursive: true });

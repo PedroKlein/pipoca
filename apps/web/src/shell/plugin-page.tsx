@@ -3,7 +3,7 @@ import { Button, Icon, Page } from "@pipoca/ui";
 import { createElement, type ReactElement, type ReactNode } from "react";
 import { ShellMenu } from "../session/embedded-session";
 import { PluginBoundary } from "../plugin-boundary";
-import { guarded, ownPages, pageFills } from "../plugins";
+import { guarded, ownPages, pageAt, pageFills } from "../plugins";
 
 export function MenuButton({
   onMenu,
@@ -98,27 +98,6 @@ function PageAt({
   const found = pageAt(pages, path);
 
   return found ? createElement(found.page.Page, { path: found.rest }) : null;
-}
-
-function pageAt(
-  pages: readonly WebPage[],
-  path: string,
-): { readonly page: WebPage; readonly rest: string } | undefined {
-  const page = [...pages]
-    .sort((one, other) => other.path.length - one.path.length)
-    .find(
-      (each) =>
-        each.path === "" ||
-        path === each.path ||
-        path.startsWith(`${each.path}/`),
-    );
-
-  return page
-    ? {
-        page,
-        rest: page.path === "" ? path : path.slice(page.path.length + 1),
-      }
-    : undefined;
 }
 
 // Whether the address opens a page drawn alone in the window.

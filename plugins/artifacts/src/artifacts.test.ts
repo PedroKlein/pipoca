@@ -10,7 +10,12 @@ import {
 } from "@pipoca/testing";
 import { until } from "@pipoca/testing/until";
 import { blobRoutes } from "@pipoca/protocol";
-import type { ArtifactSummary, ArtifactView, Comment } from "./artifacts";
+import type {
+  ActivityItem,
+  ArtifactSummary,
+  ArtifactView,
+  Comment,
+} from "./artifacts";
 import { lineDiff, textChanges } from "./diff";
 import { server } from "./server";
 import { session } from "./session";
@@ -2028,4 +2033,151 @@ test("Pi suggests an edit to a Markdown artifact in a thread sent to it, and som
     isError: true,
     text: expect.stringContaining("2 times") as unknown,
   });
+});
+
+test("people are told of mentions, review requests, replies in their threads and, if they ask, comments on their artifacts", async () => {
+  const setup = await setUp();
+  const { t, host, part } = setup;
+  const { id, comment } = await shared(setup);
+
+  const told = async (who: string, view = "mine") =>
+    t
+      .as(who)
+      .get<{ items: ActivityItem[]; unread: number }>(`activity?view=${view}`);
+
+  // A mention says so once, even to the artifact's owner, and only people
+  // who see the artifact hear.
+  const bo = await comment("bo", "Friday is too soon, @Ana @Cy @Dee");
+
+  expect((await told("ana")).items).toMatchObject([
+    {
+      kind: "mention",
+      artifact: id,
+      title: "plan.md",
+      thread: bo.id,
+      by: "Bo",
+      byPi: false,
+      excerpt: "Friday is too soon, @Ana @Cy @Dee",
+      read: false,
+    },
+  ]);
+
+  expect((await told("cy")).items).toMatchObject([{ kind: "mention" }]);
+
+  // Replies tell everyone else in the thread, Pi's too, as Pi.
+  await comment("ana", "@pi what about Monday?", { parent: bo.id });
+  await until(() => host.delivered().length === 1);
+
+  expect((await told("bo")).items).toMatchObject([
+    { kind: "reply", by: "Ana", thread: bo.id },
+  ]);
+
+  await part.tool("suggest_artifact_edit", {
+    thread: bo.id,
+    find: "Ship Friday.",
+    replace: "Ship Monday.",
+  });
+
+  expect((await told("bo")).items[0]).toMatchObject({
+    kind: "reply",
+    by: "Pi",
+    byPi: true,
+    suggested: true,
+  });
+
+  expect((await told("ana")).items[0]).toMatchObject({
+    kind: "reply",
+    byPi: true,
+  });
+
+  // Asking someone to review tells them.
+  await t.as("ana").put(`artifacts/${id}/doc`, { type: "design" });
+  await t.as("ana").put(`artifacts/${id}/reviewers`, { reviewers: ["Bo"] });
+
+  expect((await told("bo")).items[0]).toMatchObject({
+    kind: "review",
+    by: "Ana",
+    doc: "design",
+  });
+
+  // Comments on their own artifacts only for people who turn them on.
+  expect(await t.as("ana").get("activity/settings")).toEqual({
+    asked: true,
+    replies: true,
+    comments: false,
+  });
+
+  await comment("bo", "Who owns rollout?");
+
+  expect((await told("ana")).items[0]).toMatchObject({ kind: "reply" });
+
+  await t.as("ana").put("activity/settings", { topic: "comments", on: true });
+
+  await comment("bo", "And the date?");
+
+  expect((await told("ana")).items[0]).toMatchObject({
+    kind: "comment",
+    by: "Bo",
+    excerpt: "And the date?",
+  });
+
+  await t.as("bo").put("activity/settings", { topic: "replies", on: false });
+  await comment("ana", "Me", { parent: bo.id });
+
+  expect((await told("bo")).items[0]).toMatchObject({ kind: "review" });
+
+  // Read one, then all.
+  const mine = await told("bo");
+
+  expect(mine.unread).toBe(3);
+
+  await t.as("bo").post("activity/read", { ids: [mine.items[0]?.id] });
+
+  expect((await told("bo")).unread).toBe(2);
+  expect((await told("bo")).items[0]?.read).toBe(true);
+
+  await t.as("bo").post("activity/read", {});
+
+  expect((await told("bo")).unread).toBe(0);
+  expect((await told("ana")).unread).toBeGreaterThan(0);
+
+  // Mentions, review requests and replies also go out, through the
+  // plugins that tell people elsewhere.
+  expect(
+    t.emitted("artifacts.activity").map(({ fields, to }) => [fields, to]),
+  ).toContainEqual([
+    {
+      kind: "review",
+      artifact: id,
+      headline: "Ana asked you to review plan.md",
+      text: "",
+      url: `/#plugin/artifacts/${id}/comments`,
+    },
+    [person("bo")],
+  ]);
+
+  expect(
+    t
+      .emitted("artifacts.activity")
+      .some(({ fields }) => (fields as { kind: string }).kind === "comment"),
+  ).toBe(false);
+
+  // Everything they follow: their artifacts, threads they wrote in and docs
+  // they review, as others write in them.
+  const following = await told("bo", "following");
+
+  expect(following.items.map(({ excerpt }) => excerpt)).toEqual([
+    "Me",
+    "",
+    "@pi what about Monday?",
+  ]);
+
+  expect(following.items.every(({ read }) => read)).toBe(true);
+
+  // Someone the artifact is no longer shared with stops seeing its
+  // activity.
+  await t.as("ana").put(`artifacts/${id}/shares`, { shares: [] });
+
+  expect((await told("cy")).items).toEqual([]);
+  expect((await told("bo", "following")).items).toEqual([]);
 });

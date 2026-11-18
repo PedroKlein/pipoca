@@ -18,6 +18,7 @@ import {
   kindLabel,
   type Published,
 } from "../src/artifacts";
+import { ActivityCount, ActivityPage } from "./activity";
 import { artifactHref, loadArtifact } from "./collaborate";
 import { audienceLabel } from "./chrome";
 import { useDock } from "./dock";
@@ -27,6 +28,13 @@ import { ArtifactDock, ArtifactLink, ArtifactOverlay, Viewer } from "./viewer";
 
 export const web = defineWeb(plugin, {
   pages: [
+    {
+      path: "activity",
+      label: "Activity",
+      icon: "bell",
+      Page: ActivityPage,
+      nav: { Count: ActivityCount, pinned: true },
+    },
     {
       path: "",
       label: "Artifacts",

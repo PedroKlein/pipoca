@@ -292,11 +292,16 @@ export function permissionRenderer(
 }
 
 export interface NavEntry {
+  // What pins it: the plugin's name, with the page's path after a slash
+  // for a page other than its own.
+  readonly key: string;
   readonly name: string;
+  readonly path: string;
   readonly label: string;
   readonly icon?: IconName;
   readonly Items?: ComponentType<NavItemsProps>;
   readonly Live?: ComponentType<NavItemsProps>;
+  readonly Count?: ComponentType;
   readonly pinned: boolean;
 }
 
@@ -309,14 +314,42 @@ export function ownPages(name: string): readonly WebPage[] {
   );
 }
 
-// The page the sidebar lists, if any.
-function listedPage(name: string): WebPage | undefined {
-  return ownPages(name).find(({ nav }) => nav !== undefined);
+// The pages the sidebar lists.
+function listedPages(name: string): readonly WebPage[] {
+  return ownPages(name).filter(({ nav }) => nav !== undefined);
 }
 
-// What a plugin's page is called, the listed one first.
+// What a plugin's page is called: its own, else the first listed.
 export function pageLabel(name: string): string | undefined {
-  return (listedPage(name) ?? ownPages(name)[0])?.label;
+  const pages = ownPages(name);
+
+  return (
+    pages.find(({ path, nav }) => path === "" && nav !== undefined) ??
+    listedPages(name)[0] ??
+    pages[0]
+  )?.label;
+}
+
+// The page whose path is the longest start of the address, and the rest.
+export function pageAt(
+  pages: readonly WebPage[],
+  path: string,
+): { readonly page: WebPage; readonly rest: string } | undefined {
+  const page = [...pages]
+    .sort((one, other) => other.path.length - one.path.length)
+    .find(
+      (each) =>
+        each.path === "" ||
+        path === each.path ||
+        path.startsWith(`${each.path}/`),
+    );
+
+  return page
+    ? {
+        page,
+        rest: page.path === "" ? path : path.slice(page.path.length + 1),
+      }
+    : undefined;
 }
 
 // A plugin whose search fails offers nothing, so the others still show.
@@ -354,22 +387,19 @@ export async function branchesOf(
 }
 
 export function navEntries(): readonly NavEntry[] {
-  return enabled.flatMap(({ plugin: { id } }) => {
-    const listed = listedPage(id);
-
-    return listed
-      ? [
-          {
-            name: id,
-            label: listed.label,
-            pinned: listed.nav?.pinned === true,
-            ...(listed.icon && { icon: listed.icon }),
-            ...(listed.nav?.Items && { Items: listed.nav.Items }),
-            ...(listed.nav?.Live && { Live: listed.nav.Live }),
-          },
-        ]
-      : [];
-  });
+  return enabled.flatMap(({ plugin: { id } }) =>
+    listedPages(id).map((listed) => ({
+      key: listed.path === "" ? id : `${id}/${listed.path}`,
+      name: id,
+      path: listed.path,
+      label: listed.label,
+      pinned: listed.nav?.pinned === true,
+      ...(listed.icon && { icon: listed.icon }),
+      ...(listed.nav?.Items && { Items: listed.nav.Items }),
+      ...(listed.nav?.Live && { Live: listed.nav.Live }),
+      ...(listed.nav?.Count && { Count: listed.nav.Count }),
+    })),
+  );
 }
 
 // A Session a plugin owns opens in that plugin's page (ADR 0028).
@@ -383,7 +413,9 @@ export function sessionHref(session: Session): string {
 }
 
 export function pageFills(name: string, path: string): boolean {
-  return guarded(() => listedPage(name)?.nav?.fills?.(path)) === true;
+  const found = pageAt(ownPages(name), path);
+
+  return guarded(() => found?.page.nav?.fills?.(found.rest)) === true;
 }
 
 // A plugin's function the shell calls while it draws, outside any plugin's

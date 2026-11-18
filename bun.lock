@@ -422,6 +422,7 @@
     "plugins/push": {
       "name": "@pipoca/push",
       "dependencies": {
+        "@pipoca/artifacts": "workspace:*",
         "@pipoca/plugins": "workspace:*",
         "@pipoca/protocol": "workspace:*",
         "@pipoca/routines": "workspace:*",

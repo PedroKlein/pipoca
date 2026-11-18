@@ -19,6 +19,20 @@ export function PluginNav({
   const [more, setMore] = useState(false);
   const page = route.name === "plugin" ? route.params : undefined;
 
+  // Whether the address is in the entry's page, or under it.
+  const opens = (entry: NavEntry): boolean =>
+    page?.name === entry.name &&
+    (page.path === entry.path ||
+      (entry.path !== "" && page.path.startsWith(`${entry.path}/`)) ||
+      (entry.path === "" &&
+        !nav.some(
+          (other) =>
+            other.name === entry.name &&
+            other.path !== "" &&
+            (page.path === other.path ||
+              page.path.startsWith(`${other.path}/`)),
+        )));
+
   if (nav.length === 0 || saved.loading) {
     return null;
   }
@@ -26,7 +40,7 @@ export function PluginNav({
   const pins =
     changing ??
     saved.data?.pages ??
-    nav.flatMap(({ name, pinned }) => (pinned ? [name] : []));
+    nav.flatMap(({ key, pinned }) => (pinned ? [key] : []));
 
   const pin = (name: string, pinned: boolean): void => {
     const next = pinned
@@ -45,25 +59,32 @@ export function PluginNav({
       });
   };
 
-  const pinned = nav.filter(({ name }) => pins.includes(name));
-  const rest = nav.filter(({ name }) => !pins.includes(name));
-  const showRest = more || rest.some(({ name }) => page?.name === name);
+  const pinned = nav.filter(({ key }) => pins.includes(key));
+  const rest = nav.filter(({ key }) => !pins.includes(key));
+  const showRest = more || rest.some((entry) => opens(entry));
 
   const row = (entry: NavEntry, isPinned: boolean): ReactElement => (
-    <div key={entry.name} className="flex flex-col gap-0.5">
+    <div key={entry.key} className="flex flex-col gap-0.5">
       <div className="group/row relative">
         <NavRow
-          href={href("plugin", { name: entry.name })}
+          href={href("plugin", { name: entry.name, path: entry.path })}
           label={entry.label}
           icon={entry.icon}
-          current={page?.name === entry.name && page.path === ""}
+          current={page?.name === entry.name && page.path === entry.path}
+          {...(entry.Count && {
+            count: (
+              <PluginBoundary name={entry.name}>
+                <entry.Count />
+              </PluginBoundary>
+            ),
+          })}
         />
         <button
           type="button"
           aria-label={`${isPinned ? "Unpin" : "Pin"} ${entry.label}`}
           aria-pressed={isPinned}
           onClick={() => {
-            pin(entry.name, !isPinned);
+            pin(entry.key, !isPinned);
           }}
           className={cn(
             "absolute top-1/2 right-1 grid size-6 -translate-y-1/2 cursor-pointer place-items-center rounded-md text-fg-dim hover:bg-elevated hover:text-fg focus-visible:opacity-100 pointer-coarse:opacity-100",

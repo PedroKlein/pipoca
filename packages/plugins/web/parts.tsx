@@ -56,6 +56,9 @@ export interface Slots {
   home: HomeProps;
   // A Project's artifacts, by the Sessions of the Project.
   "project.artifacts": { readonly sessions: readonly string[] };
+  // Where else a person is told of artifact activity on that topic, such as
+  // " · push", or nothing.
+  "activity.channel": { readonly topic: "asked" | "replies" | "comments" };
   // Over every page, such as a viewer the address opens (useOverlay).
   overlay: Nothing;
   // Beside every page, such as a viewer docked by the chat.
@@ -80,7 +83,7 @@ export interface WebPage {
   // In the sidebar. Pinned is for someone who never changed their pins.
   // Items list under the entry, and Live lists work below all the entries,
   // such as active Projects; a hub page's Live shows in the team's sidebar.
-  // Count is a number beside a hub page's entry.
+  // Count is a number beside the entry, such as what's unread.
   readonly nav?: {
     readonly Items?: ComponentType<NavItemsProps>;
     readonly Live?: ComponentType<NavItemsProps>;

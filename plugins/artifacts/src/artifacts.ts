@@ -214,6 +214,66 @@ export interface Batch {
   }[];
 }
 
+export const activityKinds = ["mention", "review", "reply", "comment"] as const;
+
+export type ActivityKind = (typeof activityKinds)[number];
+
+// What a person asks to be told of: mentions and review requests, replies
+// in threads they're in, and every comment on their own artifacts.
+export const activityTopics = ["asked", "replies", "comments"] as const;
+
+export type ActivityTopic = (typeof activityTopics)[number];
+
+export type ActivitySettings = Readonly<Record<ActivityTopic, boolean>>;
+
+export const topicOf: Readonly<Record<ActivityKind, ActivityTopic>> = {
+  mention: "asked",
+  review: "asked",
+  reply: "replies",
+  comment: "comments",
+};
+
+// One thing a person was told of, or for what they follow, one comment.
+export interface ActivityItem {
+  readonly id: string;
+  readonly kind: ActivityKind;
+  readonly artifact: string;
+  readonly title: string;
+  // The thread it's in, by its first comment.
+  readonly thread: string | null;
+  // What the thread is on.
+  readonly quote: string;
+  readonly by: string;
+  readonly byPi: boolean;
+  readonly suggested: boolean;
+  readonly excerpt: string;
+  readonly doc: DocType | null;
+  readonly version: number;
+  readonly at: number;
+  readonly read: boolean;
+}
+
+export function headline(
+  item: Pick<ActivityItem, "kind" | "by" | "byPi" | "suggested" | "title">,
+): string {
+  switch (item.kind) {
+    case "mention":
+      return `${item.by} mentioned you on ${item.title}`;
+    case "review":
+      return `${item.by} asked you to review ${item.title}`;
+    case "comment":
+      return `${item.by} commented on ${item.title}`;
+    case "reply":
+      if (!item.byPi) {
+        return `${item.by} replied in a thread you're in`;
+      }
+
+      return item.suggested
+        ? "Pi suggested an edit in a thread you're in"
+        : "Pi replied in a thread you're in";
+  }
+}
+
 export function isText(kind: Kind): boolean {
   return (
     kind === "html" || kind === "markdown" || kind === "svg" || kind === "csv"

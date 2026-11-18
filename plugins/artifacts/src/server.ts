@@ -13,6 +13,8 @@ import {
 import { type Actor, blobHash, isBusy, type Owner } from "@pipoca/protocol";
 import { artifacts } from "../plugin";
 import {
+  type ActivityKind,
+  activityTopics,
   type Access,
   type ArtifactSummary,
   type Audience,
@@ -40,6 +42,7 @@ import {
   type Verdict,
   type Version,
 } from "./artifacts";
+import { activityLog } from "./activity";
 import { presences } from "./presence";
 import { rendered } from "./render";
 
@@ -432,6 +435,42 @@ export const server = defineServer(
       };
     };
 
+    const activity = activityLog({
+      store,
+      clock,
+      name: (person, reader) => personName(person, reader),
+      sees: (id, person) => {
+        const artifact = row(id);
+
+        return artifact !== undefined && sees(artifact, person);
+      },
+      docType: async (id, person) => {
+        const artifact = row(id);
+
+        return artifact === undefined
+          ? null
+          : ((await docOf(artifact, person))?.type ?? null);
+      },
+      told: (person, what) => {
+        events.emit(
+          "activity",
+          { ...what, url: `/#plugin/artifacts/${what.artifact}/comments` },
+          { to: [owners.of(person)] },
+        );
+      },
+    });
+
+    // Who in a thread hears of a new word in it: everyone who wrote in it,
+    // Pi's replies counting for whoever sent the thread.
+    const threadPeople = (thread: string): string[] =>
+      store
+        .all<{ author_user_id: string }>(
+          "select distinct author_user_id from artifacts_comments where (id = ? or parent_id = ?) and author_user_id is not null",
+          thread,
+          thread,
+        )
+        .map(({ author_user_id }) => author_user_id);
+
     const view = async (
       artifact: Row,
       person: string,
@@ -777,6 +816,10 @@ export const server = defineServer(
 
         const doc = await docOf(artifact, caller.person.id);
 
+        const before = new Set(
+          reviewersOf(artifact).map(({ user_id }) => user_id),
+        );
+
         store.transaction(() => {
           store.run(
             `delete from artifacts_reviewers where artifact_id = ? and user_id not in (${named.map(() => "?").join(", ")})`,
@@ -800,6 +843,16 @@ export const server = defineServer(
             );
           }
         });
+
+        activity.tell(
+          artifact.id,
+          new Map(
+            named
+              .filter((each) => !before.has(each))
+              .map((each) => [each, "review"]),
+          ),
+          { comment: null, actor: caller.person.id },
+        );
 
         return { reviewers: named.length };
       },
@@ -1150,6 +1203,18 @@ export const server = defineServer(
       tell(session.id);
     });
 
+    // The people a comment names with @, by their whole name.
+    const mentioned = (text: string): string[] =>
+      people
+        .list()
+        .filter((each) =>
+          new RegExp(
+            `(^|\\s)@${each.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w-])`,
+            "i",
+          ).test(text),
+        )
+        .map((each) => each.id);
+
     routes.get(
       "artifacts/:id/comments",
       { auth: "person" },
@@ -1236,6 +1301,27 @@ export const server = defineServer(
         if (toSession !== undefined) {
           ask(toSession, [parent ?? thread(artifact, id)], caller.person.id);
         }
+
+        const to = new Map<string, ActivityKind>();
+
+        if (artifact.owner_user_id !== null) {
+          to.set(artifact.owner_user_id, "comment");
+        }
+
+        for (const each of parent === undefined
+          ? []
+          : threadPeople(parent.id)) {
+          to.set(each, "reply");
+        }
+
+        for (const each of mentioned(body.body)) {
+          to.set(each, "mention");
+        }
+
+        activity.tell(artifact.id, to, {
+          comment: id,
+          actor: caller.person.id,
+        });
 
         return { id, sentToPi: toSession !== undefined };
       },
@@ -1762,6 +1848,57 @@ export const server = defineServer(
       },
     );
 
+    routes.get(
+      "activity",
+      {
+        auth: "person",
+        query: Type.Object({
+          view: Type.Optional(StringEnum(["mine", "following"])),
+        }),
+      },
+      async ({ caller, query }) =>
+        activity.list(caller.person.id, query.view ?? "mine"),
+    );
+
+    routes.post(
+      "activity/read",
+      {
+        auth: "person",
+        body: Type.Object({
+          ids: Type.Optional(
+            Type.Array(Type.String({ minLength: 1 }), { maxItems: 200 }),
+          ),
+        }),
+        changes: ["artifacts"],
+      },
+      ({ caller, body }) => {
+        activity.read(caller.person.id, body.ids);
+
+        return { read: true };
+      },
+    );
+
+    routes.get("activity/settings", { auth: "person" }, ({ caller }) =>
+      activity.settings(caller.person.id),
+    );
+
+    routes.put(
+      "activity/settings",
+      {
+        auth: "person",
+        body: Type.Object({
+          topic: StringEnum([...activityTopics]),
+          on: Type.Boolean(),
+        }),
+        changes: ["artifacts"],
+      },
+      ({ caller, body }) => {
+        activity.set(caller.person.id, body.topic, body.on);
+
+        return activity.settings(caller.person.id);
+      },
+    );
+
     routes.get("pins", { auth: "person" }, ({ caller }) => ({
       artifacts: store
         .all<Row>(
@@ -2004,6 +2141,16 @@ export const server = defineServer(
       return id;
     };
 
+    const toldOfAnswer = (top: CommentRow, id: string): void => {
+      if (top.sent_by_user_id !== null) {
+        activity.tell(
+          top.artifact_id,
+          new Map(threadPeople(top.id).map((each) => [each, "reply"])),
+          { comment: id, actor: top.sent_by_user_id, byPi: true },
+        );
+      }
+    };
+
     routes.post(
       "session/comments/:thread/reply",
       {
@@ -2013,9 +2160,14 @@ export const server = defineServer(
         }),
         changes: ["artifacts"],
       },
-      ({ caller, params, body }) => ({
-        id: answer(answerable(caller, params.thread), body.text),
-      }),
+      ({ caller, params, body }) => {
+        const top = answerable(caller, params.thread);
+        const id = answer(top, body.text);
+
+        toldOfAnswer(top, id);
+
+        return { id };
+      },
     );
 
     // Only in Markdown, and only text that's in the latest version once,
@@ -2078,6 +2230,8 @@ export const server = defineServer(
 
           return made;
         });
+
+        toldOfAnswer(still, id);
 
         return { id };
       },

@@ -88,8 +88,9 @@ export const drafts: {
   attachments: readonly Attachment[];
 }[] = [];
 
-// Draws what a part fills a slot with, or its "settings" section, inside the
-// test shell, on a page that is taken down after the test.
+// Draws what a part fills a slot with, its "settings" section or one of its
+// pages ("page:<path>"), inside the test shell, on a page that is taken down
+// after the test.
 export function renderPart(
   part: WebPart,
   slot: string,
@@ -106,10 +107,15 @@ export function renderPart(
     readonly width?: number;
   } = {},
 ): HTMLElement {
+  const page = slot.startsWith("page:")
+    ? part.pages?.find(({ path }) => path === slot.slice("page:".length))
+    : undefined;
+
   const Part = (
     slot === "settings"
       ? part.settings?.Section
-      : (part.slots as Readonly<Record<string, unknown>> | undefined)?.[slot]
+      : (page?.Page ??
+        (part.slots as Readonly<Record<string, unknown>> | undefined)?.[slot])
   ) as ComponentType<object> | undefined;
 
   if (Part === undefined) {
