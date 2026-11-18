@@ -23,8 +23,10 @@ import {
   type Comment,
   type CommentKind,
   commentKinds,
+  type Presence,
 } from "../src/artifacts";
 import type { Box, Picked, Pin } from "./collaborate";
+import { mentionable, ThreadView, useMentions } from "./thread";
 
 // What a new thread is on: what the person picked, or the whole page.
 export type Anchor = Picked | { readonly page: true };
@@ -133,11 +135,14 @@ export function CommentBox({
   anchor,
   scrolled,
   area,
+  people,
   onDone,
 }: {
   readonly artifact: ArtifactView;
   readonly version: number;
   readonly anchor: Anchor;
+  // Everyone else who can see the artifact, to mention.
+  readonly people: readonly string[];
   // How far the page scrolled since the pick.
   readonly scrolled: { readonly x: number; readonly y: number };
   // The frame's size, to keep the box inside it.
@@ -151,6 +156,7 @@ export function CommentBox({
   const [kind, setKind] = useState<CommentKind>("comment");
   const [saving, setSaving] = useState(false);
   const [problem, setProblem] = useState<string>();
+  const mentions = useMentions(mentionable(artifact, people));
   const width = area.width === 0 ? 420 : Math.min(420, area.width - 32);
 
   const at = placed(
@@ -230,20 +236,27 @@ export function CommentBox({
       <p className="truncate border-l-2 border-butter pl-2 text-label text-fg-dim">
         {where(anchor)}
       </p>
-      <TextArea
-        aria-label="Comment text"
-        placeholder={
-          artifact.askable
-            ? "Add a comment, or @pi to ask now"
-            : "Add a comment"
-        }
-        autoFocus
-        rows={2}
-        value={body}
-        onChange={(event) => {
-          setBody(event.target.value);
-        }}
-      />
+      <div className="relative">
+        {mentions.menu}
+        <TextArea
+          aria-label="Comment text"
+          placeholder={
+            artifact.askable
+              ? "Add a comment, or @pi to ask now"
+              : "Add a comment"
+          }
+          autoFocus
+          rows={2}
+          value={body}
+          {...mentions.box}
+          onChange={(event) => {
+            setBody(event.target.value);
+          }}
+          onKeyDown={(event) => {
+            mentions.keyDown(event);
+          }}
+        />
+      </div>
       <div className="flex">
         <Segmented
           label="Kind of comment"
@@ -317,11 +330,14 @@ export function CommentList({
   anchor,
   active,
   saved,
+  people,
+  presence,
   onFocused,
   onSaid,
   onActive,
   onWholePage,
   onChanged,
+  onTyping,
 }: {
   readonly artifact: ArtifactView;
   readonly version: number;
@@ -338,6 +354,11 @@ export function CommentList({
   readonly onActive: (id: string | undefined) => void;
   readonly onWholePage: () => void;
   readonly onChanged: () => void;
+  // Everyone else who can see the artifact, to mention, and who of them is
+  // looking now.
+  readonly people: readonly string[];
+  readonly presence: readonly Presence[];
+  readonly onTyping: (thread: string) => void;
 }): ReactElement {
   const api = useApi(plugin);
   const now = useNow();
@@ -345,7 +366,10 @@ export function CommentList({
   const [leftOut, setLeftOut] = useState<ReadonlySet<string>>(new Set());
   const [sending, setSending] = useState(false);
   const [problem, setProblem] = useState<string>();
-  const heading = useRef<HTMLHeadingElement>(null);
+  const heading = useRef<HTMLHeadingElement | null>(null);
+  const toHeading = useRef(false);
+  // The thread just left, whose card takes focus back.
+  const [left, setLeft] = useState<string>();
   const open = threads.filter(({ top }) => !top.resolved);
   const resolved = threads.filter(({ top }) => top.resolved);
   const listed = shown === "open" ? open : resolved;
@@ -381,11 +405,50 @@ export function CommentList({
     heading.current?.focus();
   }
 
+  const opened = threads.find(({ top }) => top.id === active);
+
+  if (opened !== undefined) {
+    return (
+      <ThreadView
+        artifact={artifact}
+        version={version}
+        top={opened.top}
+        replies={opened.replies}
+        people={people}
+        typing={presence
+          .filter(({ typing }) => typing === opened.top.id)
+          .map(({ name }) => name)}
+        onBack={() => {
+          // A thread resolved meanwhile isn't listed any more.
+          if (opened.top.resolved === (shown === "resolved")) {
+            setLeft(opened.top.id);
+          } else {
+            toHeading.current = true;
+          }
+
+          onActive(undefined);
+        }}
+        onSaid={onSaid}
+        onChanged={onChanged}
+        onTyping={() => {
+          onTyping(opened.top.id);
+        }}
+      />
+    );
+  }
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex items-center gap-2 border-b border-line px-3.5 py-2.5">
         <h3
-          ref={heading}
+          ref={(element) => {
+            heading.current = element;
+
+            if (element !== null && toHeading.current) {
+              toHeading.current = false;
+              element.focus();
+            }
+          }}
           tabIndex={-1}
           className="flex-1 text-ui font-medium text-fg-strong focus:outline-none"
         >
@@ -449,16 +512,16 @@ export function CommentList({
           {listed.map((thread) => (
             <ThreadCard
               key={thread.top.id}
-              artifact={artifact}
               version={version}
               thread={thread}
               now={now}
               draft={drafts.includes(thread)}
               chosen={!leftOut.has(thread.top.id)}
-              expanded={thread.top.id === active}
-              focused={thread.top.id === saved}
-              onFocused={onFocused}
-              onSettled={settled}
+              focused={thread.top.id === saved || thread.top.id === left}
+              onFocused={() => {
+                setLeft(undefined);
+                onFocused();
+              }}
               onChoose={(yes) => {
                 const next = new Set(leftOut);
 
@@ -470,10 +533,9 @@ export function CommentList({
 
                 setLeftOut(next);
               }}
-              onExpand={() => {
-                onActive(thread.top.id === active ? undefined : thread.top.id);
+              onOpen={() => {
+                onActive(thread.top.id);
               }}
-              onChanged={onChanged}
             />
           ))}
           {shown === "open" && anchor !== undefined && (
@@ -528,51 +590,34 @@ function empty(shown: "open" | "resolved", artifact: ArtifactView): string {
 }
 
 function ThreadCard({
-  artifact,
   version,
   thread,
   now,
   draft,
   chosen,
-  expanded,
   focused,
   onFocused,
-  onSettled,
   onChoose,
-  onExpand,
-  onChanged,
+  onOpen,
 }: {
-  readonly artifact: ArtifactView;
   readonly version: number;
   readonly thread: Thread;
   readonly now: number;
   // Not sent to Pi yet, and the viewer can send it.
   readonly draft: boolean;
   readonly chosen: boolean;
-  readonly expanded: boolean;
   readonly focused: boolean;
   readonly onFocused: () => void;
-  readonly onSettled: (text: string) => void;
   readonly onChoose: (yes: boolean) => void;
-  readonly onExpand: () => void;
-  readonly onChanged: () => void;
+  readonly onOpen: () => void;
 }): ReactElement {
-  const api = useApi(plugin);
-  const [problem, setProblem] = useState<string>();
-  const [busy, setBusy] = useState(false);
   const said = useId();
   const { top, replies, n } = thread;
   const pinned = top.quote !== "";
   const element = top.element !== "";
 
   return (
-    <li
-      className={cn(
-        cardClass,
-        "flex flex-col gap-2 p-3",
-        expanded && "ring-1 ring-line-strong",
-      )}
-    >
+    <li className={cn(cardClass, "flex flex-col gap-2 p-3")}>
       <div className="flex min-w-0 items-center gap-2 text-caption text-fg-dim">
         {draft && (
           <Checkbox
@@ -597,12 +642,11 @@ function ThreadCard({
       </div>
       <button
         type="button"
-        aria-expanded={expanded}
         aria-describedby={said}
         autoFocus={focused}
         onFocus={focused ? onFocused : undefined}
         aria-label={`Comment ${String(n)} by ${top.author}`}
-        onClick={onExpand}
+        onClick={onOpen}
         className="flex cursor-pointer flex-col gap-1.5 rounded-md text-left focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
       >
         {pinned && !element && (
@@ -622,73 +666,12 @@ function ThreadCard({
           Sent to Pi by {lower(top.sentBy)}
         </span>
       )}
-      {!expanded && replies.length > 0 && (
+      {replies.length > 0 && (
         <span className="text-caption text-fg-dim">
           {replies.length === 1
             ? "1 reply"
             : `${String(replies.length)} replies`}
         </span>
-      )}
-      {expanded && (
-        <>
-          {replies.map((reply) => (
-            <div
-              key={reply.id}
-              className="flex flex-col gap-1 border-t border-line pt-2"
-            >
-              <span className="text-caption text-fg-dim">
-                <b className="font-medium text-fg-strong">
-                  {reply.byPi ? "Pi" : reply.author}
-                </b>{" "}
-                {[
-                  ...(reply.byPi ? [`via ${lower(reply.author)}`] : []),
-                  ago(new Date(reply.createdAt).toISOString(), now),
-                ].join(" · ")}
-              </span>
-              <p className="text-label whitespace-pre-wrap">{reply.body}</p>
-            </div>
-          ))}
-          {artifact.access !== "view" && (
-            <Reply
-              artifact={artifact}
-              version={version}
-              thread={top}
-              onChanged={onChanged}
-            >
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={busy}
-                onClick={() => {
-                  setProblem(undefined);
-                  setBusy(true);
-
-                  void api
-                    .post(
-                      `artifacts/${artifact.id}/comments/${top.id}/resolve`,
-                      {
-                        resolved: !top.resolved,
-                      },
-                    )
-                    .then(() => {
-                      onSettled(top.resolved ? "Reopened" : "Resolved");
-                    })
-                    .catch((error: unknown) => {
-                      setProblem(
-                        error instanceof Error ? error.message : String(error),
-                      );
-                    })
-                    .finally(() => {
-                      setBusy(false);
-                    });
-                }}
-              >
-                {top.resolved ? "Reopen" : "Resolve"}
-              </Button>
-            </Reply>
-          )}
-          <ErrorText size="caption">{problem}</ErrorText>
-        </>
       )}
     </li>
   );
@@ -697,86 +680,4 @@ function ThreadCard({
 // The viewer is "You" in what the server sends.
 function lower(name: string): string {
   return name === "You" ? "you" : name;
-}
-
-function Reply({
-  artifact,
-  version,
-  thread,
-  onChanged,
-  children,
-}: {
-  readonly artifact: ArtifactView;
-  readonly version: number;
-  readonly thread: Comment;
-  readonly onChanged: () => void;
-  // Beside Reply, such as Resolve.
-  readonly children: ReactNode;
-}): ReactElement {
-  const api = useApi(plugin);
-  const [body, setBody] = useState("");
-  const [sending, setSending] = useState(false);
-  const [problem, setProblem] = useState<string>();
-
-  if (thread.resolved) {
-    return <div className="flex gap-2">{children}</div>;
-  }
-
-  return (
-    <form
-      aria-label="Reply"
-      className="flex flex-col gap-2 border-t border-line pt-2"
-      onSubmit={(event) => {
-        event.preventDefault();
-
-        if (sending) {
-          return;
-        }
-
-        setProblem(undefined);
-        setSending(true);
-
-        void api
-          .post(`artifacts/${artifact.id}/comments`, {
-            version,
-            body: body.trim(),
-            parent: thread.id,
-            toPi: false,
-          })
-          .then(() => {
-            setBody("");
-            onChanged();
-          })
-          .catch((error: unknown) => {
-            setProblem(error instanceof Error ? error.message : String(error));
-          })
-          .finally(() => {
-            setSending(false);
-          });
-      }}
-    >
-      <TextArea
-        aria-label="Reply"
-        placeholder="Reply…"
-        rows={1}
-        className="min-h-0"
-        value={body}
-        onChange={(event) => {
-          setBody(event.target.value);
-        }}
-      />
-      <div className="flex items-center gap-2">
-        <span className="flex-1" />
-        {children}
-        <Button
-          type="submit"
-          size="sm"
-          disabled={body.trim() === "" || sending}
-        >
-          Reply
-        </Button>
-      </div>
-      <ErrorText size="caption">{problem}</ErrorText>
-    </form>
-  );
 }

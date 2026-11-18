@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { renderPart, sessionWith } from "@pipoca/plugins/web/testing";
 import { until } from "@pipoca/testing/until";
 import { act } from "react";
-import type { ArtifactSummary, Comment } from "../src/artifacts";
+import type { ArtifactSummary, Comment, Presence } from "../src/artifacts";
 import { web } from "./index";
 
 // The page's change stream, which tells only what a test says changed.
@@ -235,23 +235,56 @@ interface Served {
 
 // The plugin's routes as a fake server, with the artifact these tests open
 // and its comments. Writing a comment answers with a new thread's id.
+// Answers who's looking for a fake that doesn't, and keeps those calls out
+// of what it hears.
+function lively(
+  fetch: (url: string, init?: RequestInit) => Promise<Response>,
+): (url: string, init?: RequestInit) => Promise<Response> {
+  return async (url, init) =>
+    url.endsWith("/presence") || url.endsWith("/people")
+      ? Response.json({ people: [] })
+      : fetch(url, init);
+}
+
 function serving(
   shown: object,
   asked: Served[],
   {
     comments = () => [],
-  }: { readonly comments?: () => readonly Comment[] } = {},
+    people = [],
+    here = () => [],
+    beats = [],
+  }: {
+    readonly comments?: () => readonly Comment[];
+    // Who else can see the artifact, and who of them is looking now.
+    readonly people?: readonly string[];
+    readonly here?: () => readonly Presence[];
+    // Where the viewer's presence calls go, kept out of what was asked.
+    readonly beats?: Served[];
+  } = {},
 ): (url: string, init?: RequestInit) => Promise<Response> {
   return async (url, init) => {
     await Promise.resolve();
 
-    asked.push({
+    const served: Served = {
       url,
       method: init?.method ?? "GET",
       ...(typeof init?.body === "string" && {
         body: JSON.parse(init.body) as unknown,
       }),
-    });
+    };
+
+    if (url.endsWith("/presence")) {
+      beats.push(served);
+
+      return Response.json(served.method === "GET" ? { people: here() } : {});
+    }
+
+    if (url.endsWith("/people")) {
+      return Response.json({ people });
+    }
+
+    asked.push(served);
 
     if (url.endsWith("/comments")) {
       return Response.json(
@@ -1493,7 +1526,7 @@ test("a link opens the artifact alone in the window, and an earlier version offe
     { path: "a1/v/2" },
     {
       hash: "#plugin/artifacts/a1/v/2",
-      fetch: async (url, init) => {
+      fetch: lively(async (url, init) => {
         await Promise.resolve();
 
         asked.push({ url, method: init?.method ?? "GET" });
@@ -1505,7 +1538,7 @@ test("a link opens the artifact alone in the window, and an earlier version offe
         return url.endsWith("/restore")
           ? Response.json({ version: 4 })
           : Response.json({ ...artifact({ versions: 3 }), ...viewed(3) });
-      },
+      }),
     },
   );
 
@@ -1550,7 +1583,7 @@ test("sharing names people and what they can do, and the link opens the latest o
     "page",
     { path: "a1" },
     {
-      fetch: async (url, init) => {
+      fetch: lively(async (url, init) => {
         await Promise.resolve();
 
         asked.push({
@@ -1567,7 +1600,7 @@ test("sharing names people and what they can do, and the link opens the latest o
         return url.endsWith("/shares")
           ? Response.json({ shares: [] })
           : Response.json({ ...artifact({ versions: 2 }), ...viewed(2) });
-      },
+      }),
     },
   );
 
@@ -1932,7 +1965,7 @@ test("drafts for Pi are listed with the page's pins, and the checked ones go to 
     {},
     {
       hash: "#session-1?artifact=a1&comments=1",
-      fetch: async (url, init) => {
+      fetch: lively(async (url, init) => {
         if (url.endsWith("/send") && (sends += 1) === 1) {
           return Response.json({ error: "Pi is offline" }, { status: 503 });
         }
@@ -1941,8 +1974,17 @@ test("drafts for Pi are listed with the page's pins, and the checked ones go to 
           return Response.json({ error: "Try later" }, { status: 503 });
         }
 
+        if (url.endsWith("/t2/resolve")) {
+          comments[1] = thread({
+            id: "t2",
+            author: "Rui",
+            body: "Keep this chart",
+            resolved: true,
+          });
+        }
+
         return serve(url, init);
-      },
+      }),
     },
   );
 
@@ -1979,8 +2021,7 @@ test("drafts for Pi are listed with the page's pins, and the checked ones go to 
   frame.tell({ pipoca: "pin", n: 3 });
 
   await drawn(
-    () =>
-      named(page, "Comment 3 by You")?.getAttribute("aria-expanded") === "true",
+    () => document.activeElement?.textContent === "Thread on “Nov 3”",
   );
 
   await drawn(() =>
@@ -2008,6 +2049,15 @@ test("drafts for Pi are listed with the page's pins, and the checked ones go to 
       .filter((each) => each.pipoca === "commenting")
       .at(-1)?.on,
   ).toBe(true);
+
+  // Back at the list, focus is on the thread's card again.
+  act(() => {
+    named(page, "All comments")?.click();
+  });
+
+  expect(document.activeElement?.getAttribute("aria-label")).toBe(
+    "Comment 3 by You",
+  );
 
   // A send that fails says so, and can be tried again.
   act(() => {
@@ -2094,8 +2144,18 @@ test("drafts for Pi are listed with the page's pins, and the checked ones go to 
     body: { resolved: true },
   });
 
+  expect(named(page, "Reopen")).toBeDefined();
+  expect(reply()).toBeNull();
+
+  // The resolved thread isn't open any more, so focus goes to the list.
   act(() => {
-    named(page, "Resolved 1")?.click();
+    named(page, "All comments")?.click();
+  });
+
+  await drawn(() => document.activeElement?.textContent === "Comments");
+
+  act(() => {
+    named(page, "Resolved 2")?.click();
   });
 
   expect(aside()?.textContent).toContain("Resolved by Pi");
@@ -2160,10 +2220,11 @@ test("comments that can't be loaded say so, and the page still shows", async () 
     {},
     {
       hash: "#session-1?artifact=a1&comments=1",
-      fetch: async (url, init) =>
+      fetch: lively(async (url, init) =>
         url.endsWith("/comments")
           ? Response.json({ error: "down" }, { status: 500 })
           : serve(url, init),
+      ),
     },
   );
 
@@ -2184,10 +2245,11 @@ test("a comment can be on the whole page, for people who can't select", async ()
     {},
     {
       hash: "#session-1?artifact=a1&comments=1",
-      fetch: async (url, init) =>
+      fetch: lively(async (url, init) =>
         failing && init?.method === "POST"
           ? Response.json({ error: "Disk full" }, { status: 507 })
           : serve(url, init),
+      ),
     },
   );
 
@@ -2331,8 +2393,7 @@ test("a pin opens its thread from the page with the comments closed, and @pi sen
   frame.tell({ pipoca: "pin", n: 1 });
 
   await drawn(
-    () =>
-      named(page, "Comment 1 by Ana")?.getAttribute("aria-expanded") === "true",
+    () => document.activeElement?.textContent === "Thread on “three times”",
   );
 
   await drawn(
@@ -2342,6 +2403,10 @@ test("a pin opens its thread from the page with the comments closed, and @pi sen
         .filter((each) => each.pipoca === "commenting")
         .at(-1)?.on === true,
   );
+
+  act(() => {
+    named(page, "All comments")?.click();
+  });
 
   act(() => {
     named(page, "Comment on the whole page")?.click();
@@ -2364,3 +2429,144 @@ test("a pin opens its thread from the page with the comments closed, and @pi sen
     () => page.querySelector("[role=status]")?.textContent === "Sent to Pi",
   );
 });
+
+test("a thread is a small chat: who's here, reactions, mentions and who's typing", async () => {
+  const asked: Served[] = [];
+  const beats: Served[] = [];
+  let here: Presence[] = [{ name: "Ana", typing: null }];
+
+  const page = renderPart(
+    web,
+    "overlay",
+    {},
+    {
+      hash: "#session-1?artifact=a1&comments=1",
+      fetch: serving(
+        { ...artifact({ versions: 2 }), ...viewed(2), askable: true },
+        asked,
+        {
+          people: ["Ana", "Bo"],
+          here: () => here,
+          beats,
+          comments: () => [
+            thread({
+              id: "t1",
+              author: "Rui",
+              quote: "24 hours",
+              body: "Too long. @Ana what do you think?",
+              sentBy: "Rui",
+              reactions: [{ emoji: "👍", people: ["Ana"], mine: false }],
+            }),
+            thread({
+              id: "t2",
+              parent: "t1",
+              author: "Pi",
+              byPi: true,
+              body: "12 hours covers it.",
+            }),
+          ],
+        },
+      ),
+    },
+  );
+
+  await opened(asked);
+
+  await drawn(
+    () =>
+      page.querySelector("[aria-label='Also here: Ana']") !== null &&
+      named(page, "Comment 1 by Rui") !== undefined,
+  );
+
+  expect(beats).toContainEqual({
+    url: "/api/ext/artifacts/artifacts/a1/presence",
+    method: "POST",
+    body: { here: true },
+  });
+
+  act(() => {
+    named(page, "Comment 1 by Rui")?.click();
+  });
+
+  const thread_ = (): HTMLElement | null =>
+    page.querySelector("section[aria-label=Thread]");
+
+  expect(thread_()?.querySelector("h3")?.textContent).toBe(
+    "Thread on “24 hours”",
+  );
+
+  expect(thread_()?.textContent).toContain("Sent to Pi");
+
+  const messages = [
+    ...(thread_()?.querySelectorAll("ol[aria-label=Messages] > li") ?? []),
+  ];
+
+  expect(messages.map((each) => each.querySelector("b")?.textContent)).toEqual([
+    "Rui",
+    "Pi",
+  ]);
+
+  expect(messages[0]?.querySelector("p b")?.textContent).toBe("@Ana");
+
+  // Someone else's reaction can be added to, and a new one picked.
+  act(() => {
+    named(page, "Thumbs up from Ana")?.click();
+  });
+
+  await act(async () =>
+    until(() => asked.some(({ url }) => url.endsWith("/reactions"))),
+  );
+
+  expect(asked.find(({ url }) => url.endsWith("/reactions"))).toEqual({
+    url: "/api/ext/artifacts/artifacts/a1/comments/t1/reactions",
+    method: "PUT",
+    body: { emoji: "👍", on: true },
+  });
+
+  // @ lists the people who can see it and Pi, and picking one fills it in.
+  const box = (): HTMLTextAreaElement | null =>
+    page.querySelector("form[aria-label=Reply] textarea");
+
+  typeInto(box(), "Fine by me @");
+
+  const options = (): string[] =>
+    [...page.querySelectorAll("[role=listbox][aria-label=People] li")].map(
+      (each) => each.querySelector("span")?.textContent ?? "",
+    );
+
+  expect(options()).toEqual(["@pi", "@Ana", "@Bo"]);
+
+  typeInto(box(), "Fine by me @b");
+
+  expect(options()).toEqual(["@Bo"]);
+
+  act(() => {
+    page
+      .querySelector("[role=listbox] li")
+      ?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+  });
+
+  expect(box()?.value).toBe("Fine by me @Bo ");
+
+  // Typing tells the others, at most every few seconds.
+  await act(async () =>
+    until(() => beats.some(({ body }) => Bun.deepEquals(body, typingIn))),
+  );
+
+  expect(
+    beats.filter(({ body }) => Bun.deepEquals(body, typingIn)),
+  ).toHaveLength(1);
+
+  // Someone else typing here shows under the messages.
+  here = [{ name: "Ana", typing: "t1" }];
+
+  changed("artifacts.presence");
+
+  await drawn(
+    () =>
+      thread_()?.querySelector("[role=status]")?.textContent ===
+      "Ana is typing…",
+  );
+});
+
+const typingIn = { here: true, typing: "t1" };
