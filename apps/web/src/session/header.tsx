@@ -1,4 +1,5 @@
 import type { Environment, Session } from "@pipoca/protocol";
+import { FilesMenu } from "@pipoca/plugins/web";
 import { Badge, Button, cn, Icon } from "@pipoca/ui";
 import type { ReactElement, ReactNode } from "react";
 import { describe, sessionBadge, workspaceName } from "../names";
@@ -86,6 +87,7 @@ export function Header({
         id={primary ? "plugin-header" : undefined}
         className="flex items-center gap-2 text-caption text-fg-dim"
       >
+        <FilesMenu />
         {pluginHeaders}
       </span>
       {!archived && <ViewSwitch view={view} onChange={onView} />}

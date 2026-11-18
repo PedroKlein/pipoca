@@ -585,6 +585,12 @@ async function openEnvironment(name: string): Promise<void> {
 }
 
 // A folder with its own .pi asks before loading it (ADR 0031).
+// The dialog closes on Escape at once, and the address steps Back after it.
+// A test that goes on before then has its next page load cut short.
+async function overlayClosed(): Promise<void> {
+  await page.waitForURL((url) => !url.hash.includes("?"));
+}
+
 async function trustRepository(): Promise<void> {
   await page
     .locator('[data-role="prompt"]')
@@ -5106,6 +5112,66 @@ test("keeps a plugin's newest list when an older load answers last", async () =>
   await page.unroute("**/api/ext/projects/projects");
 });
 
+test("opens what Pi made from the header's Files menu in the file viewer, and steps through the Session's files", async () => {
+  const folder = join(root, "files-viewer");
+  await mkdir(join(folder, "made"), { recursive: true });
+  await writeFile(join(folder, "made", "latency.csv"), "day,ms\n11-03,870\n");
+  await writeFile(join(folder, "made", "note.md"), "# Provider note\n");
+
+  await page.goto(server.url.href);
+  await page.getByRole("button", { name: "New session" }).click();
+  const form = page.locator("form#create");
+  await pickWorkspace(form, folder);
+  await form.getByRole("button", { name: "Start session" }).click();
+  await page.locator("#status", { hasText: "idle" }).waitFor();
+  const sessionId = new URL(page.url()).hash.slice(1).split("?")[0] ?? "";
+
+  // Pi's outputs/ folder is the files plugin's own for the Session, outside
+  // the workspace.
+  faux.setResponses([
+    fauxAssistantMessage(
+      [
+        fauxToolCall("bash", {
+          command: `d=${join(root, "e2e", "sessions", sessionId, "plugins", "files", "outputs")} && mkdir -p $d && cp ${folder}/made/* $d/`,
+        }),
+      ],
+      { stopReason: "toolUse" },
+    ),
+    fauxAssistantMessage([fauxText("wrote the table")]),
+  ]);
+
+  await page.locator("#prompt-text").fill("join the latency tables");
+  await page.locator("#prompt-text").press("Enter");
+  await page.getByText("wrote the table").waitFor({ timeout: 60_000 });
+
+  const button = page.getByRole("button", { name: "Files, 2" });
+  await button.waitFor({ timeout: 30_000 });
+  await button.click();
+  const menu = page.getByRole("dialog", { name: "Files" });
+  const filter = menu.getByLabel("Filter files");
+  await filter.fill("zzz");
+  await menu.getByText("Nothing matches “zzz”.").waitFor();
+  await filter.fill("");
+  await menu.getByRole("button", { name: /^latency\.csv/ }).click();
+
+  const viewer = page.getByRole("dialog", { name: "latency.csv" });
+  await viewer.waitFor();
+
+  await viewer
+    .frameLocator("iframe")
+    .getByRole("cell", { name: "870" })
+    .waitFor();
+
+  await viewer.getByRole("button", { name: "Raw" }).click();
+  await viewer.frameLocator("iframe").getByText("11-03,870").waitFor();
+  await page.keyboard.press("ArrowRight");
+  await page.getByRole("dialog", { name: "note.md" }).waitFor();
+  await page.getByText("2 of 2 files in this Session").waitFor();
+  await page.keyboard.press("Escape");
+  await viewer.waitFor({ state: "detached" });
+  await page.locator("button[aria-label='Files, 2']:focus").waitFor();
+}, 90_000);
+
 test("attaches an image to a message and shows it in the chat", async () => {
   faux.setResponses([fauxAssistantMessage([fauxText("a tiny pixel")])]);
   await page.goto(server.url.href);
@@ -6064,6 +6130,7 @@ test("opens an artifact Pi published, in a sandbox, from its card in the chat", 
   expect(await viewer.isVisible()).toBe(true);
   await page.keyboard.press("Escape");
   await viewer.waitFor({ state: "hidden" });
+  await overlayClosed();
   await page.waitForURL((url) => url.hash === session);
 
   await page.goto(`${server.url.href}${link}`);
@@ -6327,6 +6394,7 @@ test("comments on selected text and on a clicked element, pins them on the page,
   await viewer.getByText("Sent to Pi by you").first().waitFor();
   await page.keyboard.press("Escape");
   await viewer.waitFor({ state: "hidden" });
+  await overlayClosed();
 
   await page
     .getByText("You sent 2 comment threads on Checkout latency")
@@ -6689,6 +6757,7 @@ test("edits a Markdown artifact beside its preview and compares the versions wit
   await viewer.getByText("Comparing two versions").waitFor({ state: "hidden" });
   await page.keyboard.press("Escape");
   await viewer.waitFor({ state: "hidden" });
+  await overlayClosed();
 
   await page
     .locator("#chat")

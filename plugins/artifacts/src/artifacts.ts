@@ -1,28 +1,15 @@
-// What an artifact is drawn as, from its file's extension (ADR 0078).
-export type Kind = "html" | "markdown" | "svg" | "image" | "pdf" | "csv";
+import { type PreviewKind, previewKind } from "@pipoca/plugins";
 
-const kinds: Readonly<Record<string, Kind>> = {
-  html: "html",
-  htm: "html",
-  md: "markdown",
-  markdown: "markdown",
-  svg: "svg",
-  png: "image",
-  jpg: "image",
-  jpeg: "image",
-  gif: "image",
-  webp: "image",
-  pdf: "pdf",
-  csv: "csv",
-};
+// What an artifact is drawn as, from its file's extension (ADR 0078).
+export type Kind = Exclude<PreviewKind, "text">;
 
 export const supported =
   "HTML, Markdown, SVG, PNG, JPEG, GIF, WebP, PDF and CSV files";
 
 export function kindOf(name: string): Kind | undefined {
-  const ext = name.split(".").at(-1)?.toLowerCase() ?? "";
+  const kind = previewKind(name);
 
-  return name.includes(".") ? kinds[ext] : undefined;
+  return kind === "text" ? undefined : kind;
 }
 
 export interface Version {

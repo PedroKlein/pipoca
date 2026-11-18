@@ -5,6 +5,13 @@ import {
   useLoaded,
   useNow,
   useOverlay,
+  ViewerClose,
+  viewerHeaderClass,
+  viewerHeadings,
+  ViewerLead,
+  type ViewerMode,
+  viewerShellClass,
+  ViewerTitle,
 } from "@pipoca/plugins/web";
 import {
   Avatar,
@@ -30,17 +37,7 @@ import {
 } from "react";
 import { artifacts as plugin } from "../plugin";
 import type { ArtifactSummary, ArtifactView, Comment } from "../src/artifacts";
-import {
-  audienceLabel,
-  CloseButton,
-  headerClass,
-  headings,
-  Lead,
-  type Mode,
-  shellClass,
-  Title,
-  versionChoices,
-} from "./chrome";
+import { audienceLabel, versionChoices } from "./chrome";
 import { artifactHref, base, Frame, loadArtifact } from "./collaborate";
 import {
   type Anchor,
@@ -154,7 +151,7 @@ export function Viewer({
   onClose,
 }: {
   readonly id: string;
-  readonly mode: Mode;
+  readonly mode: ViewerMode;
   // A version other than the latest, when the address names one.
   readonly version: number | undefined;
   readonly comments?: boolean;
@@ -232,19 +229,19 @@ function Placeholder({
   onRetry,
   onClose,
 }: {
-  readonly mode: Mode;
+  readonly mode: ViewerMode;
   readonly titleId: string | undefined;
   readonly state: keyof typeof placeholders;
   readonly onRetry: () => void;
   readonly onClose: () => void;
 }): ReactElement {
   const { title, body } = placeholders[state];
-  const Heading = headings[mode];
+  const Heading = viewerHeadings[mode];
 
   return (
-    <div className={shellClass}>
-      <header className={headerClass}>
-        <Lead mode={mode} />
+    <div className={viewerShellClass}>
+      <header className={viewerHeaderClass}>
+        <ViewerLead mode={mode} />
         <Heading
           id={titleId}
           aria-busy={state === "loading"}
@@ -255,7 +252,7 @@ function Placeholder({
         >
           {title}
         </Heading>
-        {mode === "modal" && <CloseButton onClose={onClose} />}
+        {mode === "modal" && <ViewerClose onClose={onClose} />}
       </header>
       <div className="flex flex-1 flex-col items-center justify-center gap-3 bg-panel p-8 text-center">
         {body !== "" && <p className="text-fg-dim">{body}</p>}
@@ -283,7 +280,7 @@ function Shown({
   onClose,
 }: {
   readonly artifact: ArtifactView;
-  readonly mode: Mode;
+  readonly mode: ViewerMode;
   // The version the address names, or null for the latest.
   readonly asked: number | null;
   readonly shown: number;
@@ -572,7 +569,7 @@ function Shown({
 
   if (body === "compare") {
     return (
-      <div className={shellClass}>
+      <div className={viewerShellClass}>
         <Compare
           artifact={artifact}
           mode={mode}
@@ -587,7 +584,7 @@ function Shown({
 
   if (body === "edit") {
     return (
-      <div className={shellClass}>
+      <div className={viewerShellClass}>
         <Editor
           artifact={artifact}
           mode={mode}
@@ -606,10 +603,10 @@ function Shown({
   }
 
   return (
-    <div className={shellClass}>
-      <header className={headerClass}>
-        <Lead mode={mode} />
-        <Title
+    <div className={viewerShellClass}>
+      <header className={viewerHeaderClass}>
+        <ViewerLead mode={mode} />
+        <ViewerTitle
           mode={mode}
           titleId={titleId}
           title={artifact.title}
@@ -686,7 +683,7 @@ function Shown({
           </a>
         )}
         <Menu label="More" size="sm" items={more} />
-        {mode === "modal" && <CloseButton onClose={onClose} />}
+        {mode === "modal" && <ViewerClose onClose={onClose} />}
       </header>
       {!latest && (
         <div className="flex flex-wrap items-center gap-2 border-b border-line bg-hover px-4.5 py-2 text-label text-fg">
@@ -858,7 +855,7 @@ function versionItems(
 
 // Where it comes from and who opens it. Alone in the window, whose it is
 // comes first, since nothing around it says.
-function originLine(artifact: ArtifactSummary, mode: Mode): string {
+function originLine(artifact: ArtifactSummary, mode: ViewerMode): string {
   const from =
     artifact.sessionId === null
       ? []

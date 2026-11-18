@@ -128,6 +128,56 @@ test("what Pi writes in outputs/ is saved after its turn and downloads whole", a
   expect(download.headers.get("content-disposition")).toContain("report.md");
 });
 
+test("a file opens as the page a viewer shows, or as its source, and only for people who see its Session", async () => {
+  const { t, host, runner } = await setUp();
+  const { cwd, part } = await runner();
+
+  await write(cwd, "outputs/p95.csv", "day,ms\n11-03,<870>");
+  await write(cwd, "outputs/book.xlsx", "x");
+  await write(cwd, "outputs/huge.txt", "x".repeat(5_000_001));
+  await part.event("agent_settled");
+  await part.event("session_shutdown");
+
+  const view = async (path: string, who = "ana", as = "") =>
+    t
+      .as(who)
+      .raw(
+        `sessions/${host.id}/files/outputs/view?path=${path}${as === "" ? "" : `&as=${as}`}`,
+      );
+
+  const table = await view("p95.csv");
+
+  expect(table.headers.get("content-security-policy")).toStartWith("sandbox");
+  expect(await table.text()).toContain("<td>&lt;870&gt;</td>");
+
+  expect(await (await view("p95.csv", "ana", "text")).text()).toContain(
+    "<pre>day,ms\n11-03,&lt;870&gt;</pre>",
+  );
+
+  expect((await view("p95.csv", "ana", "html")).status).toBe(422);
+  expect((await view("book.xlsx")).status).toBe(404);
+  expect((await view("huge.txt")).status).toBe(413);
+
+  expect((await view("p95.csv&v=abc")).headers.get("cache-control")).toBe(
+    "no-cache",
+  );
+
+  const hash = (
+    await t
+      .as("ana")
+      .get<{ files: { path: string; hash: string }[] }>(
+        `sessions/${host.id}/files`,
+      )
+  ).files.find(({ path }) => path === "p95.csv")?.hash;
+
+  expect(
+    (await view(`p95.csv&v=${hash ?? ""}`)).headers.get("cache-control"),
+  ).toContain("immutable");
+
+  expect((await view("p95.csv", "bo")).status).toBe(404);
+  expect((await view("gone.csv")).status).toBe(404);
+});
+
 test("an output Pi deletes goes from the server after its next turn", async () => {
   const { runner, listed } = await setUp();
   const { cwd, part } = await runner();

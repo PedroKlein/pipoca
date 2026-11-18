@@ -1,4 +1,4 @@
-import { href, useDraft } from "@pipoca/plugins/web";
+import { frameSandbox, href, useDraft } from "@pipoca/plugins/web";
 import { cn } from "@pipoca/ui";
 import { type ReactElement, useCallback, useEffect, useRef } from "react";
 import { isHttpError, type TypedClient } from "@pipoca/plugins";
@@ -29,9 +29,6 @@ export async function loadArtifact(
       isHttpError(error) && error.status === 404 ? "missing" : "failed",
     );
 }
-
-const sandbox =
-  "allow-scripts allow-popups allow-popups-to-escape-sandbox allow-modals allow-forms";
 
 // Where on the page a thread sits, numbered as the list numbers it; a
 // draft has no number yet.
@@ -208,7 +205,7 @@ export function Frame({
       key={`${artifact.id}-${String(version)}`}
       title={`${artifact.title}, version ${String(version)}`}
       src={`${base}/artifacts/${artifact.id}/view?v=${String(version)}`}
-      {...(artifact.kind !== "pdf" && { sandbox })}
+      {...(artifact.kind !== "pdf" && { sandbox: frameSandbox })}
       onLoad={() => {
         tell();
         markChanges();

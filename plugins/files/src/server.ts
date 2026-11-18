@@ -4,6 +4,8 @@ import {
   defineServer,
   HttpError,
   NotFound,
+  preview,
+  previewBytes,
   StringEnum,
   Type,
 } from "@pipoca/plugins";
@@ -137,11 +139,11 @@ export const server = defineServer(
       }
     };
 
-    const download = async (
+    const keptFile = async (
       sessionId: string,
       place: Place,
       path: string,
-    ): Promise<Response> => {
+    ): Promise<{ readonly row: Row; readonly stream: ReadableStream }> => {
       const row = store.get<Row>(
         `select ${columns} from files_session_files
          where session_id = ? and place = ? and path = ?`,
@@ -155,6 +157,16 @@ export const server = defineServer(
       if (row === undefined || stream === undefined) {
         throw new NotFound(`no file ${place}/${path}`);
       }
+
+      return { row, stream };
+    };
+
+    const download = async (
+      sessionId: string,
+      place: Place,
+      path: string,
+    ): Promise<Response> => {
+      const { row, stream } = await keptFile(sessionId, place, path);
 
       return new Response(stream, {
         headers: {
@@ -214,7 +226,10 @@ export const server = defineServer(
       ({ caller, params }) => {
         seen(params.id, caller.person.id);
 
-        return { files: of(params.id) };
+        return {
+          files: of(params.id),
+          steers: sessions.steers(params.id, caller.person.id),
+        };
       },
     );
 
@@ -228,6 +243,55 @@ export const server = defineServer(
         seen(params.id, caller.person.id);
 
         return download(params.id, placeOf(params.place), query.path);
+      },
+    );
+
+    routes.get(
+      "sessions/:id/files/:place/view",
+      {
+        auth: "person",
+        query: Type.Object({
+          path: Type.String({ minLength: 1 }),
+          as: Type.Optional(Type.Literal("text")),
+          // The file's hash, so a page cached for one copy isn't shown for
+          // the next.
+          v: Type.Optional(Type.String()),
+        }),
+      },
+      async ({ caller, params, query }) => {
+        seen(params.id, caller.person.id);
+
+        const { row, stream } = await keptFile(
+          params.id,
+          placeOf(params.place),
+          query.path,
+        );
+
+        if (row.size > previewBytes) {
+          await stream.cancel();
+
+          throw new HttpError(
+            413,
+            `${query.path} is too big to show; download it instead`,
+            "too_large",
+          );
+        }
+
+        const shown = preview(
+          query.path,
+          new Uint8Array(await new Response(stream).arrayBuffer()),
+          query.as === undefined ? {} : { kind: query.as },
+        );
+
+        if (shown === undefined) {
+          throw new NotFound(`no preview of ${query.path}`);
+        }
+
+        if (query.v !== row.hash) {
+          shown.headers.set("cache-control", "no-cache");
+        }
+
+        return shown;
       },
     );
 
