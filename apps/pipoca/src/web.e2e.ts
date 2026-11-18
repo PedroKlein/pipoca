@@ -6103,6 +6103,7 @@ test("opens an artifact Pi published, in a sandbox, from its card in the chat", 
   ]);
 
   await viewer.getByRole("button", { name: "Comment", exact: true }).click();
+
   await viewer
     .getByRole("button", { name: "Comment on the whole page" })
     .click();
@@ -6192,6 +6193,7 @@ test("comments on selected text and on a clicked element, pins them on the page,
   await page.getByRole("link", { name: /Checkout latency/ }).click();
 
   const viewer = page.getByRole("dialog", { name: "Checkout latency" });
+
   const frame = page.frameLocator(
     'iframe[title="Checkout latency, version 1"]',
   );
@@ -6201,40 +6203,34 @@ test("comments on selected text and on a clicked element, pins them on the page,
 
   const box = page.getByRole("form", { name: "New comment" });
 
-  await frame.locator("p").evaluate((paragraph) => {
-    const text = paragraph.firstChild as Text;
-    const start = text.data.indexOf("three times");
-    const range = document.createRange();
+  await frame.locator("p").selectText();
+  await frame.locator("p").dispatchEvent("mouseup");
 
-    range.setStart(text, start);
-    range.setEnd(text, start + "three times".length);
-    getSelection()?.removeAllRanges();
-    getSelection()?.addRange(range);
-    document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
-  });
+  await box
+    .getByText("The retry waits three times before falling back.")
+    .waitFor();
 
-  await box.getByText("three times").waitFor();
   await box
     .getByRole("textbox", { name: "Comment" })
     .fill("Three attempts or three retries?");
+
   await box.locator("button[type=submit]").click();
   await box.waitFor({ state: "hidden" });
 
   await frame
     .locator('mark[data-pipoca="1"]', { hasText: "three times" })
     .waitFor();
-  await frame.locator('[data-pipoca-pin="1"]').waitFor();
 
-  await frame.locator("body").evaluate(() => {
-    getSelection()?.removeAllRanges();
-  });
+  await frame.locator('[data-pipoca-pin="1"]').waitFor();
 
   await frame.locator('span[title="Nov 3"]').click();
   await box.getByText("On “Nov 3”").waitFor();
   await box.getByRole("button", { name: "Question" }).click();
+
   await box
     .getByRole("textbox", { name: "Comment" })
     .fill("Add the error rate here");
+
   await box.locator("button[type=submit]").click();
   await box.waitFor({ state: "hidden" });
 
@@ -6262,6 +6258,7 @@ test("comments on selected text and on a clicked element, pins them on the page,
   await page
     .getByText("You sent 2 comment threads on Checkout latency")
     .waitFor();
+
   await page.getByText("Looking at both").waitFor();
 
   expect(await page.getByText("Looking at both").count()).toBe(1);
