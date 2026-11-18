@@ -1577,96 +1577,668 @@ test("a link opens the artifact alone in the window, and an earlier version offe
   expect(location.hash).toBe("#plugin/artifacts/a1");
 });
 
-test("sharing names people and what they can do, and the link opens the latest or one version", async () => {
-  const asked: { url: string; body?: unknown }[] = [];
+interface SharesPut {
+  readonly url: string;
+  readonly method: string;
+  readonly body: { readonly shares: readonly { name: string; role: string }[] };
+}
+
+const onServer = [
+  { id: "ana", name: "Ana", here: true },
+  { id: "robin", name: "Robin" },
+  { id: "rob", name: "Rob" },
+  { id: "bo", name: "Bo" },
+  { id: "bob", name: "Bob Lee", here: true },
+  { id: "clea", name: "Clea" },
+  { id: "cy", name: "Cy" },
+];
+
+// The artifact page with its Share dialog open, over a fake server that
+// keeps the shares it's sent. A refused save answers 400 with the reason,
+// and held saves wait until let() answers the oldest.
+async function sharing({
+  shown = {},
+  shares: first = [],
+  path = "a1",
+  peopleFail = false,
+  refuse = () => undefined,
+  held = false,
+}: {
+  readonly shown?: Partial<ArtifactSummary>;
+  readonly shares?: readonly { userId: string; name: string; role: string }[];
+  readonly path?: string;
+  readonly peopleFail?: boolean;
+  readonly refuse?: (put: SharesPut, index: number) => string | undefined;
+  readonly held?: boolean;
+} = {}) {
+  const puts: SharesPut[] = [];
+  const waiting: (() => void)[] = [];
+  const copied: string[] = [];
+  let shares = first;
+  let loads = 0;
 
   const page = renderPart(
     { ...web, slots },
     "page",
-    { path: "a1" },
+    { path },
     {
-      fetch: lively(async (url, init) => {
+      fetch: async (url, init) => {
         await Promise.resolve();
 
-        asked.push({
-          url,
-          ...(typeof init?.body === "string" && {
-            body: JSON.parse(init.body) as unknown,
-          }),
-        });
+        if (url === "/api/people") {
+          return peopleFail
+            ? Response.json({ error: "down", message: "down" }, { status: 500 })
+            : Response.json(onServer);
+        }
+
+        if (url.endsWith("/presence") || url.endsWith("/people")) {
+          return Response.json({ people: [] });
+        }
 
         if (url.endsWith("/comments")) {
           return Response.json({ comments: [] });
         }
 
-        return url.endsWith("/shares")
-          ? Response.json({ shares: [] })
-          : Response.json({ ...artifact({ versions: 2 }), ...viewed(2) });
-      }),
+        if (url.endsWith("/shares")) {
+          const put: SharesPut = {
+            url,
+            method: init?.method ?? "GET",
+            body: JSON.parse(init?.body as string) as SharesPut["body"],
+          };
+
+          const index = puts.push(put) - 1;
+
+          if (held) {
+            await new Promise<void>((resolve) => {
+              waiting.push(resolve);
+            });
+          }
+
+          const refused = refuse(put, index);
+
+          if (refused !== undefined) {
+            return Response.json(
+              { error: "bad_request", message: refused },
+              { status: 400 },
+            );
+          }
+
+          shares = put.body.shares.map((each) => ({
+            ...each,
+            userId: onServer.find(({ name }) => name === each.name)?.id ?? "",
+          }));
+
+          return Response.json({ shares });
+        }
+
+        loads += 1;
+
+        return Response.json({
+          ...artifact({ versions: 2, ...shown }),
+          ...viewed(2),
+          shares,
+        });
+      },
     },
   );
 
-  // The artifact loads, and then its comments.
-  await act(async () => until(() => asked.length === 1));
-  await act(async () => until(() => asked.length === 2));
+  const clipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
 
-  const button = (label: string): HTMLButtonElement | undefined =>
-    [...page.querySelectorAll<HTMLButtonElement>("button")].find(
-      (each) => each.textContent === label,
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: {
+      writeText: async (text: string) => {
+        await Promise.resolve();
+        copied.push(text);
+      },
+    },
+  });
+
+  const dialog = (): HTMLDialogElement =>
+    page.querySelector("dialog") ?? document.createElement("dialog");
+
+  const search = (): HTMLInputElement =>
+    dialog().querySelector("input[role=combobox]") ??
+    document.createElement("input");
+
+  const shown_ = (element: Element): string =>
+    [...(element.children[1]?.children ?? [])]
+      .map((each) => each.textContent)
+      .join(" · ");
+
+  const open = async (): Promise<void> => {
+    await drawn(() =>
+      buttons(page).some((each) => each.textContent === "Share"),
     );
 
-  act(() => {
-    button("Share")?.click();
-  });
+    act(() => {
+      buttons(page)
+        .find((each) => each.textContent === "Share")
+        ?.click();
+    });
 
-  const type = (input: HTMLInputElement | null, text: string): void => {
-    if (input === null) {
-      return;
-    }
-
-    Object.getOwnPropertyDescriptor(
-      HTMLInputElement.prototype,
-      "value",
-    )?.set?.call(input, text);
-
-    input.dispatchEvent(new Event("input", { bubbles: true }));
+    await drawn(() => dialog().open);
   };
 
-  act(() => {
-    page.querySelectorAll<HTMLInputElement>("input[name=audience]")[1]?.click();
+  await open();
+
+  return {
+    page,
+    puts,
+    copied,
+    dialog,
+    // Someone else changes who has it, and the page hears about it.
+    elsewhere: async (
+      next: readonly { userId: string; name: string; role: string }[],
+    ) => {
+      shares = next;
+      const before = loads;
+
+      await act(async () => {
+        changed("artifacts.artifacts");
+        await until(() => loads > before);
+      });
+    },
+    search,
+    open,
+    let: async () => {
+      await act(async () => {
+        waiting.shift()?.();
+        await until(() => waiting.length > 0 || puts.length > 0);
+      });
+    },
+    restore: () => {
+      if (clipboard === undefined) {
+        Reflect.deleteProperty(navigator, "clipboard");
+      } else {
+        Object.defineProperty(navigator, "clipboard", clipboard);
+      }
+    },
+    listed: () => [...dialog().querySelectorAll("[role=option]")].map(shown_),
+    rows: () =>
+      [...dialog().querySelectorAll("ul[aria-labelledby] li")].map((row) => {
+        const role = row.querySelector("select")?.value;
+
+        return role === undefined ? shown_(row) : `${shown_(row)} (${role})`;
+      }),
+    note: () => dialog().querySelector("p:has(svg)")?.textContent ?? "",
+    button: (label: string) =>
+      buttons(dialog()).find((each) => each.textContent === label),
+    type: (text: string) => {
+      act(() => {
+        search().focus();
+        Reflect.set(HTMLInputElement.prototype, "value", text, search());
+        search().dispatchEvent(new Event("input", { bubbles: true }));
+      });
+    },
+    press: (key: string) => {
+      act(() => {
+        search().dispatchEvent(
+          new KeyboardEvent("keydown", { key, bubbles: true }),
+        );
+      });
+    },
+    choose: (label: string, value: string) => {
+      act(() => {
+        const select = dialog().querySelector<HTMLSelectElement>(
+          `select[aria-label='${label}']`,
+        );
+
+        if (select !== null) {
+          Reflect.set(HTMLSelectElement.prototype, "value", value, select);
+          select.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+      });
+    },
+  };
+}
+
+test("sharing picks people on the server, gives each a role, and copies a link to the latest or one version", async () => {
+  const share = await sharing({ path: "a1/v/1" });
+
+  try {
+    const { dialog, search, listed, rows, note, button, type, press } = share;
+
+    expect(dialog().querySelector("h2")?.textContent).toBe("Share “Report”");
+    expect(rows()).toEqual(["Ana (you) · The Session is yours"]);
+    expect(document.activeElement).toBe(search());
+
+    expect(note()).toBe(
+      "Only you can send threads to Pi, with Send to Pi in the comments or by writing @pi. Every viewer signs in to Pipoca; there are no public links.",
+    );
+
+    // Names starting with what's typed first, then a word that does, then
+    // the rest. The viewer isn't offered.
+    type("b");
+    await drawn(() => listed().length > 0);
+
+    expect(listed()).toEqual(["Bo", "Bob Lee · Online now", "Robin", "Rob"]);
+    expect(dialog().textContent).toContain("People on this Pipoca server");
+    expect(dialog().textContent).toContain("an admin invites them first");
+    expect(button("Add")?.disabled).toBe(true);
+
+    type(" bo ");
+
+    expect(listed()).toEqual(["Bo", "Bob Lee · Online now"]);
+    expect(button("Add")?.disabled).toBe(false);
+
+    type("le");
+
+    expect(listed()).toEqual(["Bob Lee · Online now", "Clea"]);
+    expect(button("Add")?.disabled).toBe(true);
+
+    type("Zed");
+
+    expect(listed()).toEqual([]);
+    expect(search().getAttribute("aria-expanded")).toBe("false");
+
+    expect(dialog().textContent).toContain(
+      "No one called “Zed” signs in here.",
+    );
+
+    expect(button("Add")?.disabled).toBe(true);
+
+    // Arrows move and wrap; Escape closes only the list, and an arrow opens
+    // it again.
+    type("b");
+
+    const active = (): string | undefined =>
+      [...dialog().querySelectorAll("[role=option]")].find(
+        (each) => each.id === search().getAttribute("aria-activedescendant"),
+      )?.children[1]?.children[0]?.textContent;
+
+    expect(active()).toBe("Bo");
+    press("ArrowUp");
+    expect(active()).toBe("Rob");
+
+    expect(
+      dialog().querySelector("[aria-selected=true]")?.children[1]?.textContent,
+    ).toBe("Rob");
+
+    press("ArrowDown");
+    press("ArrowDown");
+    expect(active()).toBe("Bob Lee");
+    press("Escape");
+
+    expect(listed()).toEqual([]);
+    expect(dialog().open).toBe(true);
+
+    press("ArrowDown");
+    expect(active()).toBe("Bo");
+    press("ArrowDown");
+    press("Enter");
+
+    expect(search().value).toBe("Bob Lee");
+    expect(listed()).toEqual([]);
+
+    // Add saves at once, with the role picked for new people.
+    await act(async () => {
+      button("Add")?.click();
+      await until(() => share.puts.length === 1);
+    });
+
+    expect(share.puts).toEqual([
+      {
+        url: "/api/ext/artifacts/artifacts/a1/shares",
+        method: "PUT",
+        body: { shares: [{ name: "Bob Lee", role: "comment" }] },
+      },
+    ]);
+
+    await drawn(() => rows().length === 2);
+    expect(search().value).toBe("");
+    expect(rows()[1]).toBe("Bob Lee (comment)");
+    expect(note()).toStartWith("Comments from Bob Lee stay between people.");
+
+    // People already named aren't offered again. Typed in any case, a whole
+    // name can be added too.
+    type("b");
+    expect(listed()).toEqual(["Bo", "Robin", "Rob"]);
+
+    act(() => {
+      dialog()
+        .querySelector("[role=option]")
+        ?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    });
+
+    expect(search().value).toBe("Bo");
+    share.choose("Role for new people", "view");
+
+    await act(async () => {
+      button("Add")?.click();
+      await until(() => share.puts.length === 2);
+    });
+
+    expect(share.puts[1]?.body).toEqual({
+      shares: [
+        { name: "Bob Lee", role: "comment" },
+        { name: "Bo", role: "view" },
+      ],
+    });
+
+    await drawn(() => rows().length === 3);
+    expect(note()).toStartWith("Comments from Bob Lee stay between people.");
+
+    // Each person's role changes on its own.
+    await act(async () => {
+      share.choose("Role for Bo", "comment");
+      await until(() => share.puts.length === 3);
+    });
+
+    expect(share.puts[2]?.body).toEqual({
+      shares: [
+        { name: "Bob Lee", role: "comment" },
+        { name: "Bo", role: "comment" },
+      ],
+    });
+
+    await drawn(() =>
+      note().startsWith("Comments from Bob Lee and Bo stay between people."),
+    );
+
+    await act(async () => {
+      share.choose("Role for Bob Lee", "view");
+      await until(() => share.puts.length === 4);
+    });
+
+    expect(share.puts[3]?.body).toEqual({
+      shares: [
+        { name: "Bob Lee", role: "view" },
+        { name: "Bo", role: "comment" },
+      ],
+    });
+
+    // Removing someone saves at once and leaves focus in the search.
+    await act(async () => {
+      const remove = dialog().querySelector<HTMLButtonElement>(
+        "[aria-label='Remove Bo']",
+      );
+
+      remove?.focus();
+      remove?.click();
+
+      await until(() => share.puts.length === 5);
+    });
+
+    expect(share.puts[4]?.body).toEqual({
+      shares: [{ name: "Bob Lee", role: "view" }],
+    });
+
+    await drawn(() => rows().length === 2);
+    expect(document.activeElement).toBe(search());
+
+    await drawn(() =>
+      note().startsWith(
+        "People you add can read it and can't send threads to Pi.",
+      ),
+    );
+
+    // The link opens the latest version, or only the one shown.
+    const origin = `${location.origin}${location.pathname}`;
+
+    await act(async () => {
+      button("Copy link")?.click();
+      await until(() => share.copied.length === 1);
+    });
+
+    expect(share.copied).toEqual([`${origin}#plugin/artifacts/a1`]);
+    await drawn(() => button("Copied") !== undefined);
+
+    act(() => {
+      button("Version 1 only")?.click();
+    });
+
+    await act(async () => {
+      button("Copied")?.click();
+      await until(() => share.copied.length === 2);
+    });
+
+    expect(share.copied[1]).toBe(`${origin}#plugin/artifacts/a1/v/1`);
+
+    // Done closes, and the dialog opens again on what was saved.
+    act(() => {
+      button("Done")?.click();
+    });
+
+    await drawn(() => !dialog().open);
+    await share.open();
+    await drawn(() => rows().length === 2);
+    expect(rows()[1]).toBe("Bob Lee (view)");
+  } finally {
+    share.restore();
+  }
+});
+
+test("a refused save says why and keeps what was typed, and quick changes save in order", async () => {
+  const share = await sharing({
+    shares: [
+      { userId: "bo", name: "Bo", role: "view" },
+      { userId: "bob", name: "Bob Lee", role: "view" },
+    ],
+    held: true,
+    refuse: ({ body }, index) =>
+      index === 0 || body.shares.some(({ name }) => name === "Rob")
+        ? "no one is called Rob"
+        : undefined,
   });
 
-  act(() => {
-    type(page.querySelector("input[aria-label=Name]"), "Bo");
+  try {
+    const { dialog, search, rows, button, type, press } = share;
+
+    // A second change waits for the first. The first one failing after
+    // the second was made doesn't undo it.
+    act(() => {
+      share.choose("Role for Bo", "comment");
+    });
+
+    act(() => {
+      share.choose("Role for Bob Lee", "comment");
+    });
+
+    expect(rows().slice(1)).toEqual(["Bo (comment)", "Bob Lee (comment)"]);
+    await act(async () => until(() => share.puts.length === 1));
+    expect(share.puts).toHaveLength(1);
+
+    await share.let();
+    await act(async () => until(() => share.puts.length === 2));
+
+    expect(share.puts[1]?.body).toEqual({
+      shares: [
+        { name: "Bo", role: "comment" },
+        { name: "Bob Lee", role: "comment" },
+      ],
+    });
+
+    expect(dialog().textContent).not.toContain("Couldn't save");
+
+    // Done waits for the save, and Share opens again on it before the
+    // artifact reloads.
+    act(() => {
+      button("Done")?.click();
+    });
+
+    await act(async () => Promise.resolve());
+    expect(dialog().open).toBe(true);
+    // A reload while it saves doesn't replace what's being saved.
+    await share.elsewhere([]);
+    await share.let();
+    await drawn(() => !dialog().open);
+    await share.open();
+    expect(rows().slice(1)).toEqual(["Bo (comment)", "Bob Lee (comment)"]);
+
+    // The newest save refused puts back what was saved, and says why.
+    type("rob");
+    await drawn(() => share.listed().length > 0);
+    press("Enter");
+
+    act(() => {
+      button("Add")?.click();
+    });
+
+    expect(search().value).toBe("");
+    expect(rows()).toHaveLength(4);
+    await act(async () => until(() => share.puts.length === 3));
+
+    // Done waiting on it stays open for the refusal, so it isn't missed.
+    act(() => {
+      button("Done")?.click();
+    });
+
+    await share.let();
+
+    await drawn(() =>
+      dialog().textContent.includes(
+        "Couldn't save who has access: no one is called Rob",
+      ),
+    );
+
+    expect(dialog().open).toBe(true);
+    expect(search().value).toBe("Rob");
+    expect(rows().slice(1)).toEqual(["Bo (comment)", "Bob Lee (comment)"]);
+
+    // Asked again, it closes, and opens without the old refusal.
+    act(() => {
+      button("Done")?.click();
+    });
+
+    await drawn(() => !dialog().open);
+    await share.open();
+    expect(dialog().textContent).not.toContain("Couldn't save");
+
+    // The next change clears it.
+    act(() => {
+      share.choose("Role for Bo", "view");
+    });
+
+    expect(dialog().textContent).not.toContain("Couldn't save");
+    await act(async () => until(() => share.puts.length === 4));
+    await share.let();
+    await drawn(() => rows()[1] === "Bo (view)");
+  } finally {
+    share.restore();
+  }
+});
+
+test("sharing someone else's artifact starts from who has it and never offers the owner or the viewer", async () => {
+  const share = await sharing({
+    shown: { owner: "Cy", yours: false },
+    shares: [{ userId: "bo", name: "Bo", role: "view" }],
   });
 
-  act(() => {
-    button("Add")?.click();
+  try {
+    const { rows, listed, type, button } = share;
+
+    expect(rows()).toEqual(["Cy", "Bo (view)"]);
+
+    type("b");
+    await drawn(() => listed().length > 0);
+    expect(listed()).toEqual(["Bob Lee · Online now", "Robin", "Rob"]);
+
+    type("cy");
+    expect(listed()).toEqual([]);
+    type("ana");
+    expect(listed()).toEqual([]);
+
+    type("bob lee");
+
+    await act(async () => {
+      button("Add")?.click();
+      await until(() => share.puts.length === 1);
+    });
+
+    expect(share.puts[0]?.body).toEqual({
+      shares: [
+        { name: "Bo", role: "view" },
+        { name: "Bob Lee", role: "comment" },
+      ],
+    });
+  } finally {
+    share.restore();
+  }
+});
+
+test("Share opens again on changes made elsewhere, and says when no one can send to Pi", async () => {
+  const share = await sharing({
+    shown: { sessionId: null },
+    refuse: ({ body }) =>
+      body.shares.some(({ role }) => role === "comment")
+        ? "comments are off"
+        : undefined,
   });
 
-  act(() => {
-    [...page.querySelectorAll<HTMLButtonElement>("[aria-label=Access] button")]
-      .find((each) => each.textContent === "Comment")
-      ?.click();
+  try {
+    expect(share.note()).toBe(
+      "No one can send its threads to Pi, because it has no Session. Every viewer signs in to Pipoca; there are no public links.",
+    );
 
-    button("Version 2 only")?.click();
+    act(() => {
+      share.button("Done")?.click();
+    });
+
+    await drawn(() => !share.dialog().open);
+    await share.elsewhere([{ userId: "cy", name: "Cy", role: "view" }]);
+    await share.open();
+
+    expect(share.rows()).toEqual(["Ana (you)", "Cy (view)"]);
+
+    // A refusal goes back to that list too.
+    await act(async () => {
+      share.choose("Role for Cy", "comment");
+      await until(() => share.puts.length === 1);
+    });
+
+    await drawn(() => share.dialog().textContent.includes("comments are off"));
+    expect(share.rows()).toEqual(["Ana (you)", "Cy (view)"]);
+  } finally {
+    share.restore();
+  }
+});
+
+test("when the people on the server don't load, the search says so instead of finding no one", async () => {
+  const share = await sharing({ peopleFail: true });
+
+  try {
+    share.type("bo");
+
+    await drawn(() =>
+      share
+        .dialog()
+        .textContent.includes("The people on this server didn't load."),
+    );
+
+    expect(share.rows()).toEqual(["Ana (you) · The Session is yours"]);
+    expect(share.button("Add")?.disabled).toBe(true);
+  } finally {
+    share.restore();
+  }
+});
+
+test("a team artifact opens for the whole team, so its link is all there is to share", async () => {
+  const share = await sharing({
+    shown: { audience: "team", owner: "Team", yours: false },
   });
 
-  expect(page.querySelector("dialog code")?.textContent).toEndWith(
-    "#plugin/artifacts/a1/v/2",
-  );
+  try {
+    const { dialog, note, button } = share;
 
-  expect(page.textContent).toContain("can't send them to Pi");
+    expect(dialog().querySelector("input[role=combobox]")).toBeNull();
+    expect(dialog().textContent).toContain("Everyone on the team opens it");
 
-  await act(async () => {
-    button("Save")?.click();
-    await until(() => asked.some(({ url }) => url.endsWith("/shares")));
-  });
+    expect(note()).toBe(
+      "Every viewer signs in to Pipoca; there are no public links.",
+    );
 
-  expect(asked.at(-1)).toEqual({
-    url: "/api/ext/artifacts/artifacts/a1/shares",
-    body: { shares: [{ name: "Bo", role: "comment" }] },
-  });
+    await act(async () => {
+      button("Copy link")?.click();
+      await until(() => share.copied.length === 1);
+    });
+
+    expect(share.copied).toEqual([
+      `${location.origin}${location.pathname}#plugin/artifacts/a1`,
+    ]);
+  } finally {
+    share.restore();
+  }
 });
 
 function frameOf(page: HTMLElement): {

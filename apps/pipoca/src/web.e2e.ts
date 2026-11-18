@@ -6054,7 +6054,7 @@ test("opens an artifact Pi published, in a sandbox, from its card in the chat", 
 
   await page
     .getByRole("dialog", { name: /^Share/ })
-    .getByRole("button", { name: "Cancel" })
+    .getByRole("button", { name: "Done" })
     .click();
 
   await page
@@ -6404,17 +6404,35 @@ test("two people chat in a comment thread, seeing who's here, who's typing and e
     const id =
       listed.artifacts.find(({ title }) => title === "Retry plan")?.id ?? "";
 
-    await fetch(
-      new URL(`/api/ext/artifacts/artifacts/${id}/shares`, server.url),
-      {
-        method: "PUT",
-        headers: { "content-type": "application/json", cookie },
-        body: JSON.stringify({ shares: [{ name: "rui", role: "comment" }] }),
-      },
-    );
-
     await page.getByRole("link", { name: /Retry plan/ }).click();
     const viewer = page.getByRole("dialog", { name: "Retry plan" });
+
+    // Sharing picks Rui from the people who sign in here.
+    await viewer.getByRole("button", { name: "Share" }).click();
+    const share = page.getByRole("dialog", { name: /^Share/ });
+    const search = share.getByRole("combobox", { name: "Add people" });
+    await share.locator("input[role=combobox]:focus").waitFor();
+    await search.fill("ru");
+    await share.getByRole("option", { name: /rui/ }).waitFor();
+
+    // Escape closes only the list.
+    await page.keyboard.press("Escape");
+    await share.getByRole("listbox").waitFor({ state: "hidden" });
+    expect(await share.isVisible()).toBe(true);
+
+    await page.keyboard.press("ArrowDown");
+    await share.getByRole("option", { name: /rui/ }).click();
+    await share.getByRole("button", { name: "Add" }).click();
+    await share.locator("input[role=combobox]:focus").waitFor();
+
+    await share
+      .getByRole("list", { name: "People with access" })
+      .getByText("rui", { exact: true })
+      .waitFor();
+
+    await share.getByRole("button", { name: "Done" }).click();
+    await share.waitFor({ state: "hidden" });
+    await viewer.getByText(/Shared with rui/).waitFor();
     await viewer.getByRole("button", { name: "Comment", exact: true }).click();
 
     await viewer

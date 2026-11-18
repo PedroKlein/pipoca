@@ -781,6 +781,7 @@ function Shown({
         )}
       </div>
       <ShareDialog
+        key={artifact.id}
         artifact={artifact}
         version={shown}
         open={sharing}
