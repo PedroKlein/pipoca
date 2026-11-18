@@ -135,7 +135,10 @@ export function DialogHead({
   return (
     <header className="flex items-start gap-3 px-6 pt-5.5 pb-1">
       <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <h2 id={id} className="text-[18px] font-semibold text-fg-strong">
+        <h2
+          id={id}
+          className="text-[18px] font-semibold text-balance text-fg-strong"
+        >
           {title}
         </h2>
         {description !== undefined && (
