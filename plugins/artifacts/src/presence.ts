@@ -1,6 +1,9 @@
 import type { Clock, Timer } from "@pipoca/protocol";
 
-const hereMs = 45_000;
+// Long enough for a background tab, whose timers the browser slows to once
+// a minute.
+const hereMs = 90_000;
+const pagesEach = 10;
 const typingMs = 6000;
 
 interface Seen {
@@ -27,7 +30,7 @@ export function presences({
 }: {
   readonly clock: Clock;
   readonly timer: Timer;
-  readonly changed: () => void;
+  readonly changed: (artifact: string) => void;
 }): {
   readonly beat: (artifact: string, person: string, beat: Beat) => void;
   readonly list: (
@@ -78,7 +81,7 @@ export function presences({
 
     timer.after(ms, async () => {
       if (shape(live(artifact)) !== before) {
-        changed();
+        changed(artifact);
       }
 
       return Promise.resolve();
@@ -99,7 +102,14 @@ export function presences({
           typed = typing === null ? null : { thread: typing, at: now };
         }
 
+        room.delete(key);
         room.set(key, { person, at: now, typing: typed });
+
+        const theirs = [...room].filter(([, seen]) => seen.person === person);
+
+        for (const [stale] of theirs.slice(0, -pagesEach)) {
+          room.delete(stale);
+        }
 
         rooms.set(artifact, room);
       } else {
@@ -107,7 +117,7 @@ export function presences({
       }
 
       if (shape(room) !== before) {
-        changed();
+        changed(artifact);
       }
 
       if (here) {

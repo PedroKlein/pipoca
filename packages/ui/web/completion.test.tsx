@@ -7,6 +7,9 @@ withPage();
 
 const names = ["Ana Souza", "Bo", "Anton"];
 
+// Keys the form around the textarea heard, as a dialog would.
+const heard: string[] = [];
+
 function Mentions(): ReactElement {
   const [text, setText] = useState("");
 
@@ -29,7 +32,11 @@ function Mentions(): ReactElement {
   });
 
   return (
-    <div>
+    <div
+      onKeyDown={(event) => {
+        heard.push(event.key);
+      }}
+    >
       {completing.menu}
       <textarea
         aria-label="Text"
@@ -98,6 +105,7 @@ test("lists what completes the typed word, moves with the arrows and puts the pi
 
   expect(options()).toEqual([]);
   expect(escape.defaultPrevented).toBe(true);
+  expect(heard).not.toContain("Escape");
 
   // Typing on in that word keeps it closed; the next word opens it again.
   typeAt(box, "ask @ant please", 8);

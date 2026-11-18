@@ -6457,7 +6457,10 @@ test("two people chat in a comment thread, seeing who's here, who's typing and e
       .click();
 
     const messages = viewer.getByRole("list", { name: "Messages" });
-    await messages.getByText(/12 hours is enough/).waitFor();
+    await messages.getByText("Agreed, @pedro 12 hours is enough").waitFor();
+
+    // Pedro is named in it, so it stands out to him.
+    await messages.locator("b", { hasText: "@pedro" }).waitFor();
 
     await viewer
       .getByText("rui is typing…")
@@ -6479,9 +6482,15 @@ test("two people chat in a comment thread, seeing who's here, who's typing and e
       .getByRole("complementary", { name: "Comments" })
       .boundingBox();
 
-    expect(menu !== null && aside !== null && menu.x >= aside.x).toBe(true);
+    expect(
+      menu !== null &&
+        aside !== null &&
+        menu.x >= aside.x &&
+        menu.x + menu.width <= aside.x + aside.width &&
+        menu.y + menu.height <= aside.y + aside.height,
+    ).toBe(true);
 
-    await page.getByRole("menuitemradio", { name: "Thumbs up" }).click();
+    await page.getByRole("menuitem", { name: "Thumbs up" }).click();
 
     await rui
       .getByRole("list", { name: "Messages" })

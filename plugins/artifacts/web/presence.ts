@@ -15,7 +15,7 @@ export function usePresence(id: string): {
 } {
   const api = useApi(plugin);
   const [page] = useState(() => crypto.randomUUID());
-  const said = useRef(0);
+  const said = useRef({ thread: "", at: 0 });
 
   const { value } = useLoaded(
     async () =>
@@ -24,7 +24,7 @@ export function usePresence(id: string): {
         .then(({ people }) => people)
         .catch((): Presence[] => []),
     `${id}:presence`,
-    { changes: ["presence"] },
+    { changes: [`presence-${id}`] },
   );
 
   useEffect(() => {
@@ -69,11 +69,11 @@ export function usePresence(id: string): {
     (thread: string | null) => {
       const now = Date.now();
 
-      if (thread !== null && now - said.current < typingMs) {
+      if (thread === said.current.thread && now - said.current.at < typingMs) {
         return;
       }
 
-      said.current = thread === null ? 0 : now;
+      said.current = { thread: thread ?? "", at: thread === null ? 0 : now };
 
       void api
         .post(`artifacts/${id}/presence`, { page, here: true, typing: thread })

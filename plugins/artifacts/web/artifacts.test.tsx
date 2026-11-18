@@ -2450,6 +2450,7 @@ test("a thread is a small chat: who's here, reactions, mentions and who's typing
   const beats: Served[] = [];
   let here: Presence[] = [{ name: "Ana", typing: null }];
   let held: (() => void) | undefined;
+  let refusals = 0;
 
   const comments = [
     thread({
@@ -2473,7 +2474,7 @@ test("a thread is a small chat: who's here, reactions, mentions and who's typing
     { ...artifact({ versions: 2 }), ...viewed(2), askable: true },
     asked,
     {
-      people: ["A.B", "Ana", "Bo"],
+      people: ["A.B", "Bo", "Rui"],
       here: () => here,
       beats,
       comments: () => comments,
@@ -2487,6 +2488,10 @@ test("a thread is a small chat: who's here, reactions, mentions and who's typing
     {
       hash: "#session-1?artifact=a1&comments=1",
       fetch: async (url, init) => {
+        if (url.endsWith("/t2/reactions") && (refusals += 1) === 1) {
+          return Response.json({ error: "Try later" }, { status: 503 });
+        }
+
         if (url.endsWith("/t1/reactions") && typeof init?.body === "string") {
           const { on } = JSON.parse(init.body) as { on: boolean };
 
@@ -2528,7 +2533,7 @@ test("a thread is a small chat: who's here, reactions, mentions and who's typing
   // A long quote keeps its start and end, and says all of it on hover.
   const title = section()?.querySelector("h3");
 
-  expect(title?.textContent).toBe("Thread on “A sender … for 24 hours”");
+  expect(title?.textContent).toBe("Thread on “A sender … 24 hours”");
 
   expect(title?.getAttribute("title")).toBe(
     "A sender retries with exponential backoff for 24 hours",
@@ -2544,7 +2549,8 @@ test("a thread is a small chat: who's here, reactions, mentions and who's typing
     messages().map((each) => each.querySelector("b")?.textContent),
   ).toEqual(["Rui", "Pi"]);
 
-  // Only whole names of people who can see it, and Pi, stand out.
+  // Only whole names of people who can see it, the viewer's own and Pi's
+  // stand out.
   const bold = (at: number): (string | null)[] =>
     [...(messages()[at]?.querySelectorAll("p b") ?? [])].map(
       (each) => each.textContent,
@@ -2604,27 +2610,41 @@ test("a thread is a small chat: who's here, reactions, mentions and who's typing
     { emoji: "👍", on: false },
   ]);
 
-  // Any of the four can be picked from the message's menu.
-  act(() => {
-    messages()[1]
-      ?.querySelector<HTMLButtonElement>("button[aria-label='Add a reaction']")
-      ?.click();
-  });
+  // Any of the four can be picked from the message's menu, again after a
+  // try that failed.
+  const celebrate = (): void => {
+    act(() => {
+      messages()[1]
+        ?.querySelector<HTMLButtonElement>(
+          "button[aria-label='Add a reaction']",
+        )
+        ?.click();
+    });
 
-  act(() => {
-    [...page.querySelectorAll<HTMLButtonElement>("[role=menuitemradio]")]
-      .find((each) => each.textContent.includes("Celebrate"))
-      ?.click();
-  });
+    act(() => {
+      [...page.querySelectorAll<HTMLButtonElement>("[role=menuitem]")]
+        .find((each) => each.textContent.includes("Celebrate"))
+        ?.click();
+    });
+  };
+
+  celebrate();
+  await drawn(() => messages()[1]?.textContent.includes("Try later") === true);
+
+  celebrate();
 
   await act(async () =>
-    until(() => asked.some(({ url }) => url.endsWith("/t2/reactions"))),
+    until(
+      () =>
+        asked.filter(({ url }) => url.endsWith("/t2/reactions")).length === 1,
+    ),
   );
 
-  expect(asked.find(({ url }) => url.endsWith("/t2/reactions"))?.body).toEqual({
-    emoji: "🎉",
-    on: true,
-  });
+  expect(
+    asked
+      .filter(({ url }) => url.endsWith("/t2/reactions"))
+      .map(({ body }) => body),
+  ).toEqual([{ emoji: "🎉", on: true }]);
 
   // @ lists the people who can see it and Pi; arrows move and wrap, and
   // Enter picks.
@@ -2638,7 +2658,7 @@ test("a thread is a small chat: who's here, reactions, mentions and who's typing
 
   typeInto(box(), "Fine by me @");
 
-  expect(options()).toEqual(["@pi", "@A.B", "@Ana", "@Bo"]);
+  expect(options()).toEqual(["@pi", "@A.B", "@Bo", "@Rui"]);
 
   // A name that starts with what's typed comes before one that has it.
   typeInto(box(), "Fine by me @b");
@@ -2661,7 +2681,7 @@ test("a thread is a small chat: who's here, reactions, mentions and who's typing
     );
   });
 
-  expect(box()?.value).toBe("Fine by me @Bo ");
+  expect(box()?.value).toBe("Fine by me @Rui ");
 
   // Typing tells the others once in a burst, and sending says it stopped.
   await act(async () =>
@@ -2684,6 +2704,18 @@ test("a thread is a small chat: who's here, reactions, mentions and who's typing
     );
   });
 
+  expect(
+    asked
+      .filter(
+        ({ method, url }) => method === "POST" && url.endsWith("/comments"),
+      )
+      .map(({ body }) => body),
+  ).toEqual([
+    { version: 2, body: "Fine by me @Rui", parent: "t1", toPi: false },
+  ]);
+
+  await drawn(() => box()?.value === "");
+
   // Who else types here shows under the messages, and not who types in
   // another thread.
   const typing = (): string | undefined =>
@@ -2694,12 +2726,12 @@ test("a thread is a small chat: who's here, reactions, mentions and who's typing
     { name: "Bo", typing: "t1" },
   ];
 
-  changed("artifacts.presence");
+  changed("artifacts.presence-a1");
   await drawn(() => typing() === "Ana and Bo are typing…");
 
   here = [{ name: "Ana", typing: "t9" }];
 
-  changed("artifacts.presence");
+  changed("artifacts.presence-a1");
   await drawn(() => typing() === "");
 
   // Leaving the page says so, even as it closes.

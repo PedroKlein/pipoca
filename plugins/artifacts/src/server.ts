@@ -905,8 +905,8 @@ export const server = defineServer(
     const looking = presences({
       clock,
       timer,
-      changed: () => {
-        routes.topic("presence");
+      changed: (artifact) => {
+        routes.topic(`presence-${artifact}`);
       },
     });
 

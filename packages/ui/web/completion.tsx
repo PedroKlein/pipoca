@@ -179,7 +179,7 @@ export function useCompletion<T extends Typed>({
             }}
             className={cn(
               "flex cursor-pointer items-baseline gap-3 rounded-md px-3 py-1.5",
-              index === current && "bg-hover",
+              index === current && "bg-fg/10",
             )}
           >
             <span

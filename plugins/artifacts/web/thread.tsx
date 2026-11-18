@@ -15,6 +15,7 @@ import {
   type ReactElement,
   type ReactNode,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
 } from "react";
@@ -25,6 +26,8 @@ import {
   type Reaction,
   reactionEmoji,
 } from "../src/artifacts";
+
+const pressMs = 3000;
 
 const reactionNames: Readonly<Record<Reaction["emoji"], string>> = {
   "👍": "Thumbs up",
@@ -86,7 +89,9 @@ export function Said({
   readonly text: string;
   readonly names: readonly string[];
 }): ReactElement {
-  const known = [...names, "pi"]
+  const viewer = useViewer();
+
+  const known = [...names, viewer.person.name, "pi"]
     .sort((a, b) => b.length - a.length)
     .map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
 
@@ -157,11 +162,26 @@ export function ThreadView({
   const names = mentionable(artifact, people);
   const heading = useRef<HTMLHeadingElement>(null);
 
+  // Opens at the newest message, and follows new ones unless the reader
+  // scrolled up to read.
+  const messages = useRef<HTMLDivElement>(null);
+  const atEnd = useRef(true);
+
   useEffect(() => {
     heading.current?.focus();
+    atEnd.current = true;
   }, [top.id]);
 
+  useLayoutEffect(() => {
+    const box = messages.current;
+
+    if (box !== null && atEnd.current) {
+      box.scrollTop = box.scrollHeight;
+    }
+  }, [top.id, replies.length]);
+
   const resolve = (): void => {
+    onTyping(false);
     setProblem(undefined);
     setBusy(true);
 
@@ -189,7 +209,10 @@ export function ThreadView({
           size="sm"
           iconOnly
           aria-label="All comments"
-          onClick={onBack}
+          onClick={() => {
+            onTyping(false);
+            onBack();
+          }}
         >
           <Icon name="chevron-left" className="size-4" />
         </Button>
@@ -202,7 +225,7 @@ export function ThreadView({
           {titleOf(top)}
         </h3>
         {top.sentBy !== null && !top.resolved && (
-          <span className="rounded-md bg-butter px-1.5 py-0.5 text-caption text-on-butter">
+          <span className="rounded-md bg-butter/25 px-1.5 py-0.5 text-caption text-fg-strong">
             Sent to Pi
           </span>
         )}
@@ -213,7 +236,16 @@ export function ThreadView({
           </Button>
         )}
       </div>
-      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-3.5 py-3">
+      <div
+        ref={messages}
+        onScroll={(event) => {
+          const box = event.currentTarget;
+
+          atEnd.current =
+            box.scrollHeight - box.scrollTop - box.clientHeight < endPx;
+        }}
+        className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-3.5 py-3"
+      >
         <ErrorText size="caption">{problem}</ErrorText>
         <ol aria-label="Messages" className="flex flex-col gap-4">
           {[top, ...replies].map((each) => (
@@ -250,7 +282,8 @@ export function ThreadView({
   );
 }
 
-const quoteShown = 24;
+const quoteShown = 20;
+const endPx = 48;
 
 // Long quotes keep their first and last words, as the page shows both.
 function titleOf(top: Comment): string {
@@ -331,7 +364,14 @@ function Message({
         emoji,
         on,
       })
-      .then(onChanged)
+      .then(() => {
+        onChanged();
+
+        // Free it even if the reload fails and the reactions stay as they were.
+        setTimeout(() => {
+          setPressedOn(undefined);
+        }, pressMs);
+      })
       .catch((error: unknown) => {
         setPressedOn(undefined);
         setProblem(error instanceof Error ? error.message : String(error));
@@ -366,9 +406,10 @@ function Message({
                 variant="ghost"
                 icon="smile-plus"
                 items={reactionEmoji.map((emoji) => ({
-                  label: reactionNames[emoji],
+                  label: mine(emoji)
+                    ? `Take back ${reactionNames[emoji].toLowerCase()}`
+                    : reactionNames[emoji],
                   mark: <span aria-hidden="true">{emoji}</span>,
-                  checked: mine(emoji),
                   run: () => {
                     react(emoji, !mine(emoji));
                   },

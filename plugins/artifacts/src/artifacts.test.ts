@@ -618,6 +618,26 @@ test("people react to comments, one reaction of each kind each, and mention the 
   expect(await t.as("cy").get(`artifacts/${id}/people`)).toEqual({
     people: ["Ana", "Bo"],
   });
+
+  // Only comments on this artifact take reactions.
+  expect(
+    (
+      await t.as("bo").raw(`artifacts/${id}/comments/nope/reactions`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ emoji: "👍", on: true }),
+      })
+    ).status,
+  ).toBe(404);
+
+  // Someone it's no longer shared with can't be mentioned.
+  await t.as("ana").put(`artifacts/${id}/shares`, {
+    shares: [{ name: "Bo", role: "comment" }],
+  });
+
+  expect(await t.as("ana").get(`artifacts/${id}/people`)).toEqual({
+    people: ["Bo"],
+  });
 });
 
 test("people see who else is looking and who is typing in which thread, until they stop", async () => {
@@ -638,13 +658,23 @@ test("people see who else is looking and who is typing in which thread, until th
       .people;
 
   const told = () =>
-    t.topics.filter((topic) => topic === "artifacts.presence").length;
+    t.topics.filter((topic) => topic === `artifacts.presence-${id}`).length;
 
   await here("ana", { here: true });
   await here("bo", { here: true });
 
   expect(await seen("ana")).toEqual([{ name: "Bo", typing: null }]);
   expect(await seen("bo")).toEqual([{ name: "Ana", typing: null }]);
+
+  // Someone who only views still shows as looking.
+  await here("cy", { here: true });
+
+  expect(await seen("bo")).toEqual([
+    { name: "Ana", typing: null },
+    { name: "Cy", typing: null },
+  ]);
+
+  await here("cy", { here: false });
 
   await here("bo", { here: true, typing: thread.id });
 
@@ -669,9 +699,9 @@ test("people see who else is looking and who is typing in which thread, until th
 
   // Someone whose page stopped saying it's open is gone after a while,
   // also right after typing, and the others hear that too.
-  await t.clock.advance("50s");
+  await t.clock.advance("95s");
   await here("bo", { here: true, typing: thread.id });
-  await t.clock.advance("44s");
+  await t.clock.advance("89s");
   await here("ana", { here: true });
   const silent = told();
   await t.clock.advance("2s");
@@ -687,6 +717,17 @@ test("people see who else is looking and who is typing in which thread, until th
   expect(await seen("ana")).toEqual([{ name: "Bo", typing: null }]);
 
   await here("bo", { here: false }, "two");
+
+  expect(await seen("ana")).toEqual([]);
+
+  // Only a person's latest ten pages count, however many they claim.
+  for (let n = 0; n <= 10; n += 1) {
+    await here("bo", { here: true }, `page ${String(n)}`);
+  }
+
+  for (let n = 1; n <= 10; n += 1) {
+    await here("bo", { here: false }, `page ${String(n)}`);
+  }
 
   expect(await seen("ana")).toEqual([]);
 
