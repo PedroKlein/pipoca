@@ -576,6 +576,104 @@ test("writing @pi sends a thread at once, for people who can, and Send hands fiv
   ]);
 });
 
+test("people react to comments, one reaction of each kind each, and mention the people who can see the artifact", async () => {
+  const setup = await setUp();
+  const { t } = setup;
+  const { id, comment, listed } = await shared(setup);
+
+  const first = await comment("bo", "Friday is too soon");
+
+  const react = async (who: string, emoji: string, on: boolean) =>
+    t.as(who).raw(`artifacts/${id}/comments/${first.id}/reactions`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ emoji, on }),
+    });
+
+  expect((await react("ana", "👍", true)).status).toBe(200);
+  expect((await react("ana", "👍", true)).status).toBe(200);
+  expect((await react("bo", "👍", true)).status).toBe(200);
+  expect((await react("bo", "👀", true)).status).toBe(200);
+
+  expect((await listed("ana"))[0]?.reactions).toEqual([
+    { emoji: "👍", people: ["You", "Bo"], mine: true },
+    { emoji: "👀", people: ["Bo"], mine: false },
+  ]);
+
+  expect((await react("ana", "👍", false)).status).toBe(200);
+
+  expect((await listed("bo"))[0]?.reactions).toEqual([
+    { emoji: "👍", people: ["You"], mine: true },
+    { emoji: "👀", people: ["You"], mine: true },
+  ]);
+
+  // Only the offered reactions, and only from people who can comment.
+  expect((await react("bo", "🍕", true)).status).toBe(422);
+  expect((await react("cy", "👍", true)).status).toBe(403);
+
+  expect(await t.as("ana").get(`artifacts/${id}/people`)).toEqual({
+    people: ["Bo", "Cy"],
+  });
+
+  expect(await t.as("cy").get(`artifacts/${id}/people`)).toEqual({
+    people: ["Ana", "Bo"],
+  });
+});
+
+test("people see who else is looking and who is typing in which thread, until they stop", async () => {
+  const setup = await setUp();
+  const { t } = setup;
+  const { id, comment } = await shared(setup);
+
+  const thread = await comment("ana", "Friday is too soon");
+
+  const here = async (
+    who: string,
+    body: { readonly here: boolean; readonly typing?: string },
+  ) => t.as(who).post(`artifacts/${id}/presence`, body);
+
+  const seen = async (who: string) =>
+    (await t.as(who).get<{ people: unknown[] }>(`artifacts/${id}/presence`))
+      .people;
+
+  await here("ana", { here: true });
+  await here("bo", { here: true });
+
+  expect(await seen("ana")).toEqual([{ name: "Bo", typing: null }]);
+  expect(await seen("bo")).toEqual([{ name: "Ana", typing: null }]);
+  expect(t.topics).toContain("artifacts.presence");
+
+  await here("bo", { here: true, typing: thread.id });
+
+  expect(await seen("ana")).toEqual([{ name: "Bo", typing: thread.id }]);
+
+  // Typing stops by itself a few seconds after the last key.
+  await t.clock.advance("7s");
+
+  expect(await seen("ana")).toEqual([{ name: "Bo", typing: null }]);
+
+  // Someone whose page stopped saying it's open is gone after a while.
+  await here("ana", { here: true });
+  await t.clock.advance("50s");
+  await here("ana", { here: true });
+
+  expect(await seen("ana")).toEqual([]);
+
+  // Closing the viewer says so at once.
+  await here("bo", { here: true });
+  await here("bo", { here: false });
+
+  expect(await seen("ana")).toEqual([]);
+
+  // Nobody who can't see the artifact learns who looks at it.
+  await t.as("ana").put(`artifacts/${id}/shares`, { shares: [] });
+
+  expect(
+    (await t.as("bo").raw(`artifacts/${id}/presence`, { method: "GET" }))
+      .status,
+  ).toBe(404);
+});
+
 test("only people who can act in the Session send threads to Pi", async () => {
   const setup = await setUp();
   const { t, host } = setup;

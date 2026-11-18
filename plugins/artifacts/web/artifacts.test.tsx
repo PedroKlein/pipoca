@@ -1868,6 +1868,7 @@ function thread(o: Partial<Comment> & { readonly id: string }): Comment {
     resolved: false,
     resolvedByPi: false,
     createdAt: Date.now(),
+    reactions: [],
     ...o,
   };
 }

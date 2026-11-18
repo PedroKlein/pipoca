@@ -109,6 +109,22 @@ export interface Comment {
   readonly resolved: boolean;
   readonly resolvedByPi: boolean;
   readonly createdAt: number;
+  readonly reactions: readonly Reaction[];
+}
+
+export const reactionEmoji = ["👍", "🎉", "👀", "✅"] as const;
+
+// One reaction on a comment and who gave it, the viewer as "You".
+export interface Reaction {
+  readonly emoji: (typeof reactionEmoji)[number];
+  readonly people: readonly string[];
+  readonly mine: boolean;
+}
+
+// Someone else looking at the artifact, and the thread they type in.
+export interface Presence {
+  readonly name: string;
+  readonly typing: string | null;
 }
 
 // The threads one notice told Pi about, for its row in the chat.
