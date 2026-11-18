@@ -339,8 +339,18 @@ test("a team Project has no owner and every person sees it", async () => {
   expect(await s.t.as("bo").get("projects")).toEqual([]);
 
   expect(
-    (await s.t.as("bo").get<ProjectView>(`projects/${s.project.id}`)).name,
-  ).toBe("Shop");
+    await s.t.as("bo").get<ProjectView>(`projects/${s.project.id}`),
+  ).toMatchObject({ name: "Shop", steers: true });
+
+  // Once only its starter steers the coordinator, the others see it only.
+  await s.t.as("ana").raw(`/api/sessions/${s.project.coordinatorId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ access: { kind: "view" } }),
+  });
+
+  expect(
+    await s.t.as("bo").get<ProjectView>(`projects/${s.project.id}`),
+  ).toMatchObject({ steers: false });
 });
 
 test("the Team assistant's route tools act on the team's half", async () => {
@@ -519,6 +529,78 @@ test("people add files to the Project's folder, and earlier versions stay downlo
   expect(await ana.get(`${base}/files`)).toEqual({
     files: [],
     perProjectBytes: 5_368_709_120,
+    historyDays: 30,
+  });
+});
+
+test("a thread's Files menu lists what it wrote in the Project folder, which opens as a preview", async () => {
+  const s = await started();
+  await using _ = s.t;
+  const ana = s.t.as("ana");
+  const thread = await threadOf(s, "Compare latency");
+
+  await ana.raw(`${blobRoutes.browserUpload.replace(":id", "n1")}?offset=0`, {
+    method: "PUT",
+    body: "# Provider\n\nSame p95.",
+  });
+
+  const { hash } = await ana.post<{ hash: string }>(
+    blobRoutes.browserFinish.replace(":id", "n1"),
+    {},
+  );
+
+  await ana.post(`projects/${s.project.id}/files`, { path: "brief.md", hash });
+
+  await thread.api.post("folder", {
+    changes: [{ path: "notes/provider.md", hash, base: null }],
+  });
+
+  expect(await ana.get(`sessions/${thread.id}/folder`)).toMatchObject({
+    project: { id: s.project.id, name: "Shop" },
+    written: [{ path: "notes/provider.md", hash }],
+    count: 2,
+  });
+
+  expect(await ana.get(`sessions/${s.coordinator.id}/folder`)).toMatchObject({
+    written: [],
+    count: 2,
+  });
+
+  expect(await s.t.as("bo").get(`sessions/${thread.id}/folder`)).toEqual({
+    project: null,
+  });
+
+  // The viewer offers Publish to people who steer the Project.
+  expect(await ana.get(`projects/${s.project.id}`)).toMatchObject({
+    steers: true,
+  });
+
+  const view = await ana.raw(
+    `projects/${s.project.id}/file/view?path=notes%2Fprovider.md&v=${hash}`,
+    { method: "GET" },
+  );
+
+  expect(await view.text()).toContain("<p>Same p95.</p>");
+  expect(view.headers.get("cache-control")).toContain("immutable");
+
+  expect(
+    (
+      await s.t
+        .as("bo")
+        .raw(`projects/${s.project.id}/file/view?path=brief.md`, {
+          method: "GET",
+        })
+    ).status,
+  ).toBe(404);
+
+  // A file the thread wrote and someone deleted is no longer its.
+  await ana.delete(
+    `projects/${s.project.id}/file?path=${encodeURIComponent("notes/provider.md")}`,
+  );
+
+  expect(await ana.get(`sessions/${thread.id}/folder`)).toMatchObject({
+    written: [],
+    count: 1,
   });
 });
 
@@ -579,6 +661,33 @@ test("an admin's Team assistant thread acts as an admin only while only admins s
 
   expect(await t.tool("probe_admin", {}, { session: thread })).toMatchObject({
     text: expect.stringContaining('"admin":false') as unknown,
+  });
+});
+
+test("someone shown a thread of a Project they can't open gets no Project folder for it", async () => {
+  await using t = await testPlugin(server, { people });
+
+  await t.environment({ owner: "team" });
+
+  const assistant = await t
+    .as("ana")
+    .post<ProjectView>("team/assistant", { text: "Build a plugin" });
+
+  const begun = await t.tool(
+    "start_thread",
+    { title: "Hello plugin", message: "Build a hello plugin" },
+    { session: await t.attach(assistant.coordinatorId) },
+  );
+
+  const thread = /as (\S+)\.$/.exec(begun.text)?.[1] ?? "";
+
+  await t.as("ana").raw(`/api/sessions/${thread}`, {
+    method: "PATCH",
+    body: JSON.stringify({ access: { kind: "team" } }),
+  });
+
+  expect(await t.as("bo").get(`sessions/${thread}/folder`)).toEqual({
+    project: null,
   });
 });
 

@@ -1,5 +1,7 @@
+import { Type } from "typebox";
 import { marked } from "marked";
-import { type PreviewKind, previewKind } from "./preview-kind";
+import { HttpError, NotFound } from "./http";
+import { type PreviewKind, previewBytes, previewKind } from "./preview-kind";
 
 const mimes: Readonly<Record<string, string>> = {
   png: "image/png",
@@ -161,6 +163,46 @@ function withScript(html: string, script: string): string {
 }
 
 const mermaid = "cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.min.js";
+
+// What a kept file's preview route takes.
+export const previewQuery = Type.Object({
+  path: Type.String({ minLength: 1 }),
+  as: Type.Optional(Type.Literal("text")),
+  // The file's hash, so a page cached for one copy isn't shown for the next.
+  v: Type.Optional(Type.String()),
+});
+
+// A kept file's preview route's answer: refused over previewBytes, and
+// cached for good only when asked for at its own hash.
+export async function filePreview(
+  file: { readonly path: string; readonly hash: string; readonly size: number },
+  read: () => Promise<Uint8Array>,
+  query: { readonly as?: "text"; readonly v?: string },
+): Promise<Response> {
+  if (file.size > previewBytes) {
+    throw new HttpError(
+      413,
+      `${file.path} is too big to show; download it instead`,
+      "too_large",
+    );
+  }
+
+  const shown = preview(
+    file.path,
+    await read(),
+    query.as === undefined ? {} : { kind: query.as },
+  );
+
+  if (shown === undefined) {
+    throw new NotFound(`no preview of ${file.path}`);
+  }
+
+  if (query.v !== file.hash) {
+    shown.headers.set("cache-control", "no-cache");
+  }
+
+  return shown;
+}
 
 // A Markdown source as its page would draw it, for a frame that runs no
 // scripts and loads nothing, while a person edits it.

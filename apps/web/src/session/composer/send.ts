@@ -1,3 +1,4 @@
+import type { Attachment } from "@pipoca/plugins/web";
 import { imageLimits } from "@pipoca/protocol";
 import { type RefObject, useState } from "react";
 import { command, request } from "../../data/client";
@@ -10,6 +11,8 @@ import type { Target } from "./target";
 
 // The images attached to the next message, and sending it to Pi or the team.
 export function useSend({
+  attachments,
+  setAttachments,
   sessionId,
   feed,
   talk,
@@ -23,6 +26,11 @@ export function useSend({
   uploading,
   starting,
 }: {
+  // Told to Pi under the message, such as a Project folder file to read.
+  readonly attachments: readonly Attachment[];
+  readonly setAttachments: (
+    change: (current: readonly Attachment[]) => readonly Attachment[],
+  ) => void;
   readonly sessionId: string;
   readonly feed: Feed;
   readonly talk: boolean;
@@ -95,12 +103,16 @@ export function useSend({
       !box ||
       uploading ||
       starting ||
-      (message === "" && images.length === 0)
+      (message === "" && images.length === 0 && attachments.length === 0)
     ) {
       return;
     }
 
-    const local = images.length === 0 ? browserCommand(message) : undefined;
+    const local =
+      images.length === 0 && attachments.length === 0
+        ? browserCommand(message)
+        : undefined;
+
     if (local) {
       box.value = "";
       runInBrowser(local);
@@ -110,8 +122,10 @@ export function useSend({
 
     const toPeople = talk && target !== "pi";
 
-    if (toPeople && images.length > 0) {
-      report("Images go to Pi only. Switch to To Pi to send them.");
+    if (toPeople && (images.length > 0 || attachments.length > 0)) {
+      report(
+        `${images.length > 0 ? "Images" : "Attachments"} go to Pi only. Switch to To Pi to send them.`,
+      );
 
       return;
     }
@@ -142,11 +156,16 @@ export function useSend({
     }
 
     setFiles([]);
+    setAttachments(() => []);
+
+    const text = [message, ...attachments.map((each) => each.text)]
+      .filter((each) => each !== "")
+      .join("\n\n");
 
     command(sessionId, {
       ...(quote && { quote }),
       type: "message",
-      text: message,
+      text,
       ...(images.length > 0 && {
         images: images.map(({ mimeType, data }) => ({ mimeType, data })),
       }),
@@ -158,6 +177,13 @@ export function useSend({
       setImages((current) =>
         [...images, ...current].slice(0, imageLimits.count),
       );
+
+      setAttachments((current) => [
+        ...attachments,
+        ...current.filter(
+          ({ key }) => !attachments.some((each) => each.key === key),
+        ),
+      ]);
 
       report(error);
     });

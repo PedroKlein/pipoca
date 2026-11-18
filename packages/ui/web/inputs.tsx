@@ -7,6 +7,7 @@ import type {
 } from "react";
 import { cn } from "./cn";
 import { fieldClass } from "./field";
+import { Icon } from "./icon";
 
 // A text field with the shared field look. Put it in a Field for its label.
 export function TextInput({
@@ -17,6 +18,22 @@ export function TextInput({
   readonly ref?: Ref<HTMLInputElement>;
 }): ReactElement {
   return <input ref={ref} className={cn(fieldClass, className)} {...props} />;
+}
+
+// A search field with its icon; className places the field.
+export function SearchInput({
+  className,
+  ...props
+}: Omit<InputHTMLAttributes<HTMLInputElement>, "type">): ReactElement {
+  return (
+    <span className={cn("relative min-w-0", className)}>
+      <Icon
+        name="search"
+        className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-fg-dim"
+      />
+      <TextInput type="search" className="w-full pl-9" {...props} />
+    </span>
+  );
 }
 
 // A textarea that grows with its text (style.css), with the field look.

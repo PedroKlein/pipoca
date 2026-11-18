@@ -1,8 +1,10 @@
 import { extname } from "node:path";
 import {
   BadRequest,
+  filePreview,
   HttpError,
   NotFound,
+  previewQuery,
   type PersonCaller,
   type ServerContext,
   type SessionCaller,
@@ -161,6 +163,7 @@ export function folderRoutes(
     ({ caller, params }) => ({
       files: store.folder(theirs(params.id, caller).id).map(named),
       perProjectBytes: config.get().perProjectBytes,
+      historyDays: config.get().folderHistoryDays,
     }),
   );
 
@@ -175,6 +178,66 @@ export function folderRoutes(
       const found = file(theirs(params.id, caller), query.path);
 
       return download(found.hash, found.path);
+    },
+  );
+
+  routes.get(
+    "projects/:id/file/view",
+    { auth: "person", query: previewQuery },
+    async ({ caller, params, query }) => {
+      const found = file(theirs(params.id, caller), query.path);
+
+      return filePreview(
+        found,
+        async () => {
+          const kept = await blobs.bytes(found.hash);
+
+          if (kept === undefined) {
+            throw new NotFound(`no file ${found.path}`);
+          }
+
+          return kept;
+        },
+        query,
+      );
+    },
+  );
+
+  // A Session's Project folder, for its Files menu: the files it wrote that
+  // are still there, and how many the folder holds. Someone shown a thread
+  // of a Project they don't see gets none.
+  routes.get(
+    "sessions/:id/folder",
+    { auth: "person" },
+    ({ caller, params }) => {
+      const member = sessions.sees(params.id, caller.person.id)
+        ? store.member(params.id)
+        : undefined;
+
+      const project =
+        member === undefined
+          ? undefined
+          : seen(() => theirs(member.projectId, caller));
+
+      if (project === undefined) {
+        return { project: null };
+      }
+
+      const files = store.folder(project.id);
+      const byPath = new Map(files.map((each) => [each.path, each]));
+
+      return {
+        project: {
+          id: project.id,
+          name: project.name,
+          team: project.owner === "team",
+          assistant: project.assistantOf !== null,
+        },
+        written: store
+          .writtenBy(project.id, `session:${params.id}`)
+          .flatMap((path) => byPath.get(path) ?? []),
+        count: files.length,
+      };
     },
   );
 
@@ -394,4 +457,16 @@ function attachment(name: string): string {
   );
 
   return `attachment; filename*=UTF-8''${encoded}`;
+}
+
+function seen(project: () => Project): Project | undefined {
+  try {
+    return project();
+  } catch (error) {
+    if (error instanceof NotFound) {
+      return undefined;
+    }
+
+    throw error;
+  }
 }

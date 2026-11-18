@@ -400,7 +400,7 @@ export const server = defineServer(projects, (context) => {
     return project;
   };
 
-  const view = (project: Project): ProjectView => ({
+  const view = (project: Project, person: string): ProjectView => ({
     id: project.id,
     name: project.name,
     goal: project.goal,
@@ -411,6 +411,7 @@ export const server = defineServer(projects, (context) => {
     threadModel: project.threadModel,
     coordinatorId: project.coordinatorId,
     coordinatorState: runState(sessions.get(project.coordinatorId)),
+    steers: sessions.steers(project.coordinatorId, person),
     assistant: project.assistantOf !== null,
     team: project.owner === "team",
     formerCoordinators: store
@@ -695,7 +696,7 @@ export const server = defineServer(projects, (context) => {
         },
       },
     },
-    ({ caller, body }) => view(create(body, caller)),
+    ({ caller, body }) => view(create(body, caller), caller.person.id),
   );
 
   routes.get(
@@ -709,7 +710,7 @@ export const server = defineServer(projects, (context) => {
         annotations: { readOnlyHint: true },
       },
     },
-    ({ caller, params }) => view(theirs(params.id, caller)),
+    ({ caller, params }) => view(theirs(params.id, caller), caller.person.id),
   );
 
   routes.post(
@@ -744,6 +745,7 @@ export const server = defineServer(projects, (context) => {
         body.repositories === undefined
           ? updated
           : startFresh(updated, caller.person.id),
+        caller.person.id,
       );
     },
   );
@@ -773,7 +775,7 @@ export const server = defineServer(projects, (context) => {
       const project = theirs(params.id, caller, "steers");
       sessions.archive(project.coordinatorId);
 
-      return view(store.get(project.id) ?? project);
+      return view(store.get(project.id) ?? project, caller.person.id);
     },
   );
 
@@ -781,7 +783,10 @@ export const server = defineServer(projects, (context) => {
     "projects/:id/fresh",
     { auth: "person", changes: ["projects"] },
     ({ caller, params }) =>
-      view(startFresh(theirs(params.id, caller, "steers"), caller.person.id)),
+      view(
+        startFresh(theirs(params.id, caller, "steers"), caller.person.id),
+        caller.person.id,
+      ),
   );
 
   routes.get(
@@ -838,13 +843,13 @@ export const server = defineServer(projects, (context) => {
       throw new NotFound("no assistant yet");
     }
 
-    return view(found);
+    return view(found, caller.person.id);
   });
 
   routes.post(
     "assistant",
     { auth: "person", team: true, body: assistantAsk, changes: ["projects"] },
-    ({ caller, body }) => view(ask(body, caller)),
+    ({ caller, body }) => view(ask(body, caller), caller.person.id),
   );
 
   // What a Session part learns of the Session it runs in.

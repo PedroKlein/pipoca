@@ -413,6 +413,15 @@ export function projectStore(store: Store, clock: Clock) {
           projectId,
         )
         .map(folderWrite),
+    // The paths a Session wrote, latest first.
+    writtenBy: (projectId: string, actor: string): readonly string[] =>
+      store
+        .all<{ path: string }>(
+          "select path from projects_folder_log where project_id = ? and actor = ? and hash is not null group by path order by max(id) desc limit 200",
+          projectId,
+          actor,
+        )
+        .map(({ path }) => path),
     folderWrite: (projectId: string, id: string): FolderWrite | undefined => {
       const row = store.get<LogRow>(
         `select ${logColumns} from projects_folder_log where project_id = ? and id = ?`,

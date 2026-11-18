@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { fieldClass } from "./field";
-import { Checkbox, Radio, TextArea, TextInput } from "./inputs";
+import { Checkbox, Radio, SearchInput, TextArea, TextInput } from "./inputs";
 import { byRole, click, render, withPage } from "./testing/render";
 
 withPage();
@@ -19,6 +19,16 @@ test("text fields share the field look and keep their attributes", () => {
   expect(name.className).toBe(fieldClass);
   expect(name.getAttribute("name")).toBe("name");
   expect(notes.className).toContain("font-mono");
+});
+
+test("a search field is a searchbox with its icon beside the text", () => {
+  const page = render(<SearchInput aria-label="Search" className="flex-1" />);
+  const field = byRole(page, "textbox", "Search");
+
+  expect(field.getAttribute("type")).toBe("search");
+  expect(field.className).toContain("pl-9");
+  expect(field.parentElement?.className).toContain("flex-1");
+  expect(field.parentElement?.querySelector("svg")).not.toBeNull();
 });
 
 test("a checkbox and a radio are named by their label", () => {

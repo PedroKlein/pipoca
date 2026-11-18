@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { AttachMenu } from "@pipoca/plugins/web";
 import { renderPart, sessionWith } from "@pipoca/plugins/web/testing";
 import { until } from "@pipoca/testing/until";
 import { act } from "react";
@@ -239,10 +240,11 @@ interface Served {
 function lively(
   fetch: (url: string, init?: RequestInit) => Promise<Response>,
 ): (url: string, init?: RequestInit) => Promise<Response> {
-  return async (url, init) =>
-    url.endsWith("/presence") || url.endsWith("/people")
+  return async (url, init) => {
+    return url.endsWith("/presence") || url.endsWith("/people")
       ? Response.json({ people: [] })
       : fetch(url, init);
+  };
 }
 
 // The plugin's routes as a fake server, with the artifact these tests open
@@ -1328,6 +1330,42 @@ test("deleting asks first, and closes the viewer once it's gone", async () => {
   expect(location.hash).toBe("#session-1");
 });
 
+test("opening an artifact marks it opened once, not on the reloads after other changes", async () => {
+  const asked: string[] = [];
+
+  renderPart(
+    web,
+    "overlay",
+    {},
+    {
+      hash: "#session-1?artifact=a1",
+      fetch: async (url) => {
+        await Promise.resolve();
+        asked.push(url);
+
+        return url.endsWith("/comments")
+          ? Response.json({ comments: [] })
+          : Response.json({ ...artifact({}), ...viewed(1) });
+      },
+    },
+  );
+
+  const reads = () => asked.filter((url) => /\/artifacts\/a1(\?|$)/.test(url));
+
+  await act(async () => until(() => reads().length === 1));
+
+  act(() => {
+    changed("artifacts.artifacts");
+  });
+
+  await act(async () => until(() => reads().length === 2));
+
+  expect(reads()).toEqual([
+    "/api/ext/artifacts/artifacts/a1?opened=1",
+    "/api/ext/artifacts/artifacts/a1",
+  ]);
+});
+
 test("an artifact that isn't there, or didn't load, still offers a way out", async () => {
   let answer = 404;
   const asked: string[] = [];
@@ -1402,6 +1440,7 @@ function artifact(o: Partial<ArtifactSummary> = {}): ArtifactSummary {
     openComments: 0,
     versions: 1,
     updatedAt: 0,
+    openedAt: null,
     ...o,
   };
 }
@@ -1466,17 +1505,50 @@ test("the Artifacts page shows yours, the ones shared with you and the team's, f
     },
   );
 
+  const { IntersectionObserver: watcher } = globalThis;
+
+  // Every card is in view, once the list loads.
+  globalThis.IntersectionObserver = class {
+    readonly seen: (entries: { isIntersecting: boolean }[]) => void;
+
+    constructor(seen: (entries: { isIntersecting: boolean }[]) => void) {
+      this.seen = seen;
+    }
+
+    observe(): void {
+      this.seen([{ isIntersecting: true }]);
+    }
+
+    disconnect(): void {
+      // Nothing to stop.
+    }
+  } as unknown as typeof IntersectionObserver;
+
   await act(async () => until(() => asked.length === 1));
 
   const titles = (): string[] =>
-    [...page.querySelectorAll("[aria-label=Artifacts] li a")].map(
+    [...page.querySelectorAll("[aria-label=Artifacts] li h2")].map(
       (each) => each.textContent,
     );
 
   expect(titles()).toEqual(["Checkout latency", "Billing flow"]);
-  expect(page.textContent).toContain("2 comments");
-  expect(page.textContent).toContain("Shared with Bo, Cy");
-  expect(page.textContent).toContain("Only you");
+  expect(page.textContent).toContain("Page · v1 · shared with 2");
+  expect(page.textContent).toContain("Page · v1 · only you");
+  expect(page.querySelector("[title='2 open comments']")).not.toBeNull();
+
+  // A card's first screen runs the page's scripts, and nothing that pops
+  // over the gallery.
+  await drawn(
+    () => page.querySelectorAll("[aria-label=Artifacts] iframe").length > 0,
+  );
+
+  const sandboxes = [
+    ...page.querySelectorAll("[aria-label=Artifacts] iframe"),
+  ].map((each) => each.getAttribute("sandbox"));
+
+  globalThis.IntersectionObserver = watcher;
+
+  expect(sandboxes).toEqual(["allow-scripts", "allow-scripts"]);
 
   const show = (label: string): void => {
     act(() => {
@@ -1486,12 +1558,41 @@ test("the Artifacts page shows yours, the ones shared with you and the team's, f
     });
   };
 
-  show("Shared with you");
+  show("Shared with me 1");
   expect(titles()).toEqual(["Bo's plan"]);
-  expect(page.textContent).toContain("From Bo");
-  show("Team");
+  expect(page.textContent).toContain("from Bo");
+  show("Team 1");
   expect(titles()).toEqual(["Rollout"]);
-  show("Yours");
+  show("Mine 2");
+
+  const toggleCommented = (): void => {
+    act(() => {
+      [...page.querySelectorAll<HTMLButtonElement>("button")]
+        .find((each) => each.textContent === "Open comments")
+        ?.click();
+    });
+  };
+
+  toggleCommented();
+  expect(titles()).toEqual(["Checkout latency"]);
+  toggleCommented();
+
+  const choose = (label: string, value: string): void => {
+    const select = page.querySelector<HTMLSelectElement>(
+      `select[aria-label=${label}]`,
+    );
+
+    act(() => {
+      if (select !== null) {
+        select.value = value;
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+    });
+  };
+
+  choose("Kind", "markdown");
+  expect(page.textContent).toContain("Nothing matches.");
+  choose("Kind", "");
 
   const search = page.querySelector<HTMLInputElement>("input[type=search]");
 
@@ -1500,7 +1601,7 @@ test("the Artifacts page shows yours, the ones shared with you and the team's, f
       Object.getOwnPropertyDescriptor(
         HTMLInputElement.prototype,
         "value",
-      )?.set?.call(search, "billing");
+      )?.set?.call(search, "draw the");
 
       search.dispatchEvent(new Event("input", { bubbles: true }));
     }
@@ -1517,6 +1618,123 @@ test("the Artifacts page shows yours, the ones shared with you and the team's, f
   });
 
   expect(location.hash).toBe("#plugin/artifacts?artifact=a2");
+});
+
+test("the gallery puts the ones the person opened last first, or the latest changed when asked", async () => {
+  const page = renderPart(
+    { ...web, slots },
+    "page",
+    { path: "" },
+    {
+      hash: "#plugin/artifacts",
+      fetch: async () => {
+        await Promise.resolve();
+
+        return Response.json({
+          artifacts: [
+            artifact({ id: "a1", title: "Changed last", updatedAt: 30 }),
+            artifact({ id: "a2", title: "Never opened", updatedAt: 20 }),
+            artifact({
+              id: "a3",
+              title: "Opened last",
+              updatedAt: 5,
+              openedAt: 100,
+            }),
+            artifact({
+              id: "a4",
+              title: "Opened before",
+              updatedAt: 10,
+              openedAt: 50,
+            }),
+          ],
+        });
+      },
+    },
+  );
+
+  const titles = (): string[] =>
+    [...page.querySelectorAll("[aria-label=Artifacts] li h2")].map(
+      (each) => each.textContent,
+    );
+
+  await drawn(() => titles().length === 4);
+
+  expect(titles()).toEqual([
+    "Opened last",
+    "Opened before",
+    "Changed last",
+    "Never opened",
+  ]);
+
+  const order = page.querySelector<HTMLSelectElement>(
+    "select[aria-label=Order]",
+  );
+
+  act(() => {
+    if (order !== null) {
+      order.value = "changed";
+      order.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+  });
+
+  expect(titles()).toEqual([
+    "Changed last",
+    "Never opened",
+    "Opened before",
+    "Opened last",
+  ]);
+});
+
+test("a Project's artifacts are the ones its Sessions published, with no shelves", async () => {
+  const asked: string[] = [];
+
+  let published = [
+    artifact({ id: "a1", title: "Checkout latency" }),
+    artifact({ id: "a2", title: "Rollout", audience: "team" }),
+    artifact({ id: "a3", title: "Bo's plan", yours: false, owner: "Bo" }),
+  ];
+
+  const page = renderPart(
+    web,
+    "project.artifacts",
+    { sessions: ["s1", "s2"] },
+    {
+      fetch: async (url) => {
+        await Promise.resolve();
+        asked.push(url);
+
+        return Response.json({ artifacts: published });
+      },
+    },
+  );
+
+  await drawn(() => page.textContent.includes("Checkout latency"));
+
+  expect(asked).toEqual(["/api/ext/artifacts/artifacts?sessions=s1%2Cs2"]);
+
+  expect(
+    [...page.querySelectorAll("[aria-label=Artifacts] li h2")].map(
+      (each) => each.textContent,
+    ),
+  ).toEqual(["Checkout latency", "Rollout", "Bo's plan"]);
+
+  expect(page.querySelector("[aria-label=Search]")).not.toBeNull();
+  expect(page.querySelector("[aria-label=Show]")).toBeNull();
+
+  // With nothing published, it says how the first one gets there.
+  published = [];
+
+  act(() => {
+    changed("artifacts.artifacts");
+  });
+
+  await drawn(() => page.textContent.includes("Nothing published"));
+
+  expect(page.textContent).toContain(
+    "Nothing published yet. Ask Pi to publish a page, or open a file in the folder and choose Publish as artifact.",
+  );
+
+  expect(page.querySelector("[aria-label=Search]")).toBeNull();
 });
 
 test("a link opens the artifact alone in the window, and an earlier version offers the latest and a restore", async () => {
@@ -3407,4 +3625,294 @@ test("people who only view read a thread but don't react or reply", async () => 
   expect(named(page, "Add a reaction")).toBeUndefined();
   expect(named(page, "Resolve")).toBeUndefined();
   expect(page.querySelector("form[aria-label=Reply]")).toBeNull();
+});
+
+test("Publish as artifact in the file viewer uploads the file's bytes, publishes it in its Session and opens the artifact instead", async () => {
+  const asked: { url: string; method: string; body?: unknown }[] = [];
+
+  const page = renderPart(
+    web,
+    "file.actions",
+    {
+      session: "session-1",
+      file: "joined-latency.csv",
+      download:
+        "/api/ext/files/sessions/session-1/files/outputs?path=joined-latency.csv",
+    },
+    {
+      hash: "#session-1?session=session-1&file=outputs%2Fjoined-latency.csv",
+      fetch: async (url, init) => {
+        await Promise.resolve();
+
+        const method = init?.method ?? "GET";
+
+        asked.push({
+          url,
+          method,
+          ...(typeof init?.body === "string" && {
+            body: JSON.parse(init.body) as unknown,
+          }),
+        });
+
+        if (url.includes("/api/ext/files/")) {
+          return new Response("day,ms\n");
+        }
+
+        if (url.includes("/finish")) {
+          return Response.json({ hash: "b".repeat(64) });
+        }
+
+        if (url.includes("_blobs/browser/")) {
+          return Response.json({ offset: 7 });
+        }
+
+        return Response.json({
+          id: "a9",
+          title: "joined-latency.csv",
+          version: 1,
+          kind: "csv",
+        });
+      },
+    },
+  );
+
+  const button = page.querySelector("button");
+  const entries = history.length;
+
+  expect(button?.textContent).toBe("Publish as artifact");
+
+  await act(async () => {
+    button?.click();
+    await until(() => location.hash.includes("artifact=a9"));
+  });
+
+  // The artifact takes the file's place, so Back doesn't reopen the file.
+  expect(history.length).toBe(entries);
+
+  expect(
+    asked.filter(({ url }) => url.endsWith("/api/ext/artifacts/artifacts")),
+  ).toEqual([
+    {
+      url: "/api/ext/artifacts/artifacts",
+      method: "POST",
+      body: {
+        session: "session-1",
+        name: "joined-latency.csv",
+        hash: "b".repeat(64),
+      },
+    },
+  ]);
+
+  expect(location.hash).toBe("#session-1?artifact=a9");
+});
+
+test("Publish names the artifact by the file's own name, and says when the file didn't download", async () => {
+  const asked: string[] = [];
+
+  const page = renderPart(
+    web,
+    "file.actions",
+    {
+      session: "session-1",
+      file: "data/joined.csv",
+      download: "/api/ext/files/x",
+    },
+    {
+      fetch: async (url, init) => {
+        await Promise.resolve();
+        asked.push(`${init?.method ?? "GET"} ${url}`);
+
+        return new Response("gone", { status: 404 });
+      },
+    },
+  );
+
+  act(() => {
+    page.querySelector("button")?.click();
+  });
+
+  await drawn(() => page.textContent.includes("didn't download"));
+
+  expect(page.textContent).toContain("joined.csv didn't download (404).");
+  expect(asked).toEqual(["GET /api/ext/files/x"]);
+});
+
+test("a file that can't be an artifact, such as a spreadsheet, offers no Publish", () => {
+  const page = renderPart(web, "file.actions", {
+    session: "session-1",
+    file: "book.xlsx",
+    download: "/x",
+  });
+
+  expect(page.querySelector("button")).toBeNull();
+});
+
+test("the Files menu lists the Session's artifacts first, and one opens over the page", async () => {
+  const asked: string[] = [];
+
+  renderPart(
+    web,
+    "session.header",
+    { session: sessionWith({}) },
+    {
+      hash: "#session-1",
+      fetch: async (url) => {
+        await Promise.resolve();
+        asked.push(url);
+
+        return Response.json({
+          artifacts: [
+            artifact({ id: "a1", title: "Checkout latency", versions: 4 }),
+          ],
+        });
+      },
+    },
+  );
+
+  await drawn(() => document.querySelector("[aria-label='Files, 1']") !== null);
+
+  expect(asked).toEqual(["/api/ext/artifacts/artifacts?sessions=session-1"]);
+
+  act(() => {
+    document
+      .querySelector<HTMLButtonElement>("[aria-label='Files, 1']")
+      ?.click();
+  });
+
+  const row = document.querySelector<HTMLButtonElement>(
+    "section[aria-label=Artifacts] button",
+  );
+
+  expect(row?.textContent).toBe("Checkout latencyv4");
+
+  const filter = document.querySelector<HTMLInputElement>(
+    "input[aria-label='Filter files']",
+  );
+
+  const typed = (text: string): void => {
+    act(() => {
+      if (filter !== null) {
+        Object.getOwnPropertyDescriptor(
+          HTMLInputElement.prototype,
+          "value",
+        )?.set?.call(filter, text);
+
+        filter.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+    });
+  };
+
+  typed("plan");
+
+  expect(
+    document.querySelectorAll("section[aria-label=Artifacts] button"),
+  ).toHaveLength(0);
+
+  typed("latency");
+
+  act(() => {
+    document
+      .querySelector<HTMLButtonElement>("section[aria-label=Artifacts] button")
+      ?.click();
+  });
+
+  expect(location.hash).toBe("#session-1?artifact=a1");
+});
+
+test("the + menu attaches an artifact as text that names its id and version for Pi", async () => {
+  const Fill = web.slots?.["session.attach"];
+  const added: unknown[] = [];
+  const asked: string[] = [];
+
+  const attachSlots = {
+    attach: () =>
+      Fill === undefined ? null : (
+        <AttachMenu label="Attach files" onFiles={() => undefined}>
+          <Fill
+            session={sessionWith({})}
+            add={(attachment) => {
+              added.push(attachment);
+            }}
+          />
+        </AttachMenu>
+      ),
+  };
+
+  renderPart(
+    { ...web, slots: attachSlots },
+    "attach",
+    {},
+    {
+      fetch: async (url) => {
+        await Promise.resolve();
+        asked.push(url);
+
+        return Response.json({
+          artifacts: [
+            artifact({
+              id: "a1",
+              title: "Checkout latency",
+              versions: 4,
+              sessionId: "session-2",
+              sessionTitle: "Why did checkout slow down?",
+            }),
+            artifact({ id: "a2", title: "Rollout plan" }),
+          ],
+        });
+      },
+    },
+  );
+
+  act(() => {
+    document
+      .querySelector<HTMLButtonElement>("button[aria-label='Attach files']")
+      ?.click();
+  });
+
+  act(() => {
+    [...document.querySelectorAll<HTMLButtonElement>("[role=group] button")]
+      .find((each) => each.textContent === "An artifact…")
+      ?.click();
+  });
+
+  const row = (): HTMLButtonElement | undefined =>
+    document.querySelector<HTMLButtonElement>(
+      "ul[aria-label='Attach an artifact'] button",
+    ) ?? undefined;
+
+  await drawn(() => row() !== undefined);
+
+  // Only what this Session's Pi can read, saying which Session made it when
+  // another did.
+  expect(asked).toEqual(["/api/ext/artifacts/artifacts?for=session-1"]);
+
+  expect(
+    [
+      ...document.querySelectorAll(
+        "ul[aria-label='Attach an artifact'] button",
+      ),
+    ].map((each) => each.textContent),
+  ).toEqual([
+    "Checkout latencyPage · v4 · from Why did checkout slow down?",
+    "Rollout planPage · v1",
+  ]);
+
+  act(() => {
+    row()?.click();
+  });
+
+  expect(added).toEqual([
+    {
+      key: "artifact:a1",
+      title: "Checkout latency",
+      icon: "file-text",
+      detail: "artifact · version 4",
+      text: "Attached: the artifact “Checkout latency” (a1), version 4. Read it with read_artifact.",
+    },
+  ]);
+
+  // Focus goes back to the composer after the test's last click.
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  });
 });

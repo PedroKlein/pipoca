@@ -38,7 +38,7 @@ export {
   Unreachable,
 } from "./network";
 export { owners } from "./owners";
-export { preview, previewed } from "./preview";
+export { filePreview, preview, previewed, previewQuery } from "./preview";
 export { previewBytes, type PreviewKind, previewKind } from "./preview-kind";
 export {
   type ActionCall,

@@ -5,6 +5,7 @@ import {
   previewBytes,
   previewKind,
 } from "../src/preview-kind";
+import { Slot } from "./parts";
 
 // Over a page, or alone in the window from a link.
 export type ViewerMode = "modal" | "window";
@@ -104,6 +105,7 @@ export function FileViewer({
   view,
   download,
   titleId,
+  session,
   stepper,
   note,
   onClose,
@@ -115,6 +117,9 @@ export function FileViewer({
   readonly view: string;
   readonly download: string;
   readonly titleId: string;
+  // The Session it's kept for, when the person steers it, which plugins'
+  // actions such as Publish act in.
+  readonly session?: string;
   // Where it sits among its folder's files, which arrow keys step through.
   readonly stepper?: {
     readonly at: number;
@@ -191,6 +196,14 @@ export function FileViewer({
           <Icon name="download" className="size-3.5" />
           Download
         </a>
+        {session !== undefined && (
+          <Slot
+            name="file.actions"
+            session={session}
+            file={name}
+            download={download}
+          />
+        )}
         <ViewerClose onClose={onClose} />
       </header>
       <div className="flex min-h-0 flex-1 flex-col bg-panel p-4 max-sm:p-0">

@@ -11,11 +11,11 @@ import {
   Button,
   ErrorText,
   Field,
-  Icon,
   initialsOf,
   Notice,
   Row,
   Rows,
+  SearchInput,
   TextInput,
 } from "@pipoca/ui";
 import type { Environment, ProfileContent } from "@pipoca/protocol";
@@ -191,22 +191,14 @@ function ModelStep({ solo }: SetupStepProps): ReactElement | null {
         <h2 className="text-label font-medium text-fg-strong">
           {solo ? "Your providers" : "Yours"}
         </h2>
-        <div className="relative">
-          <Icon
-            name="search"
-            className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-fg-dim"
-          />
-          <TextInput
-            type="search"
-            aria-label="Search providers"
-            placeholder="Search every provider Pi knows"
-            value={query}
-            className="w-full pl-9"
-            onChange={(event) => {
-              setQuery(event.target.value);
-            }}
-          />
-        </div>
+        <SearchInput
+          aria-label="Search providers"
+          placeholder="Search every provider Pi knows"
+          value={query}
+          onChange={(event) => {
+            setQuery(event.target.value);
+          }}
+        />
         {account.connection !== undefined && (
           <ConnectionCard connection={account.connection} send={send} />
         )}

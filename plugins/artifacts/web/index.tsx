@@ -1,5 +1,4 @@
 import {
-  ago,
   defineWeb,
   href,
   type NavItemsProps,
@@ -8,23 +7,10 @@ import {
   type ToolCallProps,
   useApi,
   useLoaded,
-  useNow,
   useOverlay,
 } from "@pipoca/plugins/web";
-import {
-  Badge,
-  cardClass,
-  cn,
-  EmptyState,
-  Icon,
-  Page,
-  plural,
-  Row,
-  Rows,
-  Segmented,
-  TextInput,
-} from "@pipoca/ui";
-import { type ReactElement, useState } from "react";
+import { cardClass, cn, Icon, type IconName, Page, plural } from "@pipoca/ui";
+import type { ReactElement } from "react";
 import { artifacts as plugin } from "../plugin";
 import {
   type ArtifactSummary,
@@ -34,6 +20,8 @@ import {
 } from "../src/artifacts";
 import { artifactHref, loadArtifact } from "./collaborate";
 import { audienceLabel } from "./chrome";
+import { Gallery } from "./gallery";
+import { AttachArtifact, PublishFile, SessionArtifacts } from "./files";
 import { ArtifactLink, ArtifactOverlay, Viewer } from "./viewer";
 
 export const web = defineWeb(plugin, {
@@ -49,6 +37,10 @@ export const web = defineWeb(plugin, {
   settings: { group: "server", form: "auto" },
   slots: {
     overlay: ArtifactOverlay,
+    "session.header": SessionArtifacts,
+    "file.actions": PublishFile,
+    "session.attach": AttachArtifact,
+    "project.artifacts": Gallery,
     "session.toolCall:publish_artifact": PublishedCard,
     "notice:artifact_comments": CommentsNotice,
     "notice:artifact_version": VersionNotice,
@@ -82,109 +74,13 @@ function ArtifactsPage({ path }: PageProps): ReactElement {
   );
 }
 
-type Shelf = "yours" | "shared" | "team";
-
-const shelves: Readonly<Record<Shelf, (artifact: ArtifactSummary) => boolean>> =
-  {
-    yours: (artifact) => artifact.audience !== "team" && artifact.yours,
-    shared: (artifact) => artifact.audience !== "team" && !artifact.yours,
-    team: (artifact) => artifact.audience === "team",
-  };
-
-const emptyShelves: Readonly<Record<Shelf, string>> = {
-  yours:
-    "Nothing yet. When Pi publishes something from your Sessions, it shows here.",
-  shared: "No one has shared an artifact with you yet.",
-  team: "No team work has published anything yet.",
-};
-
 function ArtifactList(): ReactElement {
-  const api = useApi(plugin);
-  const now = useNow();
-  const [shelf, setShelf] = useState<Shelf>("yours");
-  const [search, setSearch] = useState("");
-
-  const { value } = useLoaded(
-    async () =>
-      (await api.get<{ artifacts: ArtifactSummary[] }>("artifacts")).artifacts,
-    "list",
-    { changes: ["artifacts"] },
-  );
-
-  const words = search.toLowerCase().split(/\s+/).filter(Boolean);
-
-  const shown = (value ?? [])
-    .filter(shelves[shelf])
-    .filter((each) =>
-      words.every((word) =>
-        `${each.title} ${each.sessionTitle ?? ""}`.toLowerCase().includes(word),
-      ),
-    );
-
   return (
     <Page
       title="Artifacts"
       description="Pages, documents and pictures Pi published. Each keeps one link and every version."
     >
-      <div className="flex flex-col gap-4">
-        <div className="flex flex-wrap items-center gap-3">
-          <TextInput
-            type="search"
-            aria-label="Search"
-            placeholder="Search titles and Sessions"
-            className="min-w-0 flex-1"
-            value={search}
-            onChange={(event) => {
-              setSearch(event.target.value);
-            }}
-          />
-          <Segmented
-            label="Show"
-            value={shelf}
-            options={[
-              { value: "yours", label: "Yours" },
-              { value: "shared", label: "Shared with you" },
-              { value: "team", label: "Team" },
-            ]}
-            onChange={setShelf}
-          />
-        </div>
-        {value !== undefined && shown.length === 0 ? (
-          <EmptyState>
-            {words.length > 0 ? "Nothing matches." : emptyShelves[shelf]}
-          </EmptyState>
-        ) : (
-          <Rows label="Artifacts">
-            {shown.map((each) => (
-              <Row
-                key={each.id}
-                title={
-                  <span className="flex items-center gap-2">
-                    <ArtifactLink
-                      id={each.id}
-                      className="text-fg-strong hover:underline"
-                    >
-                      {each.title}
-                    </ArtifactLink>
-                    {each.openComments > 0 && (
-                      <Badge>{plural(each.openComments, "comment")}</Badge>
-                    )}
-                  </span>
-                }
-                description={galleryLine(each, now)}
-              >
-                <span className="ml-auto text-caption text-fg-dim">
-                  {audienceLabel(each)}
-                </span>
-              </Row>
-            ))}
-          </Rows>
-        )}
-        <p className="text-caption text-fg-dim">
-          Pi finds these with list_artifacts and a search. It never gets the
-          whole list.
-        </p>
-      </div>
+      <Gallery />
     </Page>
   );
 }
@@ -222,39 +118,24 @@ function PublishedCard({ call }: ToolCallProps): ReactElement {
     "Artifact";
 
   const inside = (
-    <>
-      <span className="grid size-11 shrink-0 place-items-center rounded-lg border border-line bg-panel text-fg-dim">
-        <Icon name="file-text" />
-      </span>
-      <span className="flex min-w-0 flex-1 flex-col">
-        <span className="truncate text-label font-medium text-fg-strong">
-          {title}
-        </span>
-        <span
-          className={
-            call.status === "failed"
-              ? "truncate text-caption text-failed"
-              : "truncate text-caption text-fg-dim"
-          }
-        >
-          {cardStatus(call, published, now)}
-        </span>
-      </span>
-    </>
-  );
-
-  const card = cn(
-    cardClass,
-    "flex max-w-[420px] items-center gap-3 px-3 py-2.5",
+    <FileCardBody
+      icon="file-text"
+      title={title}
+      detail={cardStatus(call, published, now)}
+      failed={call.status === "failed"}
+    />
   );
 
   return published !== undefined && now !== null ? (
-    <ArtifactLink id={published.id} className={cn(card, "hover:bg-hover")}>
+    <ArtifactLink
+      id={published.id}
+      className={cn(fileCardClass, "hover:bg-hover")}
+    >
       {inside}
       <Icon name="chevron-right" className="text-fg-dim" />
     </ArtifactLink>
   ) : (
-    <div className={card}>{inside}</div>
+    <div className={fileCardClass}>{inside}</div>
   );
 }
 
@@ -463,10 +344,41 @@ function cardStatus(
   ].join(" · ");
 }
 
-function galleryLine(artifact: ArtifactSummary, now: number): string {
-  return [
-    kindLabel(artifact.kind),
-    `v${String(artifact.versions)}`,
-    ago(new Date(artifact.updatedAt).toISOString(), now),
-  ].join(" · ");
+const fileCardClass = cn(
+  cardClass,
+  "flex max-w-[420px] min-w-0 items-center gap-3 px-3 py-2.5 text-left",
+);
+
+// What a card in the chat says about a file or an artifact.
+function FileCardBody({
+  icon,
+  title,
+  detail,
+  failed = false,
+}: {
+  readonly icon: IconName;
+  readonly title: string;
+  readonly detail: string;
+  readonly failed?: boolean;
+}): ReactElement {
+  return (
+    <>
+      <span className="grid size-11 shrink-0 place-items-center rounded-lg border border-line bg-panel text-fg-dim">
+        <Icon name={icon} />
+      </span>
+      <span className="flex min-w-0 flex-1 flex-col">
+        <span className="truncate text-label font-medium text-fg-strong">
+          {title}
+        </span>
+        <span
+          className={cn(
+            "truncate text-caption",
+            failed ? "text-failed" : "text-fg-dim",
+          )}
+        >
+          {detail}
+        </span>
+      </span>
+    </>
+  );
 }

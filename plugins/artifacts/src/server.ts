@@ -202,6 +202,14 @@ export const server = defineServer(
           )?.count ?? 0,
         versions: all.length,
         updatedAt: artifact.updated_at,
+        openedAt:
+          viewer === null
+            ? null
+            : (store.get<{ opened_at: number }>(
+                "select opened_at from artifacts_opened where user_id = ? and artifact_id = ?",
+                viewer,
+                artifact.id,
+              )?.opened_at ?? null),
       };
     };
 
@@ -260,6 +268,60 @@ export const server = defineServer(
       return number;
     };
 
+    // The size of a file that can be shown as an artifact, once its bytes
+    // are here.
+    const publishable = async (name: string, hash: string): Promise<number> => {
+      if (kindOf(name) === undefined) {
+        throw new BadRequest(
+          `${name} can't be shown as an artifact: publish ${supported}`,
+        );
+      }
+
+      const size = await blobs.size(hash);
+
+      if (size === undefined) {
+        throw new HttpError(409, `${name} isn't uploaded yet`, "missing");
+      }
+
+      if (size > maxFileBytes()) {
+        throw new HttpError(
+          413,
+          `${name} is ${bytes(size)}; artifacts can be up to ${bytes(maxFileBytes())} on this server`,
+          "too_large",
+        );
+      }
+
+      return size;
+    };
+
+    const create = (
+      session: string,
+      owner: Owner,
+      title: string,
+      name: string,
+      hash: string,
+      size: number,
+      author: Actor,
+      note?: string,
+    ): string => {
+      const id = Bun.randomUUIDv7();
+
+      store.run(
+        "insert into artifacts_artifacts (id, session_id, owner_user_id, title, created_at, updated_at) values (?, ?, ?, ?, ?, ?)",
+        id,
+        session,
+        owners.toSql(owner),
+        title,
+        clock.now(),
+        clock.now(),
+      );
+
+      addVersion(id, name, hash, size, author, note);
+      log("artifact published", { id, session });
+
+      return id;
+    };
+
     // A change made on base goes on only while base is the latest, so it
     // never drops one made meanwhile.
     const onLatest = (
@@ -305,20 +367,94 @@ export const server = defineServer(
         ) !== undefined,
     });
 
-    const recent = (): readonly Row[] =>
+    // What a Session's Pi reads: its own artifacts, and the ones the person
+    // who started it opens.
+    const reaches = (
+      session: { readonly id: string; readonly startedBy: string | null },
+      artifact: Row,
+    ): boolean =>
+      artifact.session_id === session.id ||
+      (session.startedBy !== null && sees(artifact, session.startedBy));
+
+    // The latest changed, and the latest the person opened, so Recently
+    // opened isn't cut by the cap on changes.
+    const recent = (person: string | null): readonly Row[] =>
       store.all<Row>(
-        "select * from artifacts_artifacts order by updated_at desc limit ?",
+        "select * from artifacts_artifacts where id in (select id from artifacts_artifacts order by updated_at desc limit ?) or id in (select artifact_id from artifacts_opened where user_id = ? order by opened_at desc limit ?) order by updated_at desc, id desc",
+        listed,
+        person,
         listed,
       );
 
-    routes.get("artifacts", { auth: "person" }, ({ caller }) => ({
-      artifacts: recent()
-        .filter((each) => sees(each, caller.person.id))
-        .map((each) => summary(each, caller.person.id)),
-    }));
+    const inSessions = (ids: readonly string[]): readonly Row[] =>
+      ids.length === 0
+        ? []
+        : store.all<Row>(
+            `select * from artifacts_artifacts where session_id in (${ids.map(() => "?").join(", ")}) order by updated_at desc, id desc limit ?`,
+            ...ids,
+            listed,
+          );
 
-    routes.get("artifacts/:id", { auth: "person" }, ({ caller, params }) =>
-      view(theirs(params.id, caller), caller.person.id),
+    routes.get(
+      "artifacts",
+      {
+        auth: "person",
+        query: Type.Object({
+          sessions: Type.Optional(Type.String({ maxLength: 20_000 })),
+          // The Session whose Pi will read them: only what it reaches.
+          for: Type.Optional(Type.String()),
+        }),
+      },
+      ({ caller, query }) => {
+        const person = caller.person.id;
+
+        const reader =
+          query.for === undefined ? undefined : sessions.get(query.for);
+
+        if (
+          query.for !== undefined &&
+          (reader === undefined || !sessions.sees(reader.id, person))
+        ) {
+          throw new NotFound(`no Session ${query.for}`);
+        }
+
+        return {
+          artifacts: (query.sessions === undefined
+            ? recent(person)
+            : inSessions(query.sessions.split(",").filter(Boolean))
+          )
+            .filter(
+              (each) =>
+                sees(each, person) &&
+                (reader === undefined || reaches(reader, each)),
+            )
+            .map((each) => summary(each, person)),
+        };
+      },
+    );
+
+    // The viewer says opened=1, for the gallery's Recently opened; a chat
+    // card reading it doesn't.
+    routes.get(
+      "artifacts/:id",
+      {
+        auth: "person",
+        query: Type.Object({ opened: Type.Optional(Type.Literal("1")) }),
+      },
+      ({ caller, params, query }) => {
+        const artifact = theirs(params.id, caller);
+
+        if (query.opened !== undefined) {
+          store.run(
+            "insert into artifacts_opened (user_id, artifact_id, opened_at) values (?, ?, ?) on conflict (user_id, artifact_id) do update set opened_at = excluded.opened_at",
+            caller.person.id,
+            artifact.id,
+            clock.now(),
+          );
+        }
+
+        return view(artifact, caller.person.id);
+      },
     );
 
     routes.get(
@@ -1121,6 +1257,103 @@ export const server = defineServer(
       },
     );
 
+    // A file of a Session the person steers, such as one of its outputs,
+    // becomes an artifact of that Session; its bytes are uploaded here.
+    routes.post(
+      "artifacts",
+      {
+        auth: "person",
+        body: Type.Object({
+          session: Type.String({ minLength: 1 }),
+          name: Type.String({ minLength: 1, maxLength: 255 }),
+          hash: Type.String({ pattern: blobHash.source }),
+          title: Type.Optional(Type.String({ minLength: 1, maxLength: 200 })),
+        }),
+        changes: ["artifacts"],
+      },
+      async ({ caller, body }): Promise<Published> => {
+        const session = sessions.get(body.session);
+
+        if (
+          session === undefined ||
+          !sessions.sees(session.id, caller.person.id)
+        ) {
+          throw new NotFound(`no Session ${body.session}`);
+        }
+
+        if (!sessions.steers(session.id, caller.person.id)) {
+          throw new Forbidden(
+            "Only people who steer this Session publish its files",
+          );
+        }
+
+        const size = await publishable(body.name, body.hash);
+
+        // The same file published again is a version of the same artifact.
+        const before = store.get<Row>(
+          "select a.* from artifacts_artifacts a join artifacts_versions v on v.artifact_id = a.id where a.session_id = ? and v.name = ? and v.number = (select max(number) from artifacts_versions where artifact_id = a.id) order by a.updated_at desc limit 1",
+          session.id,
+          body.name,
+        );
+
+        if (before !== undefined) {
+          const latest = versionOf(before);
+          const kind = kindOf(body.name) ?? "html";
+
+          if (latest.hash === body.hash) {
+            return {
+              id: before.id,
+              title: before.title,
+              version: latest.number,
+              kind,
+            };
+          }
+
+          const number = addVersion(
+            before.id,
+            body.name,
+            body.hash,
+            size,
+            `user:${caller.person.id}`,
+            "published from a file",
+          );
+
+          told(
+            before,
+            number,
+            `${caller.person.name} published ${body.name} again as version ${String(number)} of the artifact “${before.title}” (${before.id}).`,
+          );
+
+          return { id: before.id, title: before.title, version: number, kind };
+        }
+
+        const title = body.title ?? body.name;
+
+        const id = create(
+          session.id,
+          session.ownedBy,
+          title,
+          body.name,
+          body.hash,
+          size,
+          `user:${caller.person.id}`,
+          "published from a file",
+        );
+
+        const artifact = row(id);
+
+        if (artifact !== undefined) {
+          told(
+            artifact,
+            1,
+            `${caller.person.name} published ${body.name} as the artifact “${title}” (${id}).`,
+          );
+        }
+
+        return { id, title, version: 1, kind: kindOf(body.name) ?? "html" };
+      },
+    );
+
     routes.put(
       "artifacts/:id/pin",
       {
@@ -1162,17 +1395,10 @@ export const server = defineServer(
         .map((each) => summary(each, caller.person.id)),
     }));
 
-    // What a Session reaches: its own artifacts, and the ones the person
-    // who started it opens.
-    const reachable = (caller: SessionCaller, artifact: Row): boolean =>
-      artifact.session_id === caller.session.id ||
-      (caller.session.startedBy !== null &&
-        sees(artifact, caller.session.startedBy));
-
     const sessionArtifact = (caller: SessionCaller, id: string): Row => {
       const found = row(id);
 
-      if (found === undefined || !reachable(caller, found)) {
+      if (found === undefined || !reaches(caller.session, found)) {
         throw new NotFound(`no artifact ${id}`);
       }
 
@@ -1194,30 +1420,7 @@ export const server = defineServer(
         changes: ["artifacts"],
       },
       async ({ caller, body }): Promise<Published> => {
-        if (kindOf(body.name) === undefined) {
-          throw new BadRequest(
-            `${body.name} can't be shown as an artifact: publish ${supported}`,
-          );
-        }
-
-        const size = await blobs.size(body.hash);
-
-        if (size === undefined) {
-          throw new HttpError(
-            409,
-            `${body.name} isn't uploaded yet`,
-            "missing",
-          );
-        }
-
-        if (size > maxFileBytes()) {
-          throw new HttpError(
-            413,
-            `${body.name} is ${bytes(size)}; artifacts can be up to ${bytes(maxFileBytes())} on this server`,
-            "too_large",
-          );
-        }
-
+        const size = await publishable(body.name, body.hash);
         const author: Actor = `session:${caller.session.id}`;
 
         if (body.id !== undefined) {
@@ -1263,22 +1466,18 @@ export const server = defineServer(
           };
         }
 
-        const id = Bun.randomUUIDv7();
         const title = body.title ?? body.name;
-        const owner: Owner = caller.session.ownedBy;
 
-        store.run(
-          "insert into artifacts_artifacts (id, session_id, owner_user_id, title, created_at, updated_at) values (?, ?, ?, ?, ?, ?)",
-          id,
+        const id = create(
           caller.session.id,
-          owners.toSql(owner),
+          caller.session.ownedBy,
           title,
-          clock.now(),
-          clock.now(),
+          body.name,
+          body.hash,
+          size,
+          author,
+          body.note,
         );
-
-        addVersion(id, body.name, body.hash, size, author, body.note);
-        log("artifact published", { id, session: caller.session.id });
 
         return { id, title, version: 1, kind: kindOf(body.name) ?? "html" };
       },
@@ -1293,8 +1492,8 @@ export const server = defineServer(
       ({ caller, query }) => {
         const words = query.query.toLowerCase().split(/\s+/).filter(Boolean);
 
-        const matches = recent()
-          .filter((each) => reachable(caller, each))
+        const matches = recent(null)
+          .filter((each) => reaches(caller.session, each))
           .filter((each) =>
             words.every((word) => each.title.toLowerCase().includes(word)),
           )

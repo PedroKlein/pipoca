@@ -4770,7 +4770,7 @@ test("creates a Project and shares a file through its folder", async () => {
 
   await page.getByRole("button", { name: "Project folder" }).click();
 
-  await page.getByText("No files here yet.").waitFor();
+  await page.getByText(/^No files here yet\./).waitFor();
 
   await page.getByLabel("Upload files").setInputFiles({
     name: "brief.txt",
@@ -4778,12 +4778,22 @@ test("creates a Project and shares a file through its folder", async () => {
     buffer: Buffer.from("the brief\n"),
   });
 
-  await page.getByRole("link", { name: "brief.txt" }).first().waitFor();
+  await page.getByRole("button", { name: "brief.txt" }).first().waitFor();
 
   await page
     .getByRole("list", { name: "Recent writes" })
     .getByText(/^wrote brief\.txt \(10 B\)$/)
     .waitFor();
+
+  // A folder file goes to the coordinator's composer as a card, and the
+  // page stays where it is.
+  const here = page.url();
+
+  await page.getByRole("button", { name: "More for brief.txt" }).click();
+  await page.getByRole("menuitem", { name: "Attach to a new message" }).click();
+  await page.getByText("from project/ · already saved").waitFor();
+
+  expect(page.url()).toBe(here);
 
   const nav = page.locator("#project-nav").getByRole("link", { name: /^Site/ });
   await nav.click();
@@ -5172,6 +5182,111 @@ test("opens what Pi made from the header's Files menu in the file viewer, and st
   await page.locator("button[aria-label='Files, 2']:focus").waitFor();
 }, 90_000);
 
+test("opens what Pi's turn saved from the card under its reply, publishes it as an artifact, and attaches the artifact to the next message", async () => {
+  const folder = join(root, "files-cards");
+  await mkdir(folder, { recursive: true });
+  await writeFile(join(folder, "joined.csv"), "day,ms\n11-03,870\n");
+
+  await page.goto(server.url.href);
+  await page.getByRole("button", { name: "New session" }).click();
+  const form = page.locator("form#create");
+  await pickWorkspace(form, folder);
+  await form.getByRole("button", { name: "Start session" }).click();
+  await page.locator("#status", { hasText: "idle" }).waitFor();
+  const sessionId = new URL(page.url()).hash.slice(1).split("?")[0] ?? "";
+
+  faux.setResponses([
+    fauxAssistantMessage(
+      [
+        fauxToolCall("bash", {
+          command: `d=${join(root, "e2e", "sessions", sessionId, "plugins", "files", "outputs")} && mkdir -p $d && cp ${folder}/joined.csv $d/`,
+        }),
+      ],
+      { stopReason: "toolUse" },
+    ),
+    fauxAssistantMessage([fauxText("joined them")]),
+  ]);
+
+  await page.locator("#prompt-text").fill("join the tables");
+  await page.locator("#prompt-text").press("Enter");
+  await page.getByText("joined them").waitFor({ timeout: 60_000 });
+
+  await page
+    .getByRole("list", { name: "Files Pi saved" })
+    .getByRole("button", { name: /^joined\.csv/ })
+    .click({ timeout: 30_000 });
+
+  const file = page.getByRole("dialog", { name: "joined.csv" });
+
+  await file
+    .frameLocator("iframe")
+    .getByRole("cell", { name: "870" })
+    .waitFor();
+
+  await file.getByRole("button", { name: "Publish as artifact" }).click();
+  await page.waitForURL((url) => url.hash.includes("?artifact="));
+
+  await page
+    .getByRole("dialog", { name: "joined.csv" })
+    .frameLocator("iframe")
+    .getByRole("cell", { name: "870" })
+    .waitFor();
+
+  await page.keyboard.press("Escape");
+  await overlayClosed();
+
+  await page.getByRole("button", { name: "Files, 2" }).click();
+
+  await page
+    .getByRole("dialog", { name: "Files" })
+    .getByRole("region", { name: "Artifacts" })
+    .getByRole("button", { name: /^joined\.csv/ })
+    .waitFor();
+
+  await page.keyboard.press("Escape");
+
+  await page.getByRole("button", { name: "Attach files" }).click();
+
+  await page
+    .getByRole("group", { name: "Attach files" })
+    .getByRole("button", { name: "An artifact…" })
+    .click();
+
+  await page
+    .getByRole("dialog", { name: "Attach an artifact" })
+    .getByRole("button", { name: /^joined\.csv/ })
+    .click();
+
+  await page.getByText("artifact · version 1").waitFor();
+
+  // An attachment alone is a message, and it goes with that one only.
+  faux.setResponses([
+    fauxAssistantMessage([fauxText("a short summary")]),
+    fauxAssistantMessage([fauxText("anything else")]),
+  ]);
+
+  await page.locator("#prompt-text").press("Enter");
+  await page.getByText("a short summary").waitFor({ timeout: 60_000 });
+
+  await page
+    .locator('#chat li[data-role="user"]', {
+      hasText: "Attached: the artifact “joined.csv”",
+    })
+    .waitFor();
+
+  expect(await page.getByText("artifact · version 1").count()).toBe(0);
+
+  await page.locator("#prompt-text").fill("thanks");
+  await page.locator("#prompt-text").press("Enter");
+  await page.getByText("anything else").waitFor({ timeout: 60_000 });
+
+  expect(
+    await page
+      .locator('#chat li[data-role="user"]', { hasText: "Attached:" })
+      .count(),
+  ).toBe(1);
+}, 90_000);
+
 test("attaches an image to a message and shows it in the chat", async () => {
   faux.setResponses([fauxAssistantMessage([fauxText("a tiny pixel")])]);
   await page.goto(server.url.href);
@@ -5183,7 +5298,9 @@ test("attaches an image to a message and shows it in the chat", async () => {
   await form.getByRole("button", { name: "Start session" }).click();
   await page.locator("#status", { hasText: "idle" }).waitFor();
 
-  await page.getByLabel("Attach files").setInputFiles({
+  await page.getByRole("button", { name: "Attach files" }).click();
+
+  await page.getByLabel("Upload from computer").setInputFiles({
     name: "pixel.png",
     mimeType: "image/png",
     buffer: Buffer.from(

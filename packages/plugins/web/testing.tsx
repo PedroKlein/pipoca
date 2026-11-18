@@ -9,6 +9,7 @@ import {
 } from "react";
 import type { RepositoryChoice } from "@pipoca/protocol";
 import type { PluginDefinition } from "../src/definition";
+import type { Attachment } from "./attach-menu";
 import type { MountedSession, WebPart } from "./index";
 import { FilesMenu, FilesMenuHost } from "./files-menu";
 import { SessionPanel } from "./session-panel";
@@ -51,8 +52,8 @@ function TestShell({
     SessionView: ({ sessionId, title }) => (
       <section aria-label={title ?? sessionId} data-session={sessionId} />
     ),
-    draft: (sessionId, text) => {
-      drafts.push({ sessionId, text });
+    draft: (sessionId, text, attachments = []) => {
+      drafts.push({ sessionId, text, attachments });
     },
     repositories: async (query) =>
       Promise.resolve(
@@ -75,7 +76,11 @@ function TestShell({
 }
 
 // What parts put in a Session's composer, newest last.
-export const drafts: { sessionId: string; text: string }[] = [];
+export const drafts: {
+  sessionId: string;
+  text: string;
+  attachments: readonly Attachment[];
+}[] = [];
 
 // Draws what a part fills a slot with, or its "settings" section, inside the
 // test shell, on a page that is taken down after the test.

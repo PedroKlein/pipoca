@@ -1,3 +1,4 @@
+import type { Attachment } from "./attach-menu";
 import type {
   Environment,
   EnvironmentTemplate,
@@ -22,6 +23,14 @@ export { hashParts, useOverlay } from "./overlay";
 export { RepositoryField } from "./repositories";
 export { SessionPanel, SessionTab } from "./session-panel";
 export { uploadBlob } from "./upload";
+export {
+  type Attachment,
+  AttachedCard,
+  AttachMenu,
+  AttachPicker,
+  AttachRow,
+} from "./attach-menu";
+export { FileCard } from "./file-card";
 export { FilesMenu, FilesMenuHost, FilesRow, FilesSection } from "./files-menu";
 export {
   FileViewer,
@@ -44,6 +53,7 @@ export {
   useApi,
   useConfig,
   useDraft,
+  useFilled,
   useSessionState,
   useToolResults,
   useViewer,
@@ -152,6 +162,8 @@ export interface NavItemsProps {
 export interface NoticeProps {
   readonly text: string;
   readonly data: unknown;
+  // The Session whose chat shows it.
+  readonly session: MountedSession;
 }
 
 // A link of the plugin's own scheme in a chat answer, as [label](scheme:target).
@@ -177,6 +189,20 @@ export interface SessionFilesProps extends SessionPartProps {
   readonly onRemove: (file: File) => void;
   // Whether some are still on their way, which holds the composer's Send.
   readonly onUploading: (uploading: boolean) => void;
+}
+
+export interface SessionAttachProps extends SessionPartProps {
+  // Attaches it to the next message.
+  readonly add: (attachment: Attachment) => void;
+}
+
+export interface FileActionsProps {
+  // The Session the file is kept for, which the person steers.
+  readonly session: string;
+  // Its name, such as report.csv.
+  readonly file: string;
+  // Where its bytes download from.
+  readonly download: string;
 }
 
 export interface EnvironmentSectionProps {

@@ -151,7 +151,7 @@ export function turnItems({
     ),
     turn.notice && (
       <li key={`${String(turn.key)}-notice`} data-role="notice">
-        <Notice notice={turn.notice} />
+        <Notice notice={turn.notice} session={session} />
       </li>
     ),
     ...partItems(turn, running, last && live, session),

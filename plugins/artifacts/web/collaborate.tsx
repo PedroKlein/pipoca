@@ -17,14 +17,15 @@ export function artifactHref(id: string, version?: number): string {
   );
 }
 
-// An artifact as the viewer and the chat's cards load it. A missing one was
-// deleted or isn't shared with the person.
+// An artifact as the viewer and the chat's cards load it; the viewer marks
+// it opened. A missing one was deleted or isn't shared with the person.
 export async function loadArtifact(
   api: TypedClient,
   id: string,
+  { opened = false }: { readonly opened?: boolean } = {},
 ): Promise<ArtifactView | "missing" | "failed"> {
   return api
-    .get<ArtifactView>(`artifacts/${id}`)
+    .get<ArtifactView>(`artifacts/${id}${opened ? "?opened=1" : ""}`)
     .catch((error: unknown) =>
       isHttpError(error) && error.status === 404 ? "missing" : "failed",
     );

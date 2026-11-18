@@ -194,6 +194,8 @@ export function person(id: string): Owner {
 
 export interface SessionTest {
   readonly tool: (name: string, input: unknown) => Promise<ToolAnswer>;
+  // Every message the part sent Pi, such as a notice.
+  readonly sent: () => readonly unknown[];
   // A person typing /<name> <args>: the messages the part's command sent.
   readonly command: (name: string, args: string) => Promise<readonly unknown[]>;
   // Pi's event of this type, such as "agent_settled", through the part's
@@ -276,8 +278,8 @@ export async function testSession(
     ) => {
       commands.set(name, command.handler);
     },
-    sendMessage: (message: unknown) => {
-      sent.push(message);
+    sendMessage: (message: object, options?: object) => {
+      sent.push(options === undefined ? message : { ...message, options });
     },
     registerProvider: (name: string, provider: unknown) => {
       providers.set(name, provider);
@@ -339,6 +341,7 @@ export async function testSession(
         };
       }
     },
+    sent: () => [...sent],
     command: async (name, args) => {
       const handler = commands.get(name);
 

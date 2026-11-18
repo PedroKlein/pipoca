@@ -9,6 +9,7 @@ import {
   testSession,
 } from "@pipoca/testing";
 import { until } from "@pipoca/testing/until";
+import { blobRoutes } from "@pipoca/protocol";
 import type { ArtifactSummary, ArtifactView, Comment } from "./artifacts";
 import { lineDiff, textChanges } from "./diff";
 import { server } from "./server";
@@ -36,7 +37,7 @@ afterEach(async () => {
 async function setUp() {
   const t = await testPlugin(server, {
     people: [
-      { id: "ana", name: "Ana" },
+      { id: "ana", name: "Ana", admin: true },
       { id: "bo", name: "Bo" },
       { id: "cy", name: "Cy" },
     ],
@@ -215,6 +216,291 @@ test("people who don't see the Session open an artifact only once it's shared wi
   expect(
     (await t.as("cy").raw(`artifacts/${id}`, { method: "GET" })).status,
   ).toBe(404);
+});
+
+async function uploaded(t: PluginTest, who: string, bytes: string) {
+  const as = t.as(who);
+  const id = crypto.randomUUID();
+
+  await as.raw(`${blobRoutes.browserUpload.replace(":id", id)}?offset=0`, {
+    method: "PUT",
+    body: bytes,
+  });
+
+  return (
+    await as.post<{ hash: string }>(
+      blobRoutes.browserFinish.replace(":id", id),
+      {},
+    )
+  ).hash;
+}
+
+test("a person publishes a file of a Session they steer as an artifact, and Pi hears of it without a turn", async () => {
+  const { t, host } = await setUp();
+  const hash = await uploaded(t, "ana", "day,ms\n11-03,870\n");
+
+  const published = await t
+    .as("ana")
+    .post<{ id: string; version: number }>("artifacts", {
+      session: host.id,
+      name: "p95.csv",
+      hash,
+      title: "p95 by day",
+    });
+
+  expect(published).toMatchObject({ version: 1, kind: "csv" });
+
+  expect(
+    await t.as("ana").get<ArtifactView>(`artifacts/${published.id}`),
+  ).toMatchObject({
+    title: "p95 by day",
+    sessionId: host.id,
+    owner: "Ana",
+    access: "steer",
+    history: [{ by: "Ana", note: "published from a file" }],
+  });
+
+  await until(() => host.delivered().length === 1);
+
+  expect(host.delivered()[0]).toMatchObject({
+    text: `Ana published p95.csv as the artifact “p95 by day” (${published.id}). Read it with read_artifact before you change it.`,
+    turn: false,
+    notice: { kind: "artifact_version" },
+  });
+
+  const refused = async (who: string, name: string) =>
+    (
+      await t.as(who).raw("artifacts", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ session: host.id, name, hash }),
+      })
+    ).status;
+
+  expect(await refused("bo", "p95.csv")).toBe(404);
+  expect(await refused("ana", "book.xlsx")).toBe(400);
+
+  // Publishing the file again changes nothing, and once it changed it is a
+  // new version at the same link.
+  const again = async (bytes: string) =>
+    t.as("ana").post<{ id: string; version: number }>("artifacts", {
+      session: host.id,
+      name: "p95.csv",
+      hash: await uploaded(t, "ana", bytes),
+    });
+
+  expect(await again("day,ms\n11-03,870\n")).toMatchObject({
+    id: published.id,
+    version: 1,
+  });
+
+  expect(await again("day,ms\n11-04,910\n")).toMatchObject({
+    id: published.id,
+    version: 2,
+  });
+
+  await until(() => host.delivered().length === 2);
+
+  expect(host.delivered()[1]).toMatchObject({
+    text: `Ana published p95.csv again as version 2 of the artifact “p95 by day” (${published.id}). Read it with read_artifact before you change it.`,
+  });
+});
+
+test("a person publishes team work's file only when they steer it, and the artifact is the team's", async () => {
+  const { t } = await setUp();
+
+  const team = await t.session({
+    owner: "team",
+    startedBy: "bo",
+    access: { kind: "view" },
+  });
+
+  const hash = await uploaded(t, "cy", "# Plan");
+
+  const publish = async (who: string) =>
+    t.as(who).raw("artifacts", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ session: team.id, name: "plan.md", hash }),
+    });
+
+  expect((await publish("cy")).status).toBe(403);
+  expect((await publish("bo")).status).toBe(200);
+
+  expect(
+    (
+      await t
+        .as("cy")
+        .get<{ artifacts: ArtifactSummary[] }>(`artifacts?sessions=${team.id}`)
+    ).artifacts,
+  ).toMatchObject([
+    { title: "plan.md", audience: "team", yours: false, openedAt: null },
+  ]);
+
+  const [plan] = (
+    await t
+      .as("bo")
+      .get<{ artifacts: ArtifactSummary[] }>(`artifacts?sessions=${team.id}`)
+  ).artifacts;
+
+  await t.as("bo").get(`artifacts/${plan?.id ?? ""}?opened=1`);
+
+  expect(
+    (
+      await t
+        .as("cy")
+        .get<{ artifacts: ArtifactSummary[] }>(`artifacts?sessions=${team.id}`)
+    ).artifacts,
+  ).toMatchObject([{ openedAt: null }]);
+});
+
+test("the + menu offers only artifacts the Session's Pi can read", async () => {
+  const { t, host, cwd, part } = await setUp();
+
+  await writeFile(join(cwd, "page.html"), "<h1>Hi</h1>");
+
+  const { details } = await part.tool("publish_artifact", {
+    path: "page.html",
+  });
+
+  const { id } = details as { id: string };
+
+  await t.as("ana").put(`artifacts/${id}/shares`, {
+    shares: [{ name: "Bo", role: "view" }],
+  });
+
+  const team = await t.session({
+    owner: "team",
+    startedBy: "cy",
+    access: { kind: "team" },
+  });
+
+  const hash = await uploaded(t, "bo", "# Plan");
+
+  await t.as("bo").post("artifacts", {
+    session: team.id,
+    name: "plan.md",
+    hash,
+  });
+
+  const titles = async (query: string) =>
+    (
+      await t
+        .as("bo")
+        .get<{ artifacts: ArtifactSummary[] }>(`artifacts${query}`)
+    ).artifacts.map(({ title }) => title);
+
+  expect((await titles("")).toSorted()).toEqual(["page.html", "plan.md"]);
+  expect(await titles(`?for=${team.id}`)).toEqual(["plan.md"]);
+
+  // One bo started reaches what bo opens.
+  const bos = await t.session({
+    owner: "team",
+    startedBy: "bo",
+    access: { kind: "team" },
+  });
+
+  expect((await titles(`?for=${bos.id}`)).toSorted()).toEqual([
+    "page.html",
+    "plan.md",
+  ]);
+
+  const status = async (query: string) =>
+    (await t.as("bo").raw(`artifacts${query}`, { method: "GET" })).status;
+
+  expect(await status("?for=nope")).toBe(404);
+  expect(await status(`?for=${host.id}`)).toBe(404);
+});
+
+test("a file that isn't uploaded or is too large isn't published", async () => {
+  const { t, host } = await setUp();
+
+  const publish = async (hash: string) =>
+    (
+      await t.as("ana").raw("artifacts", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ session: host.id, name: "a.md", hash }),
+      })
+    ).status;
+
+  expect(await publish("f".repeat(64))).toBe(409);
+
+  const long = await uploaded(t, "ana", "# Too long");
+
+  await t.editConfig({ maxFileBytes: 4 });
+
+  expect(await publish(long)).toBe(413);
+});
+
+test("the list narrows to one Session and says when the person last opened each", async () => {
+  const { t, host, cwd, part } = await setUp();
+  const other = await t.session({ owner: person("ana") });
+
+  await writeFile(join(cwd, "a.md"), "# A");
+
+  const { details } = await part.tool("publish_artifact", { path: "a.md" });
+  const { id } = details as { id: string };
+
+  await t.as("ana").post("artifacts", {
+    session: other.id,
+    name: "b.md",
+    hash: await uploaded(t, "ana", "# B"),
+  });
+
+  const listed = async (query: string) =>
+    (
+      await t
+        .as("ana")
+        .get<{ artifacts: ArtifactSummary[] }>(`artifacts${query}`)
+    ).artifacts.map(({ title, openedAt }) => ({
+      title,
+      opened: openedAt !== null,
+    }));
+
+  expect(await listed(`?sessions=${host.id}`)).toEqual([
+    { title: "a.md", opened: false },
+  ]);
+
+  expect(await listed(`?sessions=${host.id},${other.id}`)).toHaveLength(2);
+
+  expect(
+    (
+      await t
+        .as("bo")
+        .get<{ artifacts: ArtifactSummary[] }>(`artifacts?sessions=${host.id}`)
+    ).artifacts,
+  ).toEqual([]);
+
+  // Reading it, as a chat card does, isn't opening it.
+  await t.as("ana").get(`artifacts/${id}`);
+
+  expect(await listed(`?sessions=${host.id}`)).toEqual([
+    { title: "a.md", opened: false },
+  ]);
+
+  await t.as("ana").get(`artifacts/${id}?opened=1`);
+
+  expect(await listed("")).toEqual([
+    { title: "b.md", opened: false },
+    { title: "a.md", opened: true },
+  ]);
+
+  // Opening is the person's own.
+  expect(
+    (
+      await t.as("ana").get<{ artifacts: ArtifactSummary[] }>("artifacts")
+    ).artifacts.find((each) => each.id === id)?.openedAt,
+  ).toBe(t.clock.now());
+
+  await t.clock.advance("5m");
+  await t.as("ana").get(`artifacts/${id}?opened=1`);
+
+  expect(
+    (
+      await t.as("ana").get<{ artifacts: ArtifactSummary[] }>("artifacts")
+    ).artifacts.find((each) => each.id === id)?.openedAt,
+  ).toBe(t.clock.now());
 });
 
 test("Pi finds artifacts by title and reads one back into its folder", async () => {

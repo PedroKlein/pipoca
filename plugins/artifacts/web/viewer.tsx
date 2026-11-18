@@ -33,6 +33,7 @@ import {
   useEffect,
   useId,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { artifacts as plugin } from "../plugin";
@@ -160,9 +161,18 @@ export function Viewer({
   readonly onClose: () => void;
 }): ReactElement {
   const api = useApi(plugin);
+  // Only the first load of an open marks it opened, not the reloads that
+  // follow other changes.
+  const opened = useRef<string>(undefined);
 
   const { value: loaded, reload } = useLoaded(
-    async () => loadArtifact(api, id),
+    async () => {
+      const first = opened.current !== id;
+
+      opened.current = id;
+
+      return loadArtifact(api, id, { opened: first });
+    },
     id,
     { changes: ["artifacts"] },
   );

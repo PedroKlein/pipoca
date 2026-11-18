@@ -11,6 +11,7 @@ export function FileButton({
   icon = "upload",
   variant = "default",
   iconOnly = false,
+  bare = false,
   title,
   onFiles,
   ...input
@@ -20,19 +21,25 @@ export function FileButton({
   readonly variant?: Exclude<ButtonVariant, "link">;
   // Only the icon shows, so give the input an aria-label.
   readonly iconOnly?: boolean;
+  // Only className styles it, such as a row of a menu.
+  readonly bare?: boolean;
   readonly onFiles: (files: readonly File[]) => void;
 }): ReactElement {
   return (
     <label
       title={title}
-      className={buttonClass({
-        variant,
-        iconOnly,
-        className: cn(
-          "has-focus-visible:border-line-focus has-focus-visible:ring-4 has-focus-visible:ring-focus",
-          className,
-        ),
-      })}
+      className={
+        bare
+          ? className
+          : buttonClass({
+              variant,
+              iconOnly,
+              className: cn(
+                "has-focus-visible:border-line-focus has-focus-visible:ring-4 has-focus-visible:ring-focus",
+                className,
+              ),
+            })
+      }
     >
       <Icon name={icon} className={iconOnly ? "" : "text-fg-dim"} />
       {children}

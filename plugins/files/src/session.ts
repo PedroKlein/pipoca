@@ -10,6 +10,8 @@ import { files } from "../plugin";
 import {
   bytes,
   type FilesState,
+  type SavedNoticeData,
+  savedNotice,
   type SessionFile,
   uploadNotice,
 } from "./files";
@@ -70,7 +72,22 @@ export const session = defineSession(files, (s) => {
   });
 
   s.extension((pi) => {
-    const outputs = outputSync(s);
+    const outputs = outputSync(s, (saved) => {
+      const data: SavedNoticeData = {
+        files: saved.map(({ path, size }) => ({ path, size })),
+      };
+
+      pi.sendMessage(
+        {
+          customType: noticeType,
+          content: `Saved for the person after your turn: ${saved.map(({ path, size }) => `outputs/${path} (${bytes(size)})`).join(", ")}.`,
+          display: true,
+          details: { plugin: files.id, kind: savedNotice, data },
+        },
+        { triggerTurn: false },
+      );
+    });
+
     const uploads = uploadInbox(s);
 
     // The Kubernetes plugin's pods without a disk of their own say so.
@@ -97,7 +114,7 @@ export const session = defineSession(files, (s) => {
     });
 
     pi.on("agent_settled", (_event, ctx) => {
-      outputs.run(s.folder);
+      outputs.run(s.folder, { turn: true });
       work?.save(ctx.cwd, s.checkouts);
     });
 
@@ -121,11 +138,19 @@ type Context = Pick<
 
 // One sync at a time; a turn that ends during one queues one more. A sync
 // that fails tries again later, longer each time, so outputs/ is the outbox.
-function outputSync(s: Context): {
-  readonly run: (cwd: string) => void;
+// What a turn changed is told once the server has it.
+function outputSync(
+  s: Context,
+  onSaved: (saved: readonly Scanned[]) => void,
+): {
+  readonly run: (cwd: string, o?: { readonly turn?: boolean }) => void;
   readonly flush: () => Promise<void>;
 } {
   const hashes = new Map<string, { key: string; hash: string }>();
+  // What the server had after the last sync, which a turn's changes are
+  // told against; the first sync of a runner only learns it.
+  let kept: ReadonlyMap<string, string> | undefined;
+  let turned = false;
   let running = Promise.resolve();
   let queued: string | undefined;
   let lastCwd: string | undefined;
@@ -185,6 +210,9 @@ function outputSync(s: Context): {
 
   const sync = async (cwd: string): Promise<void> => {
     queued = undefined;
+    const told = turned;
+
+    turned = false;
     const root = join(cwd, "outputs");
     const { files: found, skipped } = await scan(root);
 
@@ -192,6 +220,11 @@ function outputSync(s: Context): {
       skipped.length === 0
         ? undefined
         : `${skipped.join(", ")} ${skipped.length === 1 ? "is" : "are"} larger than this server keeps.`;
+
+    // What is there before any turn isn't news, saved yet or not.
+    if (kept === undefined && !told) {
+      kept = new Map(found.map(({ path, hash }) => [path, hash]));
+    }
 
     let unsaved = [...found];
 
@@ -209,10 +242,25 @@ function outputSync(s: Context): {
 
       await s.api.put("session/outputs", { files: found });
 
+      const before = kept;
+      kept = new Map(found.map(({ path, hash }) => [path, hash]));
+
+      if (before !== undefined && told) {
+        const saved = found.filter(
+          ({ path, hash }) => before.get(path) !== hash,
+        );
+
+        if (saved.length > 0) {
+          onSaved(saved);
+        }
+      }
+
       wait = firstRetryMs;
       s.publish("files", state([], tooLarge));
     } catch (error) {
       const problem = error instanceof Error ? error.message : String(error);
+
+      turned ||= told;
 
       s.log("outputs not saved", { files: unsaved.length, error: problem });
 
@@ -251,7 +299,10 @@ function outputSync(s: Context): {
   };
 
   return {
-    run: schedule,
+    run: (cwd, o) => {
+      turned ||= o?.turn === true;
+      schedule(cwd);
+    },
     // One last try as the Session ends, with no retry after it, so a
     // runner that lost the server can still stop.
     flush: async () => {

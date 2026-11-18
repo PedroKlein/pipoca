@@ -4,8 +4,8 @@ import {
   defineServer,
   HttpError,
   NotFound,
-  preview,
-  previewBytes,
+  filePreview,
+  previewQuery,
   StringEnum,
   Type,
 } from "@pipoca/plugins";
@@ -139,11 +139,7 @@ export const server = defineServer(
       }
     };
 
-    const keptFile = async (
-      sessionId: string,
-      place: Place,
-      path: string,
-    ): Promise<{ readonly row: Row; readonly stream: ReadableStream }> => {
+    const keptRow = (sessionId: string, place: Place, path: string): Row => {
       const row = store.get<Row>(
         `select ${columns} from files_session_files
          where session_id = ? and place = ? and path = ?`,
@@ -152,9 +148,22 @@ export const server = defineServer(
         path,
       );
 
-      const stream = row && (await blobs.read(row.hash));
+      if (row === undefined) {
+        throw new NotFound(`no file ${place}/${path}`);
+      }
 
-      if (row === undefined || stream === undefined) {
+      return row;
+    };
+
+    const keptFile = async (
+      sessionId: string,
+      place: Place,
+      path: string,
+    ): Promise<{ readonly row: Row; readonly stream: ReadableStream }> => {
+      const row = keptRow(sessionId, place, path);
+      const stream = await blobs.read(row.hash);
+
+      if (stream === undefined) {
         throw new NotFound(`no file ${place}/${path}`);
       }
 
@@ -248,50 +257,26 @@ export const server = defineServer(
 
     routes.get(
       "sessions/:id/files/:place/view",
-      {
-        auth: "person",
-        query: Type.Object({
-          path: Type.String({ minLength: 1 }),
-          as: Type.Optional(Type.Literal("text")),
-          // The file's hash, so a page cached for one copy isn't shown for
-          // the next.
-          v: Type.Optional(Type.String()),
-        }),
-      },
+      { auth: "person", query: previewQuery },
       async ({ caller, params, query }) => {
         seen(params.id, caller.person.id);
 
-        const { row, stream } = await keptFile(
-          params.id,
-          placeOf(params.place),
-          query.path,
+        const place = placeOf(params.place);
+        const row = keptRow(params.id, place, query.path);
+
+        return filePreview(
+          row,
+          async () => {
+            const kept = await blobs.bytes(row.hash);
+
+            if (kept === undefined) {
+              throw new NotFound(`no file ${place}/${query.path}`);
+            }
+
+            return kept;
+          },
+          query,
         );
-
-        if (row.size > previewBytes) {
-          await stream.cancel();
-
-          throw new HttpError(
-            413,
-            `${query.path} is too big to show; download it instead`,
-            "too_large",
-          );
-        }
-
-        const shown = preview(
-          query.path,
-          new Uint8Array(await new Response(stream).arrayBuffer()),
-          query.as === undefined ? {} : { kind: query.as },
-        );
-
-        if (shown === undefined) {
-          throw new NotFound(`no preview of ${query.path}`);
-        }
-
-        if (query.v !== row.hash) {
-          shown.headers.set("cache-control", "no-cache");
-        }
-
-        return shown;
       },
     );
 

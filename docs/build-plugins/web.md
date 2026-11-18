@@ -57,20 +57,27 @@ export const web = defineWeb(greeter, {
 
 `slots` fills places the app draws in:
 
-| Slot                                                                                 | Where                                                                                                                                     |
-| ------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| `session.composer`                                                                   | Above a Session's composer, as the checklist is.                                                                                          |
-| `session.header`                                                                     | A Session's header. It can draw a `SessionTab` (below).                                                                                   |
-| `session.files`                                                                      | Files added in the composer that aren't images, until the message is sent.                                                                |
-| `session.toolCall:<tool>`                                                            | How a call of that tool shows in the chat.                                                                                                |
-| `session.permission:<tool>`                                                          | How a request to run that tool asks for permission.                                                                                       |
-| `notice:<kind>`                                                                      | How a notice of that kind shows in the chat.                                                                                              |
-| `codeBlock:<language>`                                                               | How a fenced block of that language shows in the chat, with its text as `code`, and `complete` false while the agent is still writing it. |
-| `link:<scheme>`                                                                      | How a link with that scheme in the chat's Markdown shows.                                                                                 |
-| `home`                                                                               | The home screen, drawn by the first plugin that fills it, as the assistant is.                                                            |
-| `overlay`                                                                            | Over every page, as the artifact viewer is. It reads what to show from `useOverlay()`.                                                    |
-| `environment.section`, `template.section`                                            | A section on an Environment's or a template's page.                                                                                       |
-| `settings.general`, `settings.accounts`, `settings.profile`, `settings.base-profile` | A section on those Settings pages, or on the Server base.                                                                                 |
+| Slot                                                                                 | Where                                                                                                                                              |
+| ------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `session.composer`                                                                   | Above a Session's composer, as the checklist is.                                                                                                   |
+| `session.header`                                                                     | A Session's header. It can draw a `SessionTab` (below).                                                                                            |
+| `session.files`                                                                      | Files added in the composer that aren't images, until the message is sent.                                                                         |
+| `session.attach`                                                                     | A row in the composer's **+** menu, drawn with `AttachRow`, that can open an `AttachPicker` and attach what's picked with `add`.                   |
+| `file.actions`                                                                       | Buttons in the file viewer's header for a file of a Session the person steers, such as **Publish**, with the Session, file name and download link. |
+| `project.artifacts`                                                                  | The Project's artifacts panel, with every Session of the Project as `sessions`.                                                                    |
+| `session.toolCall:<tool>`                                                            | How a call of that tool shows in the chat.                                                                                                         |
+| `session.permission:<tool>`                                                          | How a request to run that tool asks for permission.                                                                                                |
+| `notice:<kind>`                                                                      | How a notice of that kind shows in the chat.                                                                                                       |
+| `codeBlock:<language>`                                                               | How a fenced block of that language shows in the chat, with its text as `code`, and `complete` false while the agent is still writing it.          |
+| `link:<scheme>`                                                                      | How a link with that scheme in the chat's Markdown shows.                                                                                          |
+| `home`                                                                               | The home screen, drawn by the first plugin that fills it, as the assistant is.                                                                     |
+| `overlay`                                                                            | Over every page, as the artifact viewer is. It reads what to show from `useOverlay()`.                                                             |
+| `environment.section`, `template.section`                                            | A section on an Environment's or a template's page.                                                                                                |
+| `settings.general`, `settings.accounts`, `settings.profile`, `settings.base-profile` | A section on those Settings pages, or on the Server base.                                                                                          |
+
+`useFilled(slot)` says whether any plugin fills a slot, so a part can leave out a button that would open nothing.
+
+The composer's attachments are `Attachment`s (`key`, `title`, `icon`, `detail` and the `text` that goes with the message), drawn as `AttachedCard`s. `FileCard` is the card a file shows as in the chat, which opens it.
 
 A `session.header` part can draw a `SessionTab` (`name`, `order`, `label`, `button`, `icon`, its contents as children): a button in the header that opens its contents as a tab of the one panel beside the Session, next to other plugins' tabs.
 
@@ -83,7 +90,7 @@ A `session.header` part can draw a `SessionTab` (`name`, `order`, `label`, `butt
 - `useApi(plugin)` calls the plugin's routes: `get`, `post`, `put`, `patch` and `delete` take JSON and return it, and `raw` returns the `Response`. A path that starts with `/`, such as `/api/environments`, goes to the server's own API.
 - `useLoaded(load, key, { topics, changes, everyMs })` loads data, and loads it again when a kernel topic such as `sessions` or `environments` changes, when one of the plugin's own `changes` does, or every `everyMs` for data that changes outside Pipoca.
 - `useViewer()` says who is looking.
-- `useDraft()(sessionId, text)` puts text in a Session's composer and opens it, for the person to send or not.
+- `useDraft()(sessionId, text, attachments)` puts text, and attachments if given, in a Session's composer and opens it, for the person to send or not. Empty text keeps what the person typed.
 - `useOverlay()` reads and changes what the address shows over the page, after a `?` in its hash: `params`, `open(params, { replace })` and `close()`. Back closes what `open` opened, and the address opens it again.
 
 ## What it can import

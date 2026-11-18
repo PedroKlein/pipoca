@@ -27,7 +27,7 @@ export { Field } from "./field";
 export { FileButton } from "./file-button";
 export { Icon, type IconName, isIconName } from "./icon";
 export { initialsOf, personInitials, plural } from "./initials";
-export { Checkbox, Radio, TextArea, TextInput } from "./inputs";
+export { Checkbox, Radio, SearchInput, TextArea, TextInput } from "./inputs";
 export { isComposing, sendsOnEnter } from "./keys";
 export { type KeyValue, KeyValues } from "./key-values";
 export { ListInput } from "./list-input";
