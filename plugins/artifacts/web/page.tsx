@@ -535,8 +535,8 @@ function ShareForm({
             </div>
             {role === "comment" && (
               <p className="text-caption text-fg-dim">
-                A comment can go to Pi as the person&apos;s message, so people
-                who comment steer the Session.
+                People who comment can reply in threads but can&apos;t send them
+                to Pi. Only people who can act in the Session do.
               </p>
             )}
           </div>

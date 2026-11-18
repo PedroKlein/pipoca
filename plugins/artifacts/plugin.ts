@@ -78,5 +78,28 @@ create table artifacts_pins (
 ) strict, without rowid;`,
     // 2: what changed in each version.
     `alter table artifacts_versions add column note text not null default '';`,
+    // 3: threads reach Pi as notices and Pi answers in them (ADR 0081).
+    // Asking Pi in a thread clears told_at and read_at until a notice names
+    // it and Pi reads it. A reply of Pi's keeps the person it's via as its
+    // author.
+    `alter table artifacts_comments add column sent_by_user_id text references users (id) on delete set null;
+alter table artifacts_comments add column by_pi integer not null default 0 check (by_pi in (0, 1));
+alter table artifacts_comments add column resolved_by_pi integer not null default 0 check (resolved_by_pi in (0, 1));
+alter table artifacts_comments add column asked_at integer;
+alter table artifacts_comments add column told_at integer;
+alter table artifacts_comments add column read_at integer;
+
+create table artifacts_batches (
+  id text primary key,
+  session_id text not null references sessions (id) on delete cascade,
+  created_at integer not null
+) strict;
+
+create table artifacts_batch_threads (
+  batch_id text not null references artifacts_batches (id) on delete cascade,
+  thread_id text not null references artifacts_comments (id) on delete cascade,
+  sent_by_user_id text references users (id) on delete set null,
+  primary key (batch_id, thread_id)
+) strict, without rowid;`,
   ],
 });

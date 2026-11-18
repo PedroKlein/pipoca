@@ -65,6 +65,83 @@ test("a publish that failed says why, with nothing to open", () => {
   expect(card?.querySelector("a")).toBeNull();
 });
 
+test("threads sent to Pi show in the chat as one row that opens them, with their text on demand", async () => {
+  const asked: string[] = [];
+
+  const page = renderPart(
+    web,
+    "notice:artifact_comments",
+    {
+      text: "Comment threads on your artifact were sent to you",
+      data: { batch: "b1" },
+    },
+    {
+      fetch: async (url) => {
+        await Promise.resolve();
+
+        asked.push(url);
+
+        return Response.json({
+          senders: ["You"],
+          threads: [
+            {
+              artifact: "a1",
+              title: "Checkout latency",
+              comment: {
+                id: "c1",
+                author: "Ana",
+                quote: "three times",
+                body: "Attempts or retries?",
+              },
+            },
+            {
+              artifact: "a1",
+              title: "Checkout latency",
+              comment: {
+                id: "c2",
+                version: 1,
+                author: "Pedro",
+                quote: "",
+                body: "Add the error rate",
+              },
+            },
+          ],
+        });
+      },
+    },
+  );
+
+  await act(async () => until(() => asked.length === 1));
+
+  const row = page.querySelector("summary");
+
+  expect(row?.textContent).toContain(
+    "You sent 2 comment threads on Checkout latency",
+  );
+
+  expect(row?.textContent).not.toContain("Attempts or retries?");
+  expect(page.querySelector("details")?.open).toBe(false);
+
+  act(() => {
+    row?.click();
+  });
+
+  expect(page.querySelector("details")?.open).toBe(true);
+
+  expect(page.querySelector("a")?.getAttribute("href")).toBe(
+    "#plugin/artifacts/a1/comments",
+  );
+
+  expect(
+    [...page.querySelectorAll("[aria-label='Sent comments'] li")].map(
+      (each) => each.textContent,
+    ),
+  ).toEqual([
+    "Ana on “three times”Attempts or retries?",
+    "Pedro on version 1Add the error rate",
+  ]);
+});
+
 test("the Session panel's Artifacts tab shows the newest artifact the Session published", async () => {
   const summary = artifact({ title: "Checkout latency", versions: 3 });
 
@@ -366,7 +443,7 @@ test("sharing names people and what they can do, and the link opens the latest o
     "#plugin/artifacts/a1/v/2",
   );
 
-  expect(page.textContent).toContain("people who comment steer the Session");
+  expect(page.textContent).toContain("can't send them to Pi");
 
   await act(async () => {
     button("Save")?.click();

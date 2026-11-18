@@ -32,7 +32,10 @@ An artifact runs in a sandbox on an opaque origin, so it can't reach Pipoca or y
 ### Comments and edits
 
 - Leave comments beside an artifact, on a passage you select or on the whole thing, and reply to them or resolve them. The page marks the passages comments are on.
-- A comment with **Send to Pi** checked reaches the Session as your message. Ask Pi about the rest, and it reads them with `read_artifact_comments`: the open ones with their replies, or the resolved ones too.
+- Pi sees a thread only once someone who can act in the Session sends it: check **Send to Pi** on a new comment, or click **Send to Pi** on a thread. People an artifact is shared with can comment and reply, but not send.
+- A sent thread reaches the Session as one row in the chat, such as "You sent 2 comment threads on Checkout latency", not as a message. The row opens to show the comments. Threads sent while Pi works join one row, and Pi takes them in one turn.
+- Pi reads sent threads with `read_artifact_comments`, answers in each thread with `reply_artifact_comment`, shown as "Pi, via" whoever sent it, and resolves the ones it finished with `resolve_artifact_comment`. A later reply from you in a sent thread reaches Pi again, until the thread is resolved. Comment text reaches Pi as data, never as instructions.
+- An archived Session can't be asked. People can still discuss its artifacts.
 - `list_artifacts` says how many comments are open on each.
 - **Compare** shows two versions as a line diff, or side by side for pictures and PDFs.
 - Whoever steers the Session can edit a Markdown artifact's source and save it as a new version, and Pi is told to read it before changing it again.

@@ -6026,7 +6026,27 @@ test("opens an artifact Pi published, in a sandbox, from its card in the chat", 
   await frame.getByRole("heading", { name: "Quarterly report" }).waitFor();
   await frame.getByText("null").waitFor();
 
-  faux.setResponses([fauxAssistantMessage([fauxText("Noted the comment")])]);
+  let thread = "";
+
+  faux.setResponses([
+    (context) => {
+      thread =
+        /thread ([0-9a-f-]{36})/.exec(
+          JSON.stringify(context.messages.at(-1)),
+        )?.[1] ?? "";
+
+      return fauxAssistantMessage(
+        [fauxToolCall("reply_artifact_comment", { thread, text: "Added Q4" })],
+        { stopReason: "toolUse" },
+      );
+    },
+    () =>
+      fauxAssistantMessage(
+        [fauxToolCall("resolve_artifact_comment", { thread })],
+        { stopReason: "toolUse" },
+      ),
+    fauxAssistantMessage([fauxText("Answered in the thread")]),
+  ]);
 
   await page
     .getByRole("group", { name: "Beside the artifact" })
@@ -6038,18 +6058,32 @@ test("opens an artifact Pi published, in a sandbox, from its card in the chat", 
   await comment.getByRole("textbox", { name: "Comment" }).fill("Add Q4");
   await comment.getByRole("button", { name: "Comment" }).click();
 
-  await page
-    .getByRole("list", { name: "Comments" })
-    .getByText("Add Q4")
-    .waitFor();
+  await page.getByText("1 resolved").click();
+
+  const resolved = page.getByRole("list", { name: "Resolved comments" });
+
+  await resolved.getByText("Added Q4").waitFor();
+  await resolved.getByText(/^via you/).waitFor();
+  await resolved.getByText("Resolved by Pi").waitFor();
 
   await frame.getByRole("button", { name: "Ask Pi" }).click();
 
+  await page.getByText("Answered in the thread").waitFor();
+
   await page
-    .getByText(/commented on version 1 of the artifact “Quarterly report”/)
+    .getByText("You sent 1 comment thread on Quarterly report")
     .waitFor();
 
-  await page.getByText("Noted the comment").waitFor();
+  const chat = page.locator("#chat");
+
+  expect(await chat.getByText("Add Q4", { exact: true }).count()).toBe(1);
+
+  expect(
+    await chat
+      .locator("[aria-label='Sent comments']")
+      .getByText("Add Q4", { exact: true })
+      .count(),
+  ).toBe(1);
 
   expect(await page.locator("#prompt-text").inputValue()).toBe(
     "Make the chart blue",

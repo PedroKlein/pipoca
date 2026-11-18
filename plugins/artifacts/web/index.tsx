@@ -4,6 +4,7 @@ import {
   type MountedSession,
   SessionTab,
   type NavItemsProps,
+  type NoticeProps,
   type PageProps,
   type ToolCallProps,
   useApi,
@@ -14,6 +15,8 @@ import {
   Badge,
   Button,
   Card,
+  cardClass,
+  cn,
   EmptyState,
   Icon,
   Page,
@@ -29,6 +32,7 @@ import { artifacts as plugin } from "../plugin";
 import {
   type ArtifactSummary,
   type ArtifactView,
+  type Batch,
   kindLabel,
   type Published,
 } from "../src/artifacts";
@@ -54,6 +58,7 @@ export const web = defineWeb(plugin, {
   slots: {
     "session.header": SessionArtifacts,
     "session.toolCall:publish_artifact": PublishedCard,
+    "notice:artifact_comments": CommentsNotice,
   },
 });
 
@@ -227,6 +232,91 @@ function PublishedCard({ call }: ToolCallProps): ReactElement {
         </a>
       )}
     </Card>
+  );
+}
+
+// Threads people sent Pi, as one row in the chat. Their text stays on the
+// artifact; the row shows it on demand.
+function CommentsNotice({ data }: NoticeProps): ReactElement {
+  const api = useApi(plugin);
+  const { batch } = (data ?? {}) as { batch?: unknown };
+  const id = typeof batch === "string" ? batch : "";
+
+  const { value } = useLoaded(
+    async () => api.get<Batch>(`comment-batches/${id}`),
+    id,
+    { changes: ["artifacts"] },
+  );
+
+  const threads = value?.threads ?? [];
+  const titles = [...new Set(threads.map(({ title }) => title))];
+  const first = threads[0];
+
+  const line =
+    value === undefined
+      ? "Comment threads sent to Pi"
+      : `${value.senders.join(" and ")} sent ${plural(threads.length, "comment thread")} on `;
+
+  return (
+    <div className="relative rounded-lg border border-dashed border-line px-3 py-1.5 text-label text-fg-dim">
+      <details className="group">
+        <summary
+          className={cn(
+            "flex min-w-0 list-none items-center gap-2",
+            threads.length > 0 && "cursor-pointer",
+          )}
+        >
+          <Icon name="chat" className="size-4 shrink-0" />
+          <span className="min-w-0 truncate">
+            {line}
+            {value !== undefined && (
+              <b className="font-medium text-fg">
+                {titles.length === 1
+                  ? titles[0]
+                  : plural(titles.length, "artifact")}
+              </b>
+            )}
+          </span>
+          <span className="flex-1" />
+          <span className="w-10 shrink-0" />
+          {threads.length > 0 && (
+            <Icon
+              name="chevron-right"
+              className="size-4 shrink-0 group-open:rotate-90"
+            />
+          )}
+        </summary>
+        <ul
+          aria-label="Sent comments"
+          className="mt-2 mb-1 flex flex-col gap-2"
+        >
+          {threads.map(({ comment }) => (
+            <li
+              key={comment.id}
+              className={cn(cardClass, "flex flex-col gap-1 p-3")}
+            >
+              <span className="text-caption">
+                <b className="font-medium text-fg-strong">{comment.author}</b>
+                {comment.quote === ""
+                  ? ` on version ${String(comment.version)}`
+                  : ` on “${comment.quote}”`}
+              </span>
+              <p className="break-words whitespace-pre-wrap text-fg">
+                {comment.body}
+              </p>
+            </li>
+          ))}
+        </ul>
+      </details>
+      {first !== undefined && (
+        <a
+          href={href(plugin, `${first.artifact}/comments`)}
+          className="absolute top-1.5 right-9 text-fg-dim hover:text-fg"
+        >
+          Open
+        </a>
+      )}
+    </div>
   );
 }
 
