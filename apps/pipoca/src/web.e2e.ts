@@ -1302,7 +1302,9 @@ test("keeps a setup step on home until it's done, and opens it from there", asyn
   await page.getByRole("button", { name: "Show the command" }).click();
 
   const command = page.getByLabel("Join command");
-  await command.filter({ hasText: "PIPOCA_KEY=pck_" }).waitFor();
+
+  // The version pins once the server's health loads.
+  await command.filter({ hasText: "PIPOCA_VERSION=" }).waitFor();
 
   expect(await command.textContent()).toMatch(
     /^curl -fsSL https:\/\/pipoca\.dev\/install\.sh \| PIPOCA_VERSION=\S+ PIPOCA_KEY=pck_\S+ sh -s -- service install agent --server /,
