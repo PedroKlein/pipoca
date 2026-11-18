@@ -361,11 +361,12 @@ export function CommentList({
     setProblem(undefined);
 
     try {
-      await api.post(`artifacts/${artifact.id}/comments/send`, {
-        threads: chosen.map(({ top }) => top.id),
-      });
+      const { sent } = await api.post<{ sent: number }>(
+        `artifacts/${artifact.id}/comments/send`,
+        { threads: chosen.map(({ top }) => top.id) },
+      );
 
-      settled(`Sent ${String(chosen.length)} to Pi`);
+      settled(`Sent ${String(sent)} to Pi`);
     } catch (error) {
       setProblem(error instanceof Error ? error.message : String(error));
     } finally {

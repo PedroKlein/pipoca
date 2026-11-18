@@ -311,7 +311,6 @@ function Shown({
 
   const [commenting, setCommenting] = useState(commentsAtFirst);
 
-  // What's being commented on belongs to the version it was picked on.
   // What's being commented on belongs to the version it was picked on, and
   // the box follows the page as it scrolls.
   const [held, setHeld] = useState<{

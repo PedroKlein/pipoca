@@ -265,6 +265,12 @@ function serving(
       );
     }
 
+    if (url.endsWith("/comments/send") && typeof init?.body === "string") {
+      const { threads } = JSON.parse(init.body) as { threads: string[] };
+
+      return Response.json({ sent: threads.length });
+    }
+
     const version = /\/(view|download)\?v=(\d+)$/.exec(url);
 
     if (version !== null) {
