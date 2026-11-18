@@ -713,16 +713,10 @@ test("a publish built on an older version is refused with the newer one, so Pi m
     await part.tool("publish_artifact", { path: "plan.md", id, base: 2 }),
   ).toMatchObject({ isError: false, details: { version: 3 } });
 
-  // Without a base, a publish adds a version over whatever is there.
   await t.as("ana").post(`artifacts/${id}/versions`, { text: "four\n" });
 
   expect(
-    await part.tool("publish_artifact", {
-      path: "plan.md",
-      id,
-      title: "Plan",
-      base: 3,
-    }),
+    await part.tool("publish_artifact", { path: "plan.md", id, base: 3 }),
   ).toMatchObject({
     isError: true,
     text: expect.stringMatching(
@@ -730,6 +724,7 @@ test("a publish built on an older version is refused with the newer one, so Pi m
     ) as unknown,
   });
 
+  // Without a base, a publish adds a version over whatever is there.
   expect(
     await part.tool("publish_artifact", { path: "plan.md", id }),
   ).toMatchObject({ isError: false, details: { version: 5 } });
@@ -763,50 +758,56 @@ test("a person's edit of a Markdown artifact is a new version Pi hears about wit
     notice: { kind: "artifact_version", data: { artifact: id, version: 2 } },
   });
 
-  // Saving over a version someone saved meanwhile asks first.
-  const stale = await t.as("ana").raw(`artifacts/${id}/versions`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ text: "late\n", base: 1 }),
-  });
+  const saving = async (base: number): Promise<Response> =>
+    t.as("ana").raw(`artifacts/${id}/versions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text: "late\n", base }),
+    });
+
+  // Saving over a version someone saved meanwhile asks first, naming them.
+  await writeFile(join(cwd, "notes.md"), "Pi's\n");
+  await part.tool("publish_artifact", { path: "notes.md", id });
+
+  const stale = await saving(1);
 
   expect(stale.status).toBe(409);
 
   expect(await stale.json()).toMatchObject({
     error: "stale",
-    message: "Ana saved version 2 while you were editing.",
+    message: "Pi saved version 3 while you were editing.",
   });
 
-  const ahead = await t.as("ana").raw(`artifacts/${id}/versions`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ text: "late\n", base: 7 }),
-  });
+  const ahead = await saving(7);
 
   expect(ahead.status).toBe(400);
+
+  expect(await ahead.json()).toMatchObject({
+    message: "there's no version 7; the latest is 3",
+  });
 
   // Saving anyway is a save without a base.
   expect(
     await t.as("ana").post(`artifacts/${id}/versions`, { text: "late\n" }),
-  ).toEqual({ version: 3 });
+  ).toEqual({ version: 4 });
 
   expect(
     await t.as("ana").post(`artifacts/${id}/restore`, { version: 1 }),
-  ).toEqual({ version: 4 });
+  ).toEqual({ version: 5 });
 
   await until(() => host.delivered().length === 3);
 
   expect(host.delivered()[2]).toMatchObject({
-    text: `Ana restored version 1 of the artifact “notes.md” (${id}) as version 4. Read it with read_artifact before you change it.`,
+    text: `Ana restored version 1 of the artifact “notes.md” (${id}) as version 5. Read it with read_artifact before you change it.`,
     turn: false,
-    notice: { kind: "artifact_version", data: { artifact: id, version: 4 } },
+    notice: { kind: "artifact_version", data: { artifact: id, version: 5 } },
   });
 
   expect(
     (await t.as("ana").get<ArtifactView>(`artifacts/${id}`)).history.map(
       ({ note }) => note,
     ),
-  ).toEqual(["", "edited by hand", "edited by hand", "restored version 1"]);
+  ).toEqual(["", "edited by hand", "", "edited by hand", "restored version 1"]);
 
   await writeFile(join(cwd, "page.html"), "<p>hi</p>");
 

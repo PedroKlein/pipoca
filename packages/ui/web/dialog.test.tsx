@@ -155,9 +155,9 @@ test("a confirm asked again before the last one's close arrives stays open", asy
 
   await act(async () => Promise.resolve());
 
-  expect(answers).toEqual([]);
+  const again = byRole(page, "dialog", "Delete the routine?");
 
-  expect(byRole(page, "dialog", "Delete the routine?").textContent).toContain(
-    "Delete",
-  );
+  expect(answers).toEqual([false]);
+  expect(again).not.toBe(dialog);
+  expect(again.hasAttribute("open")).toBe(true);
 });

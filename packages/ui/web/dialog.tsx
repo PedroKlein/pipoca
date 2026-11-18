@@ -237,16 +237,21 @@ export function useConfirm(): readonly [
   >();
 
   const asked = useRef(0);
+  const waiting = useRef<(yes: boolean) => void>(undefined);
 
+  // A new question answers the one still open no.
   const ask = useCallback(
     async (options: ConfirmOptions) =>
       new Promise<boolean>((resolve) => {
+        waiting.current?.(false);
+        waiting.current = resolve;
         asked.current++;
 
         setAsking({
           ...options,
           asked: asked.current,
           answer: (yes) => {
+            waiting.current = undefined;
             setAsking(undefined);
             resolve(yes);
           },

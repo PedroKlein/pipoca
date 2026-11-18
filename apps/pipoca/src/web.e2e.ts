@@ -6250,7 +6250,7 @@ test("edits a Markdown artifact beside its preview and compares the versions wit
 
   await viewer
     .getByLabel("Changes")
-    .getByText("+ v2 retries five times with a backoff.")
+    .getByText("+ added: v2 retries five times with a backoff.")
     .waitFor();
 
   // Escape steps back out of compare, then closes the viewer.

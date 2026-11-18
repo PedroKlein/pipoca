@@ -243,13 +243,24 @@ export const server = defineServer(
       return number;
     };
 
-    // A base names a version there is.
-    const based = (base: number, latest: VersionRow): void => {
+    // A change made on base goes on only while base is the latest, so it
+    // never drops one made meanwhile.
+    const onLatest = (
+      base: number | undefined,
+      latest: VersionRow,
+      stale: () => string,
+    ): void => {
+      if (base === undefined || base === latest.number) {
+        return;
+      }
+
       if (base > latest.number) {
         throw new BadRequest(
           `there's no version ${String(base)}; the latest is ${String(latest.number)}`,
         );
       }
+
+      throw new HttpError(409, stale(), "stale");
     };
 
     const byOf = (author: string): string =>
@@ -839,7 +850,6 @@ export const server = defineServer(
       },
       async ({ caller, params, body }) => {
         const artifact = theirs(params.id, caller);
-        const last = versionOf(artifact);
 
         if (!steers(artifact, caller.person.id)) {
           throw new Forbidden(
@@ -847,24 +857,28 @@ export const server = defineServer(
           );
         }
 
-        if (kindOf(last.name) !== "markdown") {
-          throw new BadRequest("Only Markdown artifacts are edited here.");
-        }
+        // Checked again after storing the text, as Pi may publish meanwhile.
+        const editable = (): VersionRow => {
+          const latest = versionOf(artifact);
+
+          if (kindOf(latest.name) !== "markdown") {
+            throw new BadRequest("Only Markdown artifacts are edited here.");
+          }
+
+          onLatest(
+            body.base,
+            latest,
+            () =>
+              `${latest.author === `user:${caller.person.id}` ? "You" : byOf(latest.author)} saved version ${String(latest.number)} while you were editing.`,
+          );
+
+          return latest;
+        };
+
+        editable();
 
         const stored = await blobs.put(new TextEncoder().encode(body.text));
-        const latest = versionOf(artifact);
-
-        if (body.base !== undefined) {
-          based(body.base, latest);
-        }
-
-        if (body.base !== undefined && body.base < latest.number) {
-          throw new HttpError(
-            409,
-            `${byOf(latest.author)} saved version ${String(latest.number)} while you were editing.`,
-            "stale",
-          );
-        }
+        const latest = editable();
 
         const number = addVersion(
           artifact.id,
@@ -995,17 +1009,12 @@ export const server = defineServer(
 
           const latest = versionOf(artifact);
 
-          if (body.base !== undefined) {
-            based(body.base, latest);
-          }
-
-          if (body.base !== undefined && body.base < latest.number) {
-            throw new HttpError(
-              409,
+          onLatest(
+            body.base,
+            latest,
+            () =>
               `Version ${String(latest.number)} of “${artifact.title}” is newer than version ${String(body.base)}: ${byOf(latest.author)} made it${latest.note === "" ? "" : ` (${latest.note})`}. Read it with read_artifact, merge your change into it, and publish again with base ${String(latest.number)}.`,
-              "stale",
-            );
-          }
+          );
 
           if (body.title !== undefined) {
             store.run(

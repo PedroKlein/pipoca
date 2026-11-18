@@ -1,5 +1,5 @@
 import { isHttpError } from "@pipoca/plugins";
-import { useApi, useLoaded, useNow } from "@pipoca/plugins/web";
+import { useApi, useLoaded, useNow, useViewer } from "@pipoca/plugins/web";
 import {
   Button,
   cn,
@@ -167,7 +167,7 @@ export function Compare({
 
   const picker = (side: "from" | "to", shown: number): ReactElement => (
     <Menu
-      label={side === "from" ? "Older version" : "Newer version"}
+      label={`Version ${String(shown)}${shown === artifact.versions ? ", the latest" : ""}. ${side === "from" ? "Older version" : "Newer version"}`}
       variant="default"
       size="sm"
       align="end"
@@ -322,7 +322,11 @@ function DiffView({
             line.kind === "removed" && "bg-failed/15 text-fg-dim line-through",
           )}
         >
-          {`${signs[line.kind]} ${line.text}`}
+          <span aria-hidden>{`${signs[line.kind]} `}</span>
+          {line.kind !== "same" && (
+            <span className="sr-only">{`${line.kind}: `}</span>
+          )}
+          {line.text}
         </div>
       ))}
     </pre>
@@ -353,6 +357,9 @@ export function Editor({
   const [problem, setProblem] = useState<string>();
   const [refused, setRefused] = useState<string>();
   const [saving, setSaving] = useState(false);
+  const [unloaded, setUnloaded] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  const viewer = useViewer();
   const [confirm, confirmDialog] = useConfirm();
   const source = useRef<HTMLTextAreaElement>(null);
   const preview = useRef<HTMLIFrameElement>(null);
@@ -370,11 +377,11 @@ export function Editor({
         setOriginal(loaded);
         setText(loaded);
       },
-      (error: unknown) => {
-        setProblem(error instanceof Error ? error.message : String(error));
+      () => {
+        setUnloaded(true);
       },
     );
-  }, [artifact.id, editing]);
+  }, [artifact.id, editing, attempt]);
 
   const loaded = original !== undefined;
 
@@ -391,7 +398,12 @@ export function Editor({
     try {
       const { version } = await api.post<{ version: number }>(
         `artifacts/${artifact.id}/versions`,
-        { text, ...(!anyway && { base: editing }) },
+        {
+          text,
+          ...(anyway
+            ? known && { base: artifact.versions }
+            : { base: editing }),
+        },
       );
 
       onDone(version);
@@ -451,7 +463,7 @@ export function Editor({
         >
           Cancel
         </Button>
-        {!stale && (
+        {!stale && loaded && (
           <Button
             variant="primary"
             size="sm"
@@ -473,7 +485,7 @@ export function Editor({
         >
           <span className="flex-1">
             {known
-              ? `${latest.by} saved version ${String(latest.number)} while you were editing.`
+              ? `${latest.author === `user:${viewer.person.id}` ? "You" : latest.by} saved version ${String(latest.number)} while you were editing.`
               : refused}
           </span>
           <Button
@@ -496,11 +508,30 @@ export function Editor({
             variant="primary"
             size="sm"
             disabled={!changed || saving}
+            title={changed ? undefined : "You haven't changed anything to save"}
             onClick={() => void save(true)}
           >
             {known
               ? `Save anyway as version ${String(artifact.versions + 1)}`
               : "Save anyway"}
+          </Button>
+        </div>
+      )}
+      {unloaded && (
+        <div className="flex flex-wrap items-center gap-2 border-b border-line px-4.5 py-2">
+          <ErrorText size="caption" className="flex-1">
+            Version {editing} didn&apos;t load. Check your connection and try
+            again.
+          </ErrorText>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setUnloaded(false);
+              setAttempt(attempt + 1);
+            }}
+          >
+            Try again
           </Button>
         </div>
       )}
@@ -515,11 +546,12 @@ export function Editor({
           aria-label="Markdown"
           spellCheck
           value={text ?? ""}
+          placeholder={unloaded ? "" : `Loading version ${String(editing)}…`}
           disabled={text === undefined}
           onChange={(event) => {
             setText(event.target.value);
           }}
-          className="size-full max-h-none min-h-0 resize-none border-line bg-elevated p-6 font-mono text-mono text-fg outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-inset md:border-r"
+          className="size-full max-h-none min-h-0 resize-none border-line bg-elevated p-6 font-mono text-mono text-fg outline-none md:border-r"
         />
         {/* Same origin only so the preview keeps its scroll as it redraws: it
             runs no scripts and loads nothing. */}
