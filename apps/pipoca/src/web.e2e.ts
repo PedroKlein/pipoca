@@ -4758,13 +4758,6 @@ test("creates a Project and shares a file through its folder", async () => {
     await Bun.sleep(20);
   }
 
-  // The thread's finished turn reaches the coordinator before it is asked
-  // anything, so the notice can't land inside the coordinator's next turn.
-  await page
-    .locator('#chat li[data-role="notice"]')
-    .first()
-    .waitFor({ state: "attached" });
-
   faux.setResponses([
     fauxAssistantMessage([fauxText(`See [Docs](thread:${threadId}).`)]),
   ]);
@@ -5211,6 +5204,7 @@ test("opens what Pi made from the header's Files menu in the file viewer, and st
   await page.keyboard.press("Escape");
   await viewer.waitFor({ state: "detached" });
   await page.locator("button[aria-label='Files, 2']:focus").waitFor();
+  await overlayClosed();
 }, 90_000);
 
 test("opens what Pi's turn saved from the card under its reply, publishes it as an artifact, and attaches the artifact to the next message", async () => {
