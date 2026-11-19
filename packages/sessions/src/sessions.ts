@@ -781,6 +781,24 @@ export class Sessions {
 
     this.#emit(id, { type: "voice", voice: voiceOf(stored) });
 
+    const session = this.#store.get(id);
+
+    if (
+      session !== undefined &&
+      stored.text !== undefined &&
+      (stored.kind === "message" ||
+        stored.kind === "team" ||
+        stored.kind === "aside")
+    ) {
+      this.#events({
+        type: "TeamMessage",
+        session: this.#view(session),
+        actor: stored.actor,
+        said: stored.kind === "message" ? "pi" : stored.kind,
+        text: stored.text,
+      });
+    }
+
     return true;
   }
 

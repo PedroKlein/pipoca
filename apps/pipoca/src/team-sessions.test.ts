@@ -21,6 +21,7 @@ import { protocolVersion, versionHeader } from "@pipoca/protocol";
 import {
   definePlugin,
   defineServer,
+  type KernelEvent,
   type ServerContext,
   Type,
 } from "@pipoca/plugins";
@@ -33,6 +34,7 @@ let server: TestServer;
 let starter: ServerContext["sessions"] | undefined;
 let transcript: ServerContext["transcript"] | undefined;
 let serverTools: ServerContext["tools"] | undefined;
+let spoken: Extract<KernelEvent, { type: "TeamMessage" }>[] = [];
 
 // Signs git in as whoever a Session acts as, for its owner.
 const actingPart = defineServer(
@@ -73,6 +75,11 @@ beforeEach(async () => {
           starter = context.sessions;
           transcript = context.transcript;
           serverTools = context.tools;
+          spoken = [];
+
+          context.events.on("TeamMessage", (event) => {
+            spoken.push(event);
+          });
 
           const blank = {
             packages: [],
@@ -839,6 +846,29 @@ test("Pi reads what the team said since its last turn, with names and replies, b
   );
 
   expect(await say(bos, { to: "pi", text: "hi" })).toBe(422);
+
+  // Plugins hear what people said to each other, such as who they named.
+  expect(
+    spoken.map(({ session: { id }, actor, said, text }) => ({
+      id,
+      actor,
+      said,
+      text,
+    })),
+  ).toEqual([
+    {
+      id: session.id,
+      actor: `user:${bo}`,
+      said: "team",
+      text: "Ship it today?",
+    },
+    {
+      id: session.id,
+      actor: expect.stringMatching(/^user:/) as string,
+      said: "aside",
+      text: "Bo is rushing again",
+    },
+  ]);
 
   const [assigned] = await poll(team.runner);
 

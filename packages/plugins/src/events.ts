@@ -56,6 +56,15 @@ export type KernelEvent =
       readonly session: Session;
       readonly actor: Actor;
     }
+  // Someone said something in team work: to Pi, to the team, or off the
+  // record, which Pi never reads but people do (ADR 0065).
+  | {
+      readonly type: "TeamMessage";
+      readonly session: Session;
+      readonly actor: Actor;
+      readonly said: "pi" | "team" | "aside";
+      readonly text: string;
+    }
   // Someone asked Pi to stop the turn it is on.
   | {
       readonly type: "StopAsked";
