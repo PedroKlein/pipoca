@@ -124,7 +124,7 @@ export function activityLog({
   const sessionMentions = (person: string, unreadOnly = false): SessionRow[] =>
     store
       .all<SessionRow>(
-        `select id, session_id, actor_user_id, body, created_at, read_at from artifacts_session_mentions where user_id = ?${unreadOnly ? " and read_at is null" : ""} order by created_at desc, id desc limit ${String(shownItems * 4)}`,
+        `select id, session_id, actor_user_id, body, created_at, read_at from artifacts_session_mentions where user_id = ?${unreadOnly ? " and read_at is null" : ` order by created_at desc, id desc limit ${String(shownItems * 4)}`}`,
         person,
       )
       .filter(({ session_id }) => seesSession(session_id, person));
@@ -313,20 +313,36 @@ export function activityLog({
             )
           : following(person);
 
-      const seen = rows.filter((each) => sees(each.artifact_id, person));
+      const newest = (
+        one: { created_at: number; id: string },
+        other: { created_at: number; id: string },
+      ): number =>
+        other.created_at - one.created_at || other.id.localeCompare(one.id);
 
-      const items = [
-        ...(await Promise.all(seen.map(async (each) => item(each, person)))),
+      const shown = [
+        ...rows
+          .filter((each) => sees(each.artifact_id, person))
+          .map((each) => ({ ...each, on: "artifact" as const })),
         ...(view === "mine"
-          ? sessionMentions(person).map((each) => sessionItem(each, person))
+          ? sessionMentions(person).map((each) => ({
+              ...each,
+              on: "session" as const,
+            }))
           : []),
       ]
-        .sort(
-          (one, other) => other.at - one.at || other.id.localeCompare(one.id),
-        )
+        .sort(newest)
         .slice(0, shownItems);
 
-      return { items, unread: view === "mine" ? unread(person) : 0 };
+      return {
+        items: await Promise.all(
+          shown.map(async (each) =>
+            each.on === "artifact"
+              ? item(each, person)
+              : sessionItem(each, person),
+          ),
+        ),
+        unread: view === "mine" ? unread(person) : 0,
+      };
     },
     unread,
     read: (person, ids) => {

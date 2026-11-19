@@ -1234,7 +1234,7 @@ export const server = defineServer(
 
       const found = handles.filter(({ handle }) => {
         const named = new RegExp(
-          `(^|\\s)@${handle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w-])`,
+          `(^|\\s)@${handle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w-]|[./]\\w)`,
           "gi",
         );
 
@@ -1255,6 +1255,8 @@ export const server = defineServer(
           actor: actor.slice("user:".length),
           text,
         });
+
+        routes.topic("artifacts");
       }
     });
 

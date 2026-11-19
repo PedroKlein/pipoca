@@ -2308,6 +2308,7 @@ test("people named with @ in team work hear of it on Activity and elsewhere, if 
       .get<{ items: ActivityItem[]; unread: number }>("activity?view=mine");
 
   said(team.id, "@cyrus @Ana can you look at the rollout? @Bo");
+  said(team.id, "See @Cy/notes.md and @cyrus.old, @Bo.");
   said(mine.id, "@Cy this is Ana's own work");
 
   await until(async () => (await told("cy")).unread === 1);

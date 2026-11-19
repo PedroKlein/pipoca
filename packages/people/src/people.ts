@@ -270,7 +270,12 @@ export class People {
 
     const trimmed = checkedName(name);
 
-    if (this.#store.userByName(trimmed) !== undefined) {
+    if (
+      this.#store.userByName(trimmed) !== undefined ||
+      this.#store
+        .users()
+        .some(({ username }) => username === trimmed.toLowerCase())
+    ) {
       return undefined;
     }
 
@@ -494,9 +499,9 @@ const reservedUsernames = new Set(["pipoca", "pi", "team", "everyone"]);
 function checkedUsername(username: string): string | undefined {
   const trimmed = username.trim().toLowerCase();
 
-  if (trimmed !== "" && !/^[a-z0-9._-]{2,32}$/.test(trimmed)) {
+  if (trimmed !== "" && !/^[a-z0-9][a-z0-9._-]{0,30}[a-z0-9]$/.test(trimmed)) {
     throw new InvalidCredentials(
-      "A username has 2 to 32 letters, digits, dots, dashes or underscores",
+      "A username has 2 to 32 letters, digits, dots, dashes or underscores, and starts and ends with a letter or digit",
     );
   }
 
