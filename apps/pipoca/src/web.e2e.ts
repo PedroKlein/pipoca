@@ -4725,6 +4725,13 @@ test("creates a Project and shares a file through its folder", async () => {
   await page.getByRole("heading", { level: 1, name: /Docs$/ }).waitFor();
   await side.waitFor({ state: "detached" });
 
+  // Inside the thread there's no list of threads beside it, nor a button
+  // that would show one.
+  expect(await rail.count()).toBe(0);
+  expect(await page.getByRole("button", { name: "Show threads" }).count()).toBe(
+    0,
+  );
+
   await page
     .getByRole("button", { name: "Show beside the coordinator" })
     .click();

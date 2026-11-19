@@ -1339,7 +1339,6 @@ function ProjectPage({
                 >
                   <Icon name="minimize" />
                 </Button>
-                {railToggle}
               </>
             }
           />
@@ -1547,7 +1546,7 @@ function ProjectPage({
 }
 
 // The column beside the chat shows the open thread or the settings, or else
-// the list of threads while it is open.
+// the list of threads while it is open, except beside a full-screen thread.
 function besideOf(
   panel: Panel,
   railOpen: boolean,
@@ -1559,6 +1558,11 @@ function besideOf(
     (panel.kind === "thread" && !panel.full)
   ) {
     return panel.kind;
+  }
+
+  // A thread in full screen is the whole page, not one of a list.
+  if (panel.kind === "thread") {
+    return undefined;
   }
 
   return railOpen ? "list" : undefined;
