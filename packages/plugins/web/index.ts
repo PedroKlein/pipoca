@@ -47,6 +47,7 @@ export {
   defineWeb,
   Hidden,
   href,
+  sessionHref,
   SessionView,
   Slot,
   type Slots,

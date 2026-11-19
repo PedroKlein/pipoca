@@ -1,5 +1,11 @@
 import { usage } from "../plugin";
-import { ago, useLoaded, useNow, useApi } from "@pipoca/plugins/web";
+import {
+  ago,
+  sessionHref,
+  useLoaded,
+  useNow,
+  useApi,
+} from "@pipoca/plugins/web";
 import type { ReactElement } from "react";
 
 interface Action {
@@ -44,7 +50,10 @@ export function Activity(): ReactElement {
               {name ?? "Someone"}
             </span>{" "}
             {action}{" "}
-            <a href={`#${sessionId}`} className="text-fg hover:underline">
+            <a
+              href={sessionHref(sessionId)}
+              className="text-fg hover:underline"
+            >
               {detail ?? "a Session"}
             </a>
           </span>

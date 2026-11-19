@@ -11,6 +11,7 @@ import {
   ModelField,
   pickerModels,
   RepositoryField,
+  sessionHref,
   SessionView,
   Slot,
   useApi,
@@ -192,7 +193,9 @@ function ThreadLink({ target, label }: LinkProps): ReactElement {
   return (
     <a
       href={
-        thread ? link(`${thread.projectId}/${thread.sessionId}`) : `#${target}`
+        thread
+          ? link(`${thread.projectId}/${thread.sessionId}`)
+          : sessionHref(target)
       }
       className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-line bg-elevated px-2 align-baseline text-label leading-relaxed font-medium text-fg no-underline hover:bg-hover"
     >
@@ -467,7 +470,7 @@ function ThreadNotice(props: NoticeProps): ReactElement | null {
     <>
       <Icon name="chat" className="size-4 shrink-0" />
       <a
-        href={`#${threadId}`}
+        href={sessionHref(threadId)}
         className="max-w-1/2 shrink-0 truncate font-medium text-fg"
       >
         {title}
@@ -509,7 +512,7 @@ function ThreadMessageNotice(props: NoticeProps): ReactElement {
   return (
     <MessageNotice
       from={
-        <a href={`#${threadId}`} className="font-medium text-fg">
+        <a href={sessionHref(threadId)} className="font-medium text-fg">
           {title}
         </a>
       }

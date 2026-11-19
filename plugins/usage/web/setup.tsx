@@ -1,5 +1,5 @@
 import { usage } from "../plugin";
-import { useLoaded, useApi } from "@pipoca/plugins/web";
+import { sessionHref, useLoaded, useApi } from "@pipoca/plugins/web";
 import {
   Button,
   buttonClass,
@@ -206,7 +206,7 @@ export function AuditLog(): ReactElement {
               </Cell>
               <Cell>
                 <a
-                  href={`#${entry.sessionId}`}
+                  href={sessionHref(entry.sessionId)}
                   className="font-mono text-mono-sm text-fg-dim hover:text-fg"
                 >
                   {entry.sessionId.slice(0, 8)}
