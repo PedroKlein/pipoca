@@ -2,6 +2,7 @@ import {
   href as pageHref,
   ModelField,
   pickerModels,
+  RepositoryField,
   useApi,
   useLoaded,
 } from "@pipoca/plugins/web";
@@ -25,7 +26,11 @@ import {
   TextArea,
   TextInput,
 } from "@pipoca/ui";
-import type { DeclaredAction, DeclaredEvent } from "@pipoca/protocol";
+import {
+  checkoutName,
+  type DeclaredAction,
+  type DeclaredEvent,
+} from "@pipoca/protocol";
 import { ReachWarning } from "./reach";
 import { type ReactElement, useState } from "react";
 import { routines } from "../plugin";
@@ -555,6 +560,7 @@ function StepPicker({
               />
               <WorkspaceFields
                 work={work}
+                team={prefix !== ""}
                 onChange={(each) => {
                   change(put(value, "do", each));
                 }}
@@ -1055,7 +1061,12 @@ function DraftCard({
           </p>
           {open !== undefined && !picking && (
             <div className="flex flex-col gap-3 rounded-lg border border-line bg-panel p-4">
-              <PartFields part={open} value={value} onChange={set} />
+              <PartFields
+                part={open}
+                value={value}
+                team={prefix !== ""}
+                onChange={set}
+              />
               <div>
                 <Button
                   onClick={() => {
@@ -1186,10 +1197,12 @@ function savingText(
 function PartFields({
   part,
   value,
+  team,
   onChange,
 }: {
   readonly part: Part;
   readonly value: Json;
+  readonly team: boolean;
   readonly onChange: (value: Json) => void;
 }): ReactElement {
   const trigger = objectOf(listOf(value["when"])[0]);
@@ -1232,7 +1245,7 @@ function PartFields({
     case "agent":
       return <AgentFields work={work} onChange={setWork} />;
     case "workspace":
-      return <WorkspaceFields work={work} onChange={setWork} />;
+      return <WorkspaceFields work={work} team={team} onChange={setWork} />;
   }
 }
 
@@ -1321,13 +1334,16 @@ const workspaceKinds = [
 
 function WorkspaceFields({
   work,
+  team,
   onChange,
 }: {
   readonly work: Json;
+  readonly team: boolean;
   readonly onChange: (work: Json) => void;
 }): ReactElement {
   const workspace = objectOf(work["workspace"]);
   const kind = stringOf(workspace["kind"]);
+  const repository = stringOf(workspace["repository"]);
 
   const setWorkspace = (next: Json): void => {
     onChange(put(work, "workspace", next));
@@ -1351,16 +1367,24 @@ function WorkspaceFields({
         </Select>
       </Field>
       {kind === "clone" && (
-        <Field label="Repository">
-          <TextInput
-            aria-label="Repository"
-            placeholder="https://github.com/owner/name"
-            value={stringOf(workspace["repository"])}
-            onChange={(event) => {
-              setWorkspace({ ...workspace, repository: event.target.value });
+        <div className="flex min-w-0 flex-col gap-1.5">
+          <span className="text-label font-medium text-fg">Repository</span>
+          <RepositoryField
+            label="Repository"
+            selected={repository === "" ? [] : [repository]}
+            recent={[]}
+            team={team}
+            onChange={(picked) => {
+              setWorkspace({ ...workspace, repository: picked.at(-1) ?? "" });
             }}
-          />
-        </Field>
+          >
+            {repository === "" ? (
+              <span className="text-fg-dim">Pick a repository</span>
+            ) : (
+              (checkoutName(repository) ?? repository)
+            )}
+          </RepositoryField>
+        </div>
       )}
       {kind === "folder" && (
         <Field label="Path">

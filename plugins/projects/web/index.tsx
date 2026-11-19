@@ -1045,11 +1045,6 @@ function CreateForm({
               selected={repositories}
               recent={recentPlaces(sessions, runsOn?.id)}
               team={team}
-              hint={
-                team
-                  ? "Only repositories the team's bots reach."
-                  : "Only repositories your logins reach."
-              }
               onChange={setRepositories}
             >
               {repositories.length === 0 ? (
@@ -1902,11 +1897,6 @@ function Settings({
             selected={repositories}
             recent={project.repositories}
             team={project.team}
-            hint={
-              project.team
-                ? "Only repositories the team's bots reach."
-                : "Only repositories your logins reach."
-            }
             onChange={setRepositories}
           >
             {repositories.length === 0 ? (

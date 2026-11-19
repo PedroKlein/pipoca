@@ -136,6 +136,14 @@ function page(answers: (asked: Asked) => unknown = () => undefined) {
     "page",
     { path: "new" },
     {
+      repositories: [
+        {
+          url: "https://github.com/acme/docs-site",
+          name: "acme/docs-site",
+          group: "GitHub",
+          host: "github.com",
+        },
+      ],
       fetch: async (url, init) => {
         const each = {
           method: init?.method ?? "GET",
@@ -352,16 +360,38 @@ test("one sentence is drafted into a sentence with chips, in the group and Profi
     "At most $10 a day, then it pauses until tomorrow.",
   );
 
+  // The repository is picked from what the git hosts list, not typed.
   await click(
     card,
     "Change workspace: acme/docs",
-    () => card.querySelector("input[aria-label='Repository']") !== null,
+    () => card.querySelector("button[aria-label='Repository']") !== null,
   );
 
-  await typeInto(
-    card.querySelector("input[aria-label='Repository']"),
-    "https://github.com/acme/docs-site",
+  expect(
+    card.querySelector("button[aria-label='Repository']")?.textContent,
+  ).toBe("docs");
+
+  await click(
+    card,
+    "Repository",
+    () =>
+      card.querySelector("[role='option'][aria-label='acme/docs-site']") !==
+      null,
   );
+
+  await act(async () => {
+    card
+      .querySelector<HTMLElement>(
+        "[role='option'][aria-label='acme/docs-site']",
+      )
+      ?.click();
+
+    await Promise.resolve();
+  });
+
+  expect(
+    card.querySelector("button[aria-label='Repository']")?.textContent,
+  ).toBe("docs-site");
 
   expect(card.querySelector("p")?.textContent).toContain("in acme/docs-site.");
   expect(card.textContent).not.toContain("Change it with the chips");
