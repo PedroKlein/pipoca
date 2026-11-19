@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import {
   type Assignment,
+  buildsOnChain,
   checkoutName,
   emptyProfile,
   errorText,
@@ -74,6 +75,35 @@ test("logs a Session's start without its messages, settings or URL credentials",
 
   expect(JSON.stringify(logged)).not.toContain("secret");
   expect(JSON.stringify(logged)).not.toContain("private");
+});
+
+const madeProfile = (id: string, buildsOn: string | null): Profile => ({
+  ...emptyProfile,
+  id,
+  name: id,
+  description: "",
+  ownerId: "team",
+  buildsOn,
+  source: null,
+  createdAt: "",
+  isDefault: false,
+});
+
+test("walks the Profiles one builds on, nearest first, stopping at a loop or one not listed", () => {
+  const app = madeProfile("app", "team");
+  const team = madeProfile("team", "org");
+  const org = madeProfile("org", "gone");
+  const loop = madeProfile("loop", "back");
+  const back = madeProfile("back", "loop");
+  const profiles = [app, team, org, loop, back];
+
+  expect(buildsOnChain(app, profiles).map(({ id }) => id)).toEqual([
+    "team",
+    "org",
+  ]);
+
+  expect(buildsOnChain(loop, profiles).map(({ id }) => id)).toEqual(["back"]);
+  expect(buildsOnChain(org, profiles)).toEqual([]);
 });
 
 test("takes the model a Profile starts with from the nearest layer that sets each part", () => {

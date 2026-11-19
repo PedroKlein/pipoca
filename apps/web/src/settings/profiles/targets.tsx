@@ -1,4 +1,8 @@
-import type { Profile, ProfileContent } from "@pipoca/protocol";
+import {
+  buildsOnChain,
+  type Profile,
+  type ProfileContent,
+} from "@pipoca/protocol";
 import { Badge, cn, initialsOf, plural } from "@pipoca/ui";
 import type { ReactElement, ReactNode } from "react";
 import { request } from "../../data/client";
@@ -15,7 +19,6 @@ import {
   layerRoutes,
 } from "./layers";
 import { type BelowLayer, ProfileOverview } from "./overview";
-import { chainOf } from "./overview-values";
 
 // The Server base and, for a person's own work, their My defaults.
 function useLayersBelow(withDefaults: boolean): readonly BelowLayer[] {
@@ -58,7 +61,7 @@ export function ProfileOverviewOf({
   const team = profile.ownerId === "team";
   const layers = useLayersBelow(!team);
 
-  const chain = chainOf(profile, profiles)
+  const chain = buildsOnChain(profile, profiles)
     .toReversed()
     .map((under) => ({
       id: under.id,

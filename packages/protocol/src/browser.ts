@@ -402,6 +402,24 @@ export const profile = Type.Object({
 
 export type Profile = Wire<typeof profile>;
 
+// The listed Profiles this one builds on, nearest first.
+export function buildsOnChain(
+  start: Profile,
+  profiles: readonly Profile[],
+): readonly Profile[] {
+  const found: Profile[] = [];
+
+  for (
+    let next = profiles.find(({ id }) => id === start.buildsOn);
+    next !== undefined && next.id !== start.id && !found.includes(next);
+    next = profiles.find(({ id }) => id === next.buildsOn)
+  ) {
+    found.push(next);
+  }
+
+  return found;
+}
+
 // The provider/id new Sessions on the Profile start with when they pick no
 // model: each setting from the nearest of the Profile, the ones it builds
 // on, then the layers under every Profile, nearest first (ADR 0074).
@@ -410,15 +428,8 @@ export function profileModel(
   profiles: readonly Profile[],
   under: readonly ProfileContent[],
 ): string | undefined {
-  const layers: ProfileContent[] = [];
-
-  for (
-    let at = picked;
-    at !== undefined && !layers.includes(at);
-    at = profiles.find(({ id }) => id === at.buildsOn)
-  ) {
-    layers.push(at);
-  }
+  const layers: readonly ProfileContent[] =
+    picked === undefined ? [] : [picked, ...buildsOnChain(picked, profiles)];
 
   const nearest = (key: string): string | undefined =>
     [...layers, ...under]
