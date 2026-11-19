@@ -214,7 +214,10 @@ export const server = defineServer(projects, (context) => {
       turn.error === undefined
         ? "finished a turn"
         : `ended its turn with a model error: ${turn.error.slice(0, errorLimit)}`,
-      turn.reply,
+      {
+        ...(turn.reply !== undefined && { reply: turn.reply }),
+        quiet: turn.error === undefined,
+      },
     );
 
     if (turn.error !== undefined) {
@@ -261,6 +264,17 @@ export const server = defineServer(projects, (context) => {
       }
     });
   }
+
+  // A thread someone talks to again is back at work, as a resolved Claude
+  // Code thread reopens when the person writes to it.
+  events.on("TurnStarted", ({ session }) => {
+    const thread = store.member(session.id);
+
+    if (thread?.workState === "done" || thread?.workState === "failed") {
+      store.setWorkState(session.id, "in_progress");
+      changed();
+    }
+  });
 
   events.on("TurnEnded", ({ session, transcriptLength }) => {
     reportTurn(session.id, transcriptLength);

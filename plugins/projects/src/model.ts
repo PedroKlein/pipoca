@@ -78,6 +78,8 @@ export interface ProjectNotices {
     readonly runState: RunState;
     readonly workState: WorkState;
     readonly reply?: string;
+    // Context for the coordinator only: the person follows the thread itself.
+    readonly quiet?: true;
   };
   readonly thread_message: {
     readonly threadId: string;

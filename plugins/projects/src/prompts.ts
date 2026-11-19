@@ -61,7 +61,7 @@ export function threadPrompt(
     "End every turn with a short reply that states your result. Mention what you changed only when you changed something; don't close replies with what you didn't do.",
     "Put the decisions you need now in one ask_user call, with a question each. Once the user approves a direction, carry it through without asking again at each step.",
     "Share files with the coordinator and other threads through the Project's shared folder, never a path inside this Session: they can't read it.",
-    "Keep your work state current with set_status: in_progress, blocked, review_ready, done or failed.",
+    "Keep your work state current with set_status: in_progress, blocked, review_ready, done or failed. Set done only once the work has ended and nothing is left for you or the user; a discussion still going, or a result they may still review, is not done.",
     "Project memory is shared with the coordinator and the other threads: memory_list, memory_read and memory_write.",
     ...projectContext(project, memoryIndex),
   ].join("\n\n");
@@ -156,8 +156,9 @@ export function threadNotice(
   thread: Member,
   session: Session | undefined,
   event: string,
-  reply?: string,
+  o: { readonly reply?: string; readonly quiet?: boolean } = {},
 ): { readonly text: string; readonly notice: ProjectNotice } {
+  const { reply, quiet = false } = o;
   const state = runState(session);
 
   const shortReply =
@@ -179,6 +180,7 @@ export function threadNotice(
         runState: state,
         workState: thread.workState,
         ...(shortReply !== undefined && { reply: shortReply }),
+        ...(quiet && { quiet: true }),
       },
     },
   };

@@ -455,11 +455,13 @@ function noticeData<K extends keyof ProjectNotices>(
   return data as ProjectNotices[K];
 }
 
-function ThreadNotice(props: NoticeProps): ReactElement {
-  const { threadId, title, event, workState, runState, reply } = noticeData(
-    props,
-    "thread",
-  );
+function ThreadNotice(props: NoticeProps): ReactElement | null {
+  const { threadId, title, event, workState, runState, reply, quiet } =
+    noticeData(props, "thread");
+
+  if (quiet === true) {
+    return null;
+  }
 
   const line = (
     <>

@@ -328,6 +328,7 @@ export function projectTools(
         { ...member, workState: input.state },
         sessions.get(member.sessionId),
         `set its work state to ${input.state}${note === undefined ? "" : `: ${note.replace(/\.+$/, "")}`}`,
+        { quiet: true },
       );
 
       sessions.send(project.coordinatorId, {

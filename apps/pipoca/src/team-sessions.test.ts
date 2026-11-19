@@ -858,13 +858,13 @@ test("Pi reads what the team said since its last turn, with names and replies, b
   ).toEqual([
     {
       id: session.id,
-      actor: `user:${bo}`,
+      actor: `user:${bo}` as const,
       said: "team",
       text: "Ship it today?",
     },
     {
       id: session.id,
-      actor: expect.stringMatching(/^user:/) as string,
+      actor: expect.stringMatching(/^user:/) as `user:${string}`,
       said: "aside",
       text: "Bo is rushing again",
     },
