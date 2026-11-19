@@ -12,11 +12,12 @@ Claude Code versions an artifact on every publish, and its threads belong to the
 
 ## Decision
 
-### Markdown artifacts are edited in place
+### Markdown docs and HTML pages are edited in place
 
 - A Markdown artifact, design docs included, is one living document. A person's edit, an accepted suggestion, Pi publishing it again and a restore all change it in place.
 - Each change is kept as a save in the history, with who made it and when. Any save can be opened, compared with another or restored. The history groups saves by person and hour.
-- HTML pages, SVG, CSV, images and PDF files are whole files Pi writes, so every publish stays a version of its own, as before.
+- HTML pages are living documents too (amended 2026-11-19, after pages that got many small tweaks piled up versions): Pi publishing a page again is an edit, and versions come only from approval, Decided or Save version.
+- SVG, CSV, images and PDF files still make a version on every publish, as before.
 
 ### Versions are made on purpose
 
@@ -40,4 +41,4 @@ Claude Code versions an artifact on every publish, and its threads belong to the
 - A discussion survives the edits it leads to, on Markdown docs and HTML pages alike. Threads go Outdated only when their passage is gone.
 - Versions mean something: what was approved, or what was sent somewhere. The history still lets people go back to any edit.
 - The versions table keeps every save. A label marks the ones that are versions, so no data moves and links to a save keep working.
-- An HTML design doc still versions on every publish, because Pi rewrites it whole.
+- An HTML page is a living document even though Pi rewrites it whole, so its history is the place to see each publish.

@@ -6247,7 +6247,7 @@ test("opens an artifact Pi published, in a sandbox, from its card in the chat", 
   await page.getByText("Published the report").waitFor();
 
   const card = page.getByRole("link", { name: /Quarterly report/ });
-  await card.getByText("Page · version 1 · Only you").waitFor();
+  await card.getByText("Page · edited in place · Only you").waitFor();
   const link = (await card.getAttribute("href")) ?? "";
   const session = new URL(page.url()).hash;
 
@@ -6255,9 +6255,7 @@ test("opens an artifact Pi published, in a sandbox, from its card in the chat", 
 
   const viewer = page.getByRole("dialog", { name: "Quarterly report" });
 
-  const frame = page.frameLocator(
-    'iframe[title="Quarterly report, version 1"]',
-  );
+  const frame = page.frameLocator('iframe[title="Quarterly report, latest"]');
 
   await frame.getByRole("heading", { name: "Quarterly report" }).waitFor();
   await frame.getByText("null").waitFor();
@@ -6547,9 +6545,7 @@ test("comments on selected text and on a clicked element, pins them on the page,
 
   const viewer = page.getByRole("dialog", { name: "Checkout latency" });
 
-  const frame = page.frameLocator(
-    'iframe[title="Checkout latency, version 1"]',
-  );
+  const frame = page.frameLocator('iframe[title="Checkout latency, latest"]');
 
   await frame.getByText("three times").waitFor();
   await viewer.getByRole("button", { name: "Comment", exact: true }).click();

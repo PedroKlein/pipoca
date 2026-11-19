@@ -137,6 +137,34 @@ test("server setup shows each host with how people sign in and the App for team 
   expect(page.textContent).not.toContain("Go on with no code host");
 });
 
+test("server setup says why it can't tell where a host's App is installed", async () => {
+  const offline = `${enterprise.host} is a private host and the runners that reach it are offline.`;
+
+  const { page } = step("server", {
+    hosts: [enterprise],
+    setup: { ...state, server: true },
+    "technical-users": [
+      {
+        name: "pipoca-corp",
+        host: enterprise.host,
+        kind: "app",
+        login: "pipoca-corp[bot]",
+        team: true,
+        installUrl: null,
+        installedOn: [],
+        error: offline,
+      },
+    ],
+  });
+
+  await shows(page, "Corp Git");
+
+  const card = page.querySelector("ul[aria-label='Corp Git']")?.textContent;
+
+  expect(card).toContain(offline);
+  expect(card).not.toContain("not installed yet");
+});
+
 test("server setup with no host takes going on with none as its answer", async () => {
   const { page, sent } = step("server", {
     hosts: [],
