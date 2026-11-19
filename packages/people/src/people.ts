@@ -20,14 +20,14 @@ export interface User {
   readonly email?: string;
   // How people @-mention them instead of their sign-in name, if they chose one.
   readonly username?: string;
+  // The name people see, such as "Pedro Klein", when it isn't the username.
+  readonly displayName?: string;
 }
 
 export interface StoredUser extends User {
   // Empty for a user who signs in only through a plugin, such as OIDC.
   readonly passwordHash: string;
   readonly createdAt: string;
-  // The name people see, such as "Pedro Klein", when it isn't the username.
-  readonly displayName?: string;
 }
 
 // A token an MCP client such as Claude Code uses to act as its user

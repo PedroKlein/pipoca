@@ -1,7 +1,7 @@
 import { apiPath, type Presence } from "@pipoca/protocol";
 import { type ReactElement, useEffect, useRef, useState } from "react";
 import { request } from "../data/client";
-import { useQuery } from "../data/hooks";
+import { usePersonName } from "../data/hooks";
 
 const typingEveryMs = 3000;
 
@@ -61,15 +61,14 @@ export function PresenceLine({
   readonly people: readonly Presence[];
   readonly me: string;
 }): ReactElement | null {
-  const teammates = useQuery("people.list").data ?? [];
+  const nameOf = usePersonName();
   const others = people.filter(({ person }) => person !== me);
 
   if (others.length === 0) {
     return null;
   }
 
-  const names = new Map(teammates.map(({ id, name }) => [id, name]));
-  const name = (person: string): string => names.get(person) ?? "Someone";
+  const name = (person: string): string => nameOf(person) ?? "Someone";
 
   const typing = others
     .filter((other) => other.typing)

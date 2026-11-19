@@ -14,7 +14,7 @@ import {
   useState,
 } from "react";
 import { request } from "../data/client";
-import { invalidate, useMe, useQuery } from "../data/hooks";
+import { invalidate, useMe, usePersonName, useQuery } from "../data/hooks";
 import { shortName } from "../names";
 import { PrimaryView } from "../primary";
 import { href, navigate } from "../router";
@@ -107,7 +107,7 @@ export function SessionView({
   const present = usePresence(sessionId, talk);
   const typed = useTyping(sessionId, talk);
   const [replying, setReplying] = useState<Replying>();
-  const teammates = useQuery("people.list").data ?? [];
+  const nameOf = usePersonName();
 
   const limits =
     session?.ownedBy === "team" && (me.admin || session.startedBy === me.id);
@@ -253,8 +253,7 @@ export function SessionView({
                           by:
                             quote.from === "pi"
                               ? "Pi"
-                              : (teammates.find(({ id }) => id === quote.from)
-                                  ?.name ?? "Someone"),
+                              : (nameOf(quote.from) ?? "Someone"),
                         });
                       },
                     })}
