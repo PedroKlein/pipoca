@@ -50,22 +50,17 @@ export function threadsOf(comments: readonly Comment[]): readonly Thread[] {
     }));
 }
 
-// Open threads pinned where they sit. An element is found only in the
-// version it was written on; quoted text wherever it still reads the same.
+// Open threads pinned where they sit, in whichever version is open: on
+// their element, or their quoted text wherever it still reads the same
+// (ADR 0082).
 export function pinsOf(
   threads: readonly Thread[],
-  version: number,
   active: string | undefined,
   anchor: Anchor | undefined,
 ): readonly Pin[] {
   return [
     ...threads
-      .filter(
-        ({ top }) =>
-          !top.resolved &&
-          top.quote !== "" &&
-          (top.element === "" || top.version === version),
-      )
+      .filter(({ top }) => !top.resolved && top.quote !== "")
       .map(({ top, n }) => ({
         n,
         quote: top.quote,
@@ -333,6 +328,7 @@ export function CommentList({
   artifact,
   version,
   threads,
+  onPage,
   shown: chosenList,
   onShown,
   margin,
@@ -352,6 +348,8 @@ export function CommentList({
   readonly artifact: ArtifactView;
   readonly version: number;
   readonly threads: readonly Thread[];
+  // The threads pinned in the version open, once its page has said.
+  readonly onPage?: ReadonlySet<number> | undefined;
   readonly shown: Listed;
   readonly onShown: (shown: Listed) => void;
   // In a design doc's margin: how far below the list's top each thread's
@@ -560,8 +558,13 @@ export function CommentList({
           {listed.map((thread) => (
             <ThreadCard
               key={thread.top.id}
-              version={version}
               thread={thread}
+              outdated={
+                onPage !== undefined &&
+                !thread.top.resolved &&
+                thread.top.quote !== "" &&
+                !onPage.has(thread.n)
+              }
               now={now}
               draft={drafts.includes(thread)}
               chosen={!leftOut.has(thread.top.id)}
@@ -679,8 +682,8 @@ function empty(shown: Listed, artifact: ArtifactView): string {
 }
 
 function ThreadCard({
-  version,
   thread,
+  outdated,
   now,
   draft,
   chosen,
@@ -690,8 +693,9 @@ function ThreadCard({
   onOpen,
   names,
 }: {
-  readonly version: number;
   readonly thread: Thread;
+  // What it's on isn't in the version open.
+  readonly outdated: boolean;
   // Who its text can mention, to show them.
   readonly names: readonly string[];
   readonly now: number;
@@ -731,9 +735,9 @@ function ThreadCard({
             ? `on “${top.quote}”`
             : ago(new Date(top.createdAt).toISOString(), now)}
         </span>
-        {top.version !== version && (
-          <Badge title={`Made on version ${String(top.version)}`}>
-            Version {top.version}
+        {outdated && (
+          <Badge title="What it's on isn't in this version anymore">
+            Outdated
           </Badge>
         )}
         {top.kind !== "comment" && <Badge>{kindLabels[top.kind]}</Badge>}

@@ -34,6 +34,7 @@ import {
   reactionEmoji,
   bytes,
   kindOf,
+  living,
   type Published,
   type Role,
   type Share,
@@ -65,6 +66,7 @@ interface VersionRow {
   readonly author: string;
   readonly note: string;
   readonly created_at: number;
+  readonly label: string | null;
 }
 
 interface CommentRow {
@@ -129,7 +131,7 @@ export const server = defineServer(
 
     const versions = (id: string): readonly VersionRow[] =>
       store.all<VersionRow>(
-        "select number, name, hash, size, author, note, created_at from artifacts_versions where artifact_id = ? order by number",
+        "select number, name, hash, size, author, note, created_at, label from artifacts_versions where artifact_id = ? order by number",
         id,
       );
 
@@ -206,11 +208,12 @@ export const server = defineServer(
       const all = versions(artifact.id);
       const last = all.at(-1);
       const named = shares(artifact.id);
+      const kind = kindOf(last?.name ?? "") ?? "html";
 
       return {
         id: artifact.id,
         title: artifact.title,
-        kind: kindOf(last?.name ?? "") ?? "html",
+        kind,
         sessionId: artifact.session_id,
         sessionTitle:
           artifact.session_id === null
@@ -226,6 +229,10 @@ export const server = defineServer(
             artifact.id,
           )?.count ?? 0,
         versions: all.length,
+        living: living(kind),
+        named: living(kind)
+          ? all.filter(({ label }) => label !== null).length
+          : all.length,
         updatedAt: artifact.updated_at,
         openedAt:
           viewer === null
@@ -289,14 +296,48 @@ export const server = defineServer(
           id,
         );
 
-        // A verdict was on what the doc said before.
+        // A verdict was on what the doc said before, and what was decided
+        // is open again.
         store.run(
           "update artifacts_reviewers set verdict = null where artifact_id = ?",
+          id,
+        );
+
+        store.run(
+          "update artifacts_artifacts set doc_status = 'review' where id = ? and doc_status = 'decided'",
           id,
         );
       });
 
       return number;
+    };
+
+    // An approval or a decision makes a living doc's newest save a version,
+    // or adds a name to the one it is (ADR 0082).
+    const mark = (artifact: Row, verb: string, person: string): void => {
+      const head = versionOf(artifact);
+
+      if (!living(kindOf(head.name) ?? "html")) {
+        return;
+      }
+
+      const said = `${verb} by `;
+      const parts = head.label === null ? [] : head.label.split(" · ");
+      const at = parts.findIndex((part) => part.startsWith(said));
+      const names = at < 0 ? [] : parts[at]?.slice(said.length).split(", ");
+
+      if (names?.includes(person) === true) {
+        return;
+      }
+
+      const part = `${said}${[...(names ?? []), person].join(", ")}`;
+
+      store.run(
+        "update artifacts_versions set label = ? where artifact_id = ? and number = ?",
+        (at < 0 ? [...parts, part] : parts.with(at, part)).join(" · "),
+        artifact.id,
+        head.number,
+      );
     };
 
     // The size of a file that can be shown as an artifact, once its bytes
@@ -492,6 +533,7 @@ export const server = defineServer(
         by: byOf(each.author),
         note: each.note,
         createdAt: each.created_at,
+        label: each.label,
       })),
       access: access(artifact, person),
       askable: "session" in listening(artifact, person),
@@ -665,7 +707,9 @@ export const server = defineServer(
           found.hash,
           found.size,
           `user:${caller.person.id}`,
-          `restored version ${String(found.number)}`,
+          living(kindOf(found.name) ?? "html")
+            ? "restored an earlier text"
+            : `restored version ${String(found.number)}`,
         );
 
         told(
@@ -754,6 +798,49 @@ export const server = defineServer(
       return artifact;
     };
 
+    // Someone who steers a living doc names its newest save as a version,
+    // such as Sent to legal (ADR 0082).
+    routes.post(
+      "artifacts/:id/label",
+      {
+        auth: "person",
+        body: Type.Object({
+          label: Type.String({ minLength: 1, maxLength: 80 }),
+        }),
+        changes: ["artifacts"],
+      },
+      ({ caller, params, body }) => {
+        const artifact = steered(params.id, caller);
+        const head = versionOf(artifact);
+        const label = body.label.trim();
+
+        if (!living(kindOf(head.name) ?? "html")) {
+          throw new BadRequest("only a Markdown doc's edits are named");
+        }
+
+        if (label === "") {
+          throw new BadRequest("name the version");
+        }
+
+        if (head.label !== null) {
+          throw new HttpError(
+            409,
+            `the latest edit is already a version: ${head.label}`,
+            "named",
+          );
+        }
+
+        store.run(
+          "update artifacts_versions set label = ? where artifact_id = ? and number = ?",
+          label,
+          artifact.id,
+          head.number,
+        );
+
+        return { label };
+      },
+    );
+
     routes.put(
       "artifacts/:id/doc",
       {
@@ -791,6 +878,10 @@ export const server = defineServer(
           body.status,
           artifact.id,
         );
+
+        if (body.status === "decided") {
+          mark(artifact, "Decided", caller.person.name);
+        }
 
         return { status: body.status };
       },
@@ -885,6 +976,10 @@ export const server = defineServer(
 
         if (changed.changes === 0) {
           throw new Forbidden("only its reviewers review it");
+        }
+
+        if (body.verdict === "approved") {
+          mark(artifact, "Approved", caller.person.name);
         }
 
         return { verdict: body.verdict };
@@ -1746,7 +1841,7 @@ export const server = defineServer(
             body.base,
             latest,
             () =>
-              `${latest.author === `user:${caller.person.id}` ? "You" : byOf(latest.author)} saved version ${String(latest.number)} while you were editing.`,
+              `${latest.author === `user:${caller.person.id}` ? "You" : byOf(latest.author)} ${living(kindOf(latest.name) ?? "html") ? "saved an edit" : `saved version ${String(latest.number)}`} while you were editing.`,
           );
 
           return latest;

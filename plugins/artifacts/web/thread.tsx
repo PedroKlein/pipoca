@@ -499,7 +499,9 @@ function SuggestedEdit({
 
   const decided: Readonly<Record<Suggestion["state"], string>> = {
     open: "",
-    accepted: `Accepted by ${String(edit.by)} as version ${String(edit.saved)}`,
+    accepted: artifact.living
+      ? `Accepted by ${String(edit.by)}`
+      : `Accepted by ${String(edit.by)} as version ${String(edit.saved)}`,
     rejected: `Rejected by ${String(edit.by)}`,
   };
 
@@ -549,7 +551,9 @@ function SuggestedEdit({
               Reject
             </Button>
             <span className="ml-auto">
-              Accepting saves version {artifact.versions + 1}
+              {artifact.living
+                ? "Accepting edits the doc"
+                : `Accepting saves version ${String(artifact.versions + 1)}`}
             </span>
           </>
         )}

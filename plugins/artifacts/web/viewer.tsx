@@ -37,8 +37,14 @@ import {
   useState,
 } from "react";
 import { artifacts as plugin } from "../plugin";
-import type { ArtifactSummary, ArtifactView, Comment } from "../src/artifacts";
-import { audienceLabel, versionChoices } from "./chrome";
+import {
+  type ArtifactSummary,
+  type ArtifactView,
+  type Comment,
+  saveName,
+  versionOf,
+} from "../src/artifacts";
+import { audienceLabel, shownLine, versionChoices } from "./chrome";
 import { artifactHref, base, Frame, loadArtifact } from "./collaborate";
 import {
   type Anchor,
@@ -57,6 +63,7 @@ import {
 } from "./doc";
 import { useDock, usePhone } from "./dock";
 import { usePresence } from "./presence";
+import { SaveVersionDialog } from "./save-version";
 import { ShareDialog } from "./share";
 import { Compare, Editor } from "./versions";
 
@@ -408,6 +415,8 @@ function Shown({
   const [saved, setSaved] = useState<string>();
   const [measured, area] = useSize();
   const [sharing, setSharing] = useState(false);
+  const [naming, setNaming] = useState(false);
+  const [since, setSince] = useState<number>();
   const [problem, setProblem] = useState<string>();
   const [said, setSaid] = useState<string>();
   const [confirm, confirmDialog] = useConfirm();
@@ -535,8 +544,8 @@ function Shown({
   }, []);
 
   const pins = useMemo(
-    () => pinsOf(threads, shown, active, anchor),
-    [threads, shown, active, anchor],
+    () => pinsOf(threads, active, anchor),
+    [threads, active, anchor],
   );
 
   useEffect(() => {
@@ -604,9 +613,19 @@ function Shown({
     );
   };
 
-  const versionLine = latest
-    ? `Version ${String(shown)} · latest`
-    : `Version ${String(shown)} of ${String(artifact.versions)}`;
+  const versionLine = shownLine(artifact, shown, now);
+  const open = saveName(artifact, shown);
+  const edit = versionOf(artifact, shown) === null;
+
+  // The version last approved or decided, while the latest text is newer.
+  const approved = latest
+    ? artifact.history.findLast(
+        ({ label, number }) =>
+          number < shown &&
+          label !== null &&
+          /\b(Approved|Decided) by /.test(label),
+      )?.number
+    : undefined;
 
   const versions = versionItems(artifact, shown, now, onVersion, () => {
     setBody("compare");
@@ -628,13 +647,20 @@ function Shown({
         copy(link());
       },
     },
-    {
-      label: `Copy link to version ${String(shown)}`,
-      icon: "link",
-      run: () => {
-        copy(link(shown));
-      },
-    },
+    // The latest text of a living doc has only the one link.
+    ...(artifact.living && latest && edit
+      ? []
+      : [
+          {
+            label: edit
+              ? "Copy link to this edit"
+              : `Copy link to ${open.split(" · ")[0]?.toLowerCase() ?? "version"}`,
+            icon: "link" as const,
+            run: () => {
+              copy(link(shown));
+            },
+          },
+        ]),
     {
       label: artifact.pinned ? "Unpin from sidebar" : "Pin to sidebar",
       icon: "pin",
@@ -647,7 +673,7 @@ function Shown({
     ...(steers && !latest
       ? [
           {
-            label: "Restore this version",
+            label: edit ? "Restore this edit" : "Restore this version",
             icon: "rotate-ccw" as const,
             run: () => void restore(),
           },
@@ -679,6 +705,17 @@ function Shown({
             icon: "pencil" as const,
             run: () => {
               setBody("edit");
+            },
+          },
+        ]
+      : []),
+    ...(steers && latest && artifact.living && edit
+      ? [
+          {
+            label: "Save version…",
+            icon: "star" as const,
+            run: () => {
+              setNaming(true);
             },
           },
         ]
@@ -726,7 +763,11 @@ function Shown({
           mode={mode}
           titleId={titleId}
           version={shown}
-          onBack={toPage}
+          since={since}
+          onBack={() => {
+            setSince(undefined);
+            toPage();
+          }}
           onClose={onClose}
         />
       </div>
@@ -742,7 +783,11 @@ function Shown({
           titleId={titleId}
           onDone={(published) => {
             if (published !== undefined) {
-              setSaid(`Saved as version ${String(published)}`);
+              setSaid(
+                artifact.living
+                  ? "Saved"
+                  : `Saved as version ${String(published)}`,
+              );
             }
 
             toPage();
@@ -786,7 +831,11 @@ function Shown({
         {!phone && (
           <Menu
             label={`${versionLine.replace(" · latest", ", the latest")}. Versions`}
-            heading="Versions · every publish is kept"
+            heading={
+              artifact.living
+                ? "Versions and edits · every edit is kept"
+                : "Versions · every publish is kept"
+            }
             variant="default"
             size="sm"
             align="end"
@@ -872,12 +921,15 @@ function Shown({
         <div className="flex flex-wrap items-center gap-2 border-b border-line bg-hover px-4.5 py-2 text-label text-fg">
           <Icon name="clock" className="size-3.5 text-fg-dim" />
           <span className="flex-1">
-            You&apos;re viewing version {shown}. The latest is version{" "}
-            {artifact.versions}.
+            {artifact.living
+              ? `You're viewing ${edit ? `an edit by ${artifact.history[shown - 1]?.by ?? "someone"}` : open}, not the latest text.`
+              : `You're viewing version ${String(shown)}. The latest is version ${String(artifact.versions)}.`}
           </span>
           {steers && (
             <Button variant="ghost" size="sm" onClick={() => void restore()}>
-              Restore version {shown}
+              {edit
+                ? "Restore this edit"
+                : `Restore ${open.split(" · ")[0]?.toLowerCase() ?? "version"}`}
             </Button>
           )}
           <Button
@@ -940,6 +992,14 @@ function Shown({
           onVerdict={(verdict) => {
             put("review", { verdict });
           }}
+          onSinceApproval={
+            approved === undefined
+              ? undefined
+              : () => {
+                  setSince(approved);
+                  setBody("compare");
+                }
+          }
         />
       )}
       {problem !== undefined && (
@@ -1038,6 +1098,11 @@ function Shown({
               artifact={artifact}
               version={shown}
               threads={threads}
+              onPage={
+                told === undefined
+                  ? undefined
+                  : new Set(told.tops.map(({ n }) => n))
+              }
               shown={listed}
               onShown={setListed}
               margin={margin}
@@ -1089,6 +1154,17 @@ function Shown({
         open={sharing}
         onClose={() => {
           setSharing(false);
+        }}
+      />
+      <SaveVersionDialog
+        artifact={artifact}
+        open={naming}
+        onSaved={(label) => {
+          setNaming(false);
+          setSaid(`Saved as a version: ${label}`);
+        }}
+        onClose={() => {
+          setNaming(false);
         }}
       />
       {confirmDialog}

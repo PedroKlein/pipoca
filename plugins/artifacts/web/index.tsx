@@ -15,9 +15,11 @@ import type { ReactElement } from "react";
 import { artifacts as plugin } from "../plugin";
 import {
   type ArtifactSummary,
+  type ArtifactView,
   type Batch,
   kindLabel,
   type Published,
+  type Version,
 } from "../src/artifacts";
 import { ActivityCount, ActivityPage } from "./activity";
 import { artifactHref, loadArtifact } from "./collaborate";
@@ -220,7 +222,7 @@ function CommentsNotice({ data }: NoticeProps): ReactElement {
               <span className="text-caption">
                 <b className="font-medium text-fg-strong">{comment.author}</b>
                 {comment.quote === ""
-                  ? ` on version ${String(comment.version)}`
+                  ? " on the whole page"
                   : ` on “${comment.quote}”`}
               </span>
               <p className="break-words whitespace-pre-wrap text-fg">
@@ -277,10 +279,7 @@ function VersionNotice({ data }: NoticeProps): ReactElement {
           "A new version of an artifact"
         ) : (
           <>
-            {made.note.startsWith("restored ") ||
-            made.note.startsWith("accepted ")
-              ? `${made.by} ${made.note} as version ${String(made.number)} of `
-              : `${made.by} saved version ${String(made.number)} of `}
+            {savedLine(value, made)}
             <b className="font-medium text-fg">{value.title}</b>
           </>
         )}
@@ -383,9 +382,24 @@ function cardStatus(
 
   return [
     ...(docked ? ["Open beside the chat"] : [kindLabel(now.kind)]),
-    `version ${String(now.versions)}`,
+    now.living ? "edited in place" : `version ${String(now.versions)}`,
     ...(docked ? [] : [audienceLabel(now)]),
   ].join(" · ");
+}
+
+// Who saved what: on a living doc an edit, or what restoring or accepting
+// made; otherwise the version it is.
+function savedLine(artifact: ArtifactView, made: Version): string {
+  const did =
+    made.note.startsWith("restored ") || made.note.startsWith("accepted ");
+
+  if (artifact.living) {
+    return did ? `${made.by} ${made.note} in ` : `${made.by} edited `;
+  }
+
+  return did
+    ? `${made.by} ${made.note} as version ${String(made.number)} of `
+    : `${made.by} saved version ${String(made.number)} of `;
 }
 
 const fileCardClass = cn(

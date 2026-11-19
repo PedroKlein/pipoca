@@ -6473,12 +6473,12 @@ test("Pi suggests an edit in a thread, accepting it saves the next version, and 
 
   const edit = viewer.getByRole("figure", { name: "Suggested edit" });
 
-  await edit.getByText("Accepting saves version 2").waitFor();
+  await edit.getByText("Accepting edits the doc").waitFor();
   await edit.getByRole("button", { name: "Accept" }).click();
-  await edit.getByText("Accepted by You as version 2").waitFor();
+  await edit.getByText("Accepted by You", { exact: true }).waitFor();
 
   await page
-    .frameLocator('iframe[title="Plan, version 2"]')
+    .frameLocator('iframe[title="Plan, latest"]')
     .getByText("Ship Monday.")
     .waitFor();
 
@@ -7224,33 +7224,31 @@ test("edits a Markdown artifact beside its preview and compares the versions wit
   expect(await viewer.isVisible()).toBe(true);
   expect(await source.inputValue()).toContain("five times");
 
-  await viewer.getByRole("button", { name: "Save as version 2" }).click();
+  // A Markdown doc is edited in place: the edit is kept, not a version.
+  await viewer.getByRole("button", { name: "Save", exact: true }).click();
   await source.waitFor({ state: "hidden" });
-  await viewer.getByRole("status").getByText("Saved as version 2").waitFor();
 
   await viewer
-    .getByRole("button", { name: "Version 2, the latest. Versions" })
+    .getByRole("status")
+    .getByText("Saved", { exact: true })
     .waitFor();
 
-  await viewer
-    .getByRole("button", { name: "Version 2, the latest. Versions" })
-    .click();
+  await viewer.getByRole("button", { name: "Latest. Versions" }).click();
 
   await viewer
-    .getByRole("menuitemradio", { name: /^Version 2 latest/ })
-    .getByText("pedro · just now · edited by hand")
+    .getByRole("menuitemradio", { name: /^Edited by pedro latest/ })
     .waitFor();
 
   await viewer.getByRole("menuitem", { name: "Compare versions…" }).click();
   await viewer.getByText("Comparing two versions").waitFor();
 
   await page
-    .frameLocator('iframe[title="Rollout plan, version 1"]')
+    .frameLocator('iframe[title="Rollout plan, an earlier edit"]')
     .locator('mark[data-pipoca-change="removed"]', { hasText: "three" })
     .waitFor();
 
   await page
-    .frameLocator('iframe[title="Rollout plan, version 2"]')
+    .frameLocator('iframe[title="Rollout plan, latest"]')
     .locator('mark[data-pipoca-change="added"]', { hasText: "five" })
     .waitFor();
 
@@ -7268,10 +7266,7 @@ test("edits a Markdown artifact beside its preview and compares the versions wit
   await viewer.waitFor({ state: "hidden" });
   await overlayClosed();
 
-  await page
-    .locator("#chat")
-    .getByText("pedro saved version 2 of Rollout plan")
-    .waitFor();
+  await page.locator("#chat").getByText("pedro edited Rollout plan").waitFor();
 }, 30_000);
 
 test("signs out and back in with the password", async () => {

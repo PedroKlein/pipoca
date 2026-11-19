@@ -139,7 +139,7 @@ test("Pi publishes a file as an artifact and adds versions at the same link", as
   ).toEqual([
     { by: "Pi", note: "" },
     { by: "Pi", note: "raised the number" },
-    { by: "Ana", note: "restored version 1" },
+    { by: "Ana", note: "restored an earlier text" },
   ]);
 
   expect(
@@ -1480,7 +1480,7 @@ test("a person's edit of a Markdown artifact is a new version Pi hears about wit
 
   expect(await stale.json()).toMatchObject({
     error: "stale",
-    message: "Pi saved version 3 while you were editing.",
+    message: "Pi saved an edit while you were editing.",
   });
 
   const ahead = await saving(7);
@@ -1512,11 +1512,17 @@ test("a person's edit of a Markdown artifact is a new version Pi hears about wit
     (await t.as("ana").get<ArtifactView>(`artifacts/${id}`)).history.map(
       ({ note }) => note,
     ),
-  ).toEqual(["", "edited by hand", "", "edited by hand", "restored version 1"]);
+  ).toEqual([
+    "",
+    "edited by hand",
+    "",
+    "edited by hand",
+    "restored an earlier text",
+  ]);
 
   // When the newer one is theirs, it says so.
   expect(await (await saving(4)).json()).toMatchObject({
-    message: "You saved version 5 while you were editing.",
+    message: "You saved an edit while you were editing.",
   });
 
   await writeFile(join(cwd, "page.html"), "<p>hi</p>");
@@ -1858,6 +1864,103 @@ test("an artifact is a design doc by its front matter, its meta tag or a person'
   expect(
     await marked("crlf.md", `---\r\na: b\r\n${"x\r\n".repeat(200)}`),
   ).toBeNull();
+});
+
+test("a Markdown doc is edited in place, and a save becomes a version only when it's approved, decided or named", async () => {
+  const setup = await setUp();
+  const { t, cwd, part } = setup;
+  const { id } = await shared(setup);
+
+  const view = async (who = "ana") =>
+    t.as(who).get<ArtifactView>(`artifacts/${id}`);
+
+  const labels = async () => (await view()).history.map(({ label }) => label);
+
+  const sent = async (
+    who: string,
+    method: string,
+    path: string,
+    body: unknown,
+  ): Promise<number> =>
+    (
+      await t.as(who).raw(`artifacts/${id}/${path}`, {
+        method,
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      })
+    ).status;
+
+  await t.as("ana").post(`artifacts/${id}/versions`, { text: "# Plan\n" });
+
+  expect(await view()).toMatchObject({ versions: 2, living: true, named: 0 });
+  expect(await labels()).toEqual([null, null]);
+
+  // Each reviewer's approval names them on the same save.
+  await sent("ana", "PUT", "doc", { type: "design" });
+  await sent("ana", "PUT", "reviewers", { reviewers: ["Bo", "Cy"] });
+  await sent("bo", "PUT", "review", { verdict: "approved" });
+  await sent("bo", "PUT", "review", { verdict: "approved" });
+  await sent("cy", "PUT", "review", { verdict: "approved" });
+  await sent("ana", "PUT", "status", { status: "decided" });
+
+  expect(await labels()).toEqual([null, "Approved by Bo, Cy · Decided by Ana"]);
+
+  expect(await view()).toMatchObject({ named: 1 });
+
+  // Text that is already a version can't be named again.
+  expect(await sent("ana", "POST", "label", { label: "Final" })).toBe(409);
+
+  // An edit reopens the decided doc and asks for new verdicts.
+  await t.as("ana").post(`artifacts/${id}/versions`, { text: "# Plan v2\n" });
+
+  expect((await view()).doc).toMatchObject({
+    status: "review",
+    reviewers: [{ verdict: null }, { verdict: null }],
+  });
+
+  expect(await view()).toMatchObject({ versions: 3, named: 1 });
+
+  // Only someone who steers it names a save.
+  expect(await sent("bo", "POST", "label", { label: "Sent to legal" })).toBe(
+    404,
+  );
+
+  expect(await sent("ana", "POST", "label", { label: "  " })).toBe(400);
+
+  expect(await sent("ana", "POST", "label", { label: " Sent to legal " })).toBe(
+    200,
+  );
+
+  expect(await labels()).toEqual([
+    null,
+    "Approved by Bo, Cy · Decided by Ana",
+    "Sent to legal",
+  ]);
+
+  expect(await view()).toMatchObject({ named: 2 });
+
+  // Any other artifact makes a version each time it's published.
+  await writeFile(join(cwd, "page.html"), "<h1>Page</h1>");
+
+  const page = (
+    (await part.tool("publish_artifact", { path: "page.html" })).details as {
+      id: string;
+    }
+  ).id;
+
+  expect(
+    await t.as("ana").get<ArtifactView>(`artifacts/${page}`),
+  ).toMatchObject({ living: false, versions: 1, named: 1 });
+
+  expect(
+    (
+      await t.as("ana").raw(`artifacts/${page}/label`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ label: "Final" }),
+      })
+    ).status,
+  ).toBe(400);
 });
 
 test("Pi suggests an edit to a Markdown artifact in a thread sent to it, and someone who steers accepts it as their version or rejects it", async () => {

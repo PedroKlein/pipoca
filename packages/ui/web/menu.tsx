@@ -148,8 +148,9 @@ export function Menu({
               {heading}
             </p>
           )}
-          {items.map((item) => (
-            <Fragment key={item.label}>
+          {items.map((item, at) => (
+            // Two items may read the same, such as edits by one person.
+            <Fragment key={`${String(at)}:${item.label}`}>
               {item.divided === true && <hr className="my-1 border-line" />}
               <button
                 type="button"

@@ -21,7 +21,7 @@ A [Project](projects.md#the-project-folder) also has a folder its Sessions share
 
 ## Artifacts
 
-Pi publishes a page, a Markdown document, a picture, a PDF or a CSV table with `publish_artifact`, and a change as a new version at the same link (the `artifacts` plugin). The chat shows a card with the artifact as it is now, which opens it over the chat. **Esc**, **Back** or the close button takes you back, and the address keeps it open when you reload.
+Pi publishes a page, a Markdown document, a picture, a PDF or a CSV table with `publish_artifact`, and a change as a new version at the same link (the `artifacts` plugin). A Markdown document is the exception: it's edited in place, as below. The chat shows a card with the artifact as it is now, which opens it over the chat. **Esc**, **Back** or the close button takes you back, and the address keeps it open when you reload.
 
 The viewer's header holds:
 
@@ -47,7 +47,7 @@ An artifact runs in a sandbox on an opaque origin, so it can't reach Pipoca or y
 ### Comments and edits
 
 - Click **Comment** to turn on comment mode. Select text, or click part of the page such as a chart bar, and the comment box opens right there. **Comment on the whole page** is beside the list for a comment on all of it. While comment mode is on, a click on the page, or Enter on the part that has focus, picks what to comment on instead of following it; turn it off to use the page. Escape closes the comment box.
-- A comment is a Comment, a Question, a Decision or a Suggestion. Threads are numbered and pinned on the page where they sit; a pin opens its thread. A comment on an element is pinned only in the version it was written on.
+- A comment is a Comment, a Question, a Decision or a Suggestion. Threads are numbered and pinned on the page where they sit; a pin opens its thread. A thread carries over to every newer version and stays on its passage or element. When what it's on is no longer in the version open, its card says **Outdated**.
 - New threads wait as drafts for Pi. The list says how many haven't been sent, and **Send N to Pi** hands the checked ones over together, so Pi takes them in one turn and makes one version. Uncheck a thread to leave it out of this send; it stays a draft. Writing `@pi` in a comment sends that thread at once. Only people who can act in the Session send to Pi; people an artifact is shared with can comment and reply.
 - A sent thread reaches the Session as one row in the chat, such as "You sent 2 comment threads on Checkout latency", not as a message. The row opens to show the comments. Threads sent while Pi works join one row, and Pi takes them in one turn; until then the composer says how many wait. When Pi publishes a version while you have the artifact open, a bar names it, with **Compare with** the version before.
 - Pi reads sent threads with `read_artifact_comments`, answers in each thread with `reply_artifact_comment`, shown as "Pi, via" whoever sent it, and resolves the ones it finished with `resolve_artifact_comment`. A later reply from you in a sent thread reaches Pi again, until the thread is resolved. Comment text reaches Pi as data, never as instructions.
@@ -61,12 +61,21 @@ An artifact runs in a sandbox on an opaque origin, so it can't reach Pipoca or y
 - `publish_artifact` takes a short `label` for what the version changed, and `base`, the version Pi changed. When someone saved a newer version meanwhile, the publish is refused with that version's number, so Pi reads it with `read_artifact` and merges its change first.
 - A page can ask for a message with `parent.postMessage({ pipoca: "draft", text }, "*")`: it lands in the Session's composer, and you decide whether to send it. Only a draft of up to 4,000 characters, posted just after you click or type in the page, counts; others are dropped.
 
+### Markdown docs are edited in place
+
+A Markdown artifact is one living document. Your edits, a suggestion you accept, Pi publishing it again and a restore all change it in place, and threads stay where they are.
+
+- Every edit is kept. The version menu lists the versions first, then the edits grouped by who made them within an hour, such as "Edited by Pi · 3h ago · 2 edits". Open any of them, compare them or restore one.
+- A save becomes a version only on purpose: when a reviewer approves the doc or someone marks it **Decided**, it's labelled "Approved by Ana" or "Decided by Ana", and whoever steers the Session can choose **More** > **Save version…** to name the latest text, such as "Sent to legal". A second approval of the same text adds a name to its label.
+- Editing a **Decided** doc moves it back to **In review**, and the review bar offers **Changes since approval**, which compares the latest text with the version last approved.
+- Pi still names saves by number when it reads and publishes, so its `base` check works the same.
+
 ### Design docs
 
 A design doc, spec or plan is an artifact people review. Pi marks one with front matter in Markdown (`doc: design`, `spec` or `plan`, and `status: draft` or `in review`) or, in HTML, meta tags named `pipoca:doc` and `pipoca:status`. Anyone who steers the Session can also choose **More** > **Mark as design doc**.
 
 - The status sits in the header. Whoever steers the Session moves it between **Draft**, **In review** and **Decided**; only a person decides.
-- The review bar lists the reviewers and their verdicts, with **Ask for review**. A reviewer presses **Approve** or **Ask for changes**. A new version asks for new verdicts.
+- The review bar lists the reviewers and their verdicts, with **Ask for review**. A reviewer presses **Approve** or **Ask for changes**. A new version or edit asks for new verdicts, and editing a Decided doc moves it back to In review.
 - The outline lists the sections with the threads open in each. **Open questions** rolls up Question threads, and Comments gets a **Questions** tab.
 - With Comments open, each card sits in the margin beside its passage and follows the page as it scrolls.
 

@@ -23,7 +23,12 @@ import {
   useState,
 } from "react";
 import { artifacts as plugin } from "../plugin";
-import type { ArtifactView, Role, Share } from "../src/artifacts";
+import {
+  type ArtifactView,
+  type Role,
+  type Share,
+  versionOf,
+} from "../src/artifacts";
 import { artifactHref } from "./collaborate";
 
 const listedMost = 8;
@@ -285,8 +290,13 @@ function ShareForm({
               label="The link opens"
               value={fixed ? "fixed" : "latest"}
               options={[
-                { value: "latest", label: "The latest version" },
-                { value: "fixed", label: `Version ${String(version)} only` },
+                {
+                  value: "latest",
+                  label: artifact.living
+                    ? "The latest text"
+                    : "The latest version",
+                },
+                { value: "fixed", label: fixedLabel(artifact, version) },
               ]}
               onChange={(value) => {
                 setFixed(value === "fixed");
@@ -658,4 +668,10 @@ function CopyLink({ text }: { readonly text: string }): ReactElement {
       <span aria-live="polite">{said ?? "Copy link"}</span>
     </Button>
   );
+}
+
+function fixedLabel(artifact: ArtifactView, version: number): string {
+  const number = versionOf(artifact, version);
+
+  return number === null ? "This edit only" : `Version ${String(number)} only`;
 }
