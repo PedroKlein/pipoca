@@ -188,6 +188,7 @@ export const server = defineServer(kubernetes, (context) => {
     },
     starts: (environment) =>
       startsPods && settingsOf(environment) !== undefined,
+    sharesFolders: false,
     replacesServerRunner: startsPods,
   });
 

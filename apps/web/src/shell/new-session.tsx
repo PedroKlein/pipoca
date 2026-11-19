@@ -299,7 +299,12 @@ export function NewSessionForm({
     unavailable: chosen?.unavailableModels ?? [],
   });
 
+  // Pods share no folders, so only repositories are offered there.
+  const withFolders =
+    chosen?.runnersFrom?.sharesFolders === false ? undefined : chosen;
+
   const sharing =
+    withFolders !== undefined &&
     choices.share &&
     choices.where.length === 1 &&
     !choices.where.some(isRepository);
@@ -379,22 +384,23 @@ export function NewSessionForm({
           selected={choices.where}
           recent={recent}
           team={team}
-          {...(chosen && {
+          repositoriesOnly={withFolders === undefined}
+          {...(withFolders && {
             folders: {
-              label: `Folders on ${chosen.name}`,
-              paths: chosen.folders,
+              label: `Folders on ${withFolders.name}`,
+              paths: withFolders.folders,
             },
+            placeholder: "Search, or paste a path or repository URL",
+            footer: (
+              <Checkbox
+                label="Share the folder instead of a worktree of it"
+                checked={choices.share}
+                onChange={(event) => {
+                  choose({ share: event.target.checked });
+                }}
+              />
+            ),
           })}
-          placeholder="Search, or paste a path or repository URL"
-          footer={
-            <Checkbox
-              label="Share the folder instead of a worktree of it"
-              checked={choices.share}
-              onChange={(event) => {
-                choose({ share: event.target.checked });
-              }}
-            />
-          }
           hint={
             <span>
               {team

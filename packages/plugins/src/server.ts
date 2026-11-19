@@ -531,6 +531,9 @@ export interface RunnerProvider {
     readonly choice?: string;
   };
   readonly starts: (environment: RunnerSource) => boolean;
+  // False when its runners share no folder of a machine, such as pods, so
+  // their Sessions work only in repositories.
+  readonly sharesFolders?: boolean;
   // The server then runs no runner of its own, such as in a cluster where
   // its Sessions would share the server's files.
   readonly replacesServerRunner?: boolean;

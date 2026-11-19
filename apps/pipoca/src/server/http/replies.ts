@@ -21,6 +21,10 @@ const rejections = {
     409,
     "The repository is on a private host this Environment doesn't reach.",
   ],
+  no_folders: [
+    409,
+    "This Environment's machines share no folders. Pick a repository to work in.",
+  ],
   environment_exists: [409, "An Environment of that name already exists."],
   unknown_template: [400, "There is no such template."],
   from_template: [

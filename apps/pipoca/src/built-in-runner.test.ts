@@ -160,3 +160,46 @@ test("a runner plugin whose checks throw counts as starting nothing, and the nex
     await server.close();
   }
 });
+
+// Starts runners that share no folder, the way pods do.
+const folderless = defineServer(
+  definePlugin({ id: "folderless", title: "Folderless", description: "" }),
+  ({ provide }) => {
+    provide.runners({
+      kind: { label: "Pods", icon: "cloud" },
+      starts: () => true,
+      sharesFolders: false,
+    });
+  },
+);
+
+test("refuses a Session in a folder where an Environment's runners share none, and says so", async () => {
+  const server = testServer({ builtIns: false, servers: [folderless] });
+
+  try {
+    const made = (await (
+      await server.api("/api/environments", { body: { name: "cluster" } })
+    ).json()) as Environment;
+
+    const start = async (workspace: unknown): Promise<Response> =>
+      server.api("/api/sessions", {
+        body: { environment: made.id, workspace },
+      });
+
+    const inFolder = await start({ kind: "folder", path: "TestFolder" });
+    const inWorktree = await start({ kind: "worktree", path: "TestFolder" });
+
+    const inRepository = await start({
+      kind: "clone",
+      repository: "https://github.com/acme/app.git",
+    });
+
+    expect(made.runnersFrom).toMatchObject({ sharesFolders: false });
+    expect(inFolder.status).toBe(409);
+    expect(await inFolder.json()).toMatchObject({ error: "no_folders" });
+    expect(inWorktree.status).toBe(409);
+    expect(inRepository.status).toBe(201);
+  } finally {
+    await server.close();
+  }
+});

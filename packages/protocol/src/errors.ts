@@ -42,6 +42,7 @@ export const errorCodes = [
   "not_failed",
   "unknown_environment",
   "unreachable_host",
+  "no_folders",
   "environment_exists",
   "unknown_template",
   "from_template",

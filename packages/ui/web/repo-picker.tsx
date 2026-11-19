@@ -38,6 +38,7 @@ export function RepoPicker({
   recent,
   folders,
   placeholder,
+  repositoriesOnly = false,
   footer,
   hint,
   onSearch,
@@ -54,6 +55,8 @@ export function RepoPicker({
     | { readonly label: string; readonly options: readonly RepoOption[] }
     | undefined;
   readonly placeholder: string;
+  // Only a repository can be typed, such as where machines share no folders.
+  readonly repositoriesOnly?: boolean;
   // Under the list, such as a choice that applies to what was picked.
   readonly footer?: ReactNode;
   // Says where the repositories come from.
@@ -146,12 +149,16 @@ export function RepoPicker({
   // A folder listed only under its own filter can still be typed.
   const listed = [...recentShown, ...groups.flatMap(({ options }) => options)];
 
+  const typedRepository = /:\/\/|^[\w.-]+@[\w.-]+:/.test(typed);
+
   const made: RepoOption | undefined =
-    typed !== "" && !listed.some(({ value }) => value === typed)
+    typed !== "" &&
+    (typedRepository || !repositoriesOnly) &&
+    !listed.some(({ value }) => value === typed)
       ? {
           value: typed,
           name: `Use ${typed}`,
-          meta: /:\/\/|^[\w.-]+@[\w.-]+:/.test(typed) ? "clone" : "folder",
+          meta: typedRepository ? "clone" : "folder",
         }
       : undefined;
 

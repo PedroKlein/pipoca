@@ -176,6 +176,9 @@ const runnersFrom = Type.Object({
   label: Type.String(),
   icon: Type.String(),
   choice: Type.Optional(Type.String()),
+  // False when its runners share no folders, so Sessions there work only in
+  // repositories.
+  sharesFolders: Type.Optional(Type.Boolean()),
 });
 
 export type RunnersFrom = Wire<typeof runnersFrom>;
