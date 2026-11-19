@@ -1996,6 +1996,37 @@ test("an artifact is a design doc by its front matter, its meta tag or a person'
   ).toBeNull();
 });
 
+test("an HTML page is edited in place too, while CSV and images still version on each publish", async () => {
+  const { t, cwd, part } = await setUp();
+
+  const published = async (name: string, text: string, id?: string) => {
+    await writeFile(join(cwd, name), text);
+
+    const { details } = await part.tool("publish_artifact", {
+      path: name,
+      ...(id !== undefined && { id }),
+    });
+
+    return (details as { id: string }).id;
+  };
+
+  const page = await published("page.html", "<h1>Hi</h1>");
+
+  await published("page.html", "<h1>Hello</h1>", page);
+
+  expect(
+    await t.as("ana").get<ArtifactView>(`artifacts/${page}`),
+  ).toMatchObject({ versions: 2, living: true, named: 0 });
+
+  const table = await published("data.csv", "a,b\n1,2\n");
+
+  await published("data.csv", "a,b\n1,3\n", table);
+
+  expect(
+    await t.as("ana").get<ArtifactView>(`artifacts/${table}`),
+  ).toMatchObject({ versions: 2, living: false, named: 2 });
+});
+
 test("a Markdown doc is edited in place, and a save becomes a version only when it's approved, decided or named", async () => {
   const setup = await setUp();
   const { t, cwd, part } = setup;
@@ -2069,11 +2100,11 @@ test("a Markdown doc is edited in place, and a save becomes a version only when 
 
   expect(await view()).toMatchObject({ named: 2 });
 
-  // Any other artifact makes a version each time it's published.
-  await writeFile(join(cwd, "page.html"), "<h1>Page</h1>");
+  // A CSV, image or PDF makes a version each time it's published.
+  await writeFile(join(cwd, "data.csv"), "a,b\n1,2\n");
 
   const page = (
-    (await part.tool("publish_artifact", { path: "page.html" })).details as {
+    (await part.tool("publish_artifact", { path: "data.csv" })).details as {
       id: string;
     }
   ).id;

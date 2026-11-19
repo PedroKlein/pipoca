@@ -28,10 +28,10 @@ export interface Version {
   readonly label: string | null;
 }
 
-// ADR 0082: a Markdown artifact is edited in place, and only its labelled
-// saves are versions. Every save of any other artifact is one.
+// ADR 0082: a Markdown doc or HTML page is edited in place, and only its
+// labelled saves are versions. Every save of any other artifact is one.
 export function living(kind: Kind): boolean {
-  return kind === "markdown";
+  return kind === "markdown" || kind === "html";
 }
 
 // The version a save is, numbered among versions, or null for an edit.
