@@ -4758,6 +4758,13 @@ test("creates a Project and shares a file through its folder", async () => {
     await Bun.sleep(20);
   }
 
+  // The thread's finished turn reaches the coordinator before it is asked
+  // anything, so the notice can't land inside the coordinator's next turn.
+  await page
+    .locator('#chat li[data-role="notice"]')
+    .first()
+    .waitFor({ state: "attached" });
+
   faux.setResponses([
     fauxAssistantMessage([fauxText(`See [Docs](thread:${threadId}).`)]),
   ]);
