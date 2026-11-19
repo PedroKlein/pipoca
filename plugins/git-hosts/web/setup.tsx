@@ -1,3 +1,4 @@
+import { errorText } from "@pipoca/protocol";
 import {
   type SetupStep,
   type SetupStepProps,
@@ -85,9 +86,6 @@ export const connectCodeStep: SetupStep = {
   changes: ["setup", "account", "hosts"],
   Step: ConnectCodeStep,
 };
-
-const failure = (reason: unknown): string =>
-  reason instanceof Error ? reason.message : String(reason);
 
 function CodeHostsStep(): ReactElement | null {
   const api = useApi(gitHosts);
@@ -221,7 +219,7 @@ function HostCard({
           team: true,
         })
         .then(onChange, (reason: unknown) => {
-          setError(failure(reason));
+          setError(errorText(reason));
         });
     }
   };
@@ -462,7 +460,7 @@ function Answer({
             },
             (reason: unknown) => {
               setShown(undefined);
-              setError(failure(reason));
+              setError(errorText(reason));
             },
           );
         }}
@@ -650,7 +648,7 @@ function AddHost({
           onClick={() => {
             add({ host: "github.com", label: kindOf("github.com") }).catch(
               (reason: unknown) => {
-                setError(failure(reason));
+                setError(errorText(reason));
               },
             );
           }}

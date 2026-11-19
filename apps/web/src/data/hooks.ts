@@ -6,6 +6,7 @@ import {
   type RouteKey,
   type Routes,
   type User,
+  errorText,
 } from "@pipoca/protocol";
 import {
   useCallback,
@@ -15,7 +16,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import { errorText, request, store } from "./client";
+import { request, store } from "./client";
 
 // The routes a page reads: GETs that answer JSON.
 type QueryKey = {

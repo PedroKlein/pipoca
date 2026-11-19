@@ -24,6 +24,7 @@ import {
   profileModel,
   recentPlaces,
   type Session,
+  errorText,
 } from "@pipoca/protocol";
 import {
   Avatar,
@@ -1015,9 +1016,7 @@ function CreateForm({
         (failure: unknown) => {
           setCreating(false);
 
-          setError(
-            failure instanceof Error ? failure.message : String(failure),
-          );
+          setError(errorText(failure));
         },
       );
   };
@@ -1744,7 +1743,7 @@ function ThreadMenu({ thread }: { readonly thread: ThreadView }): ReactElement {
     setError("");
 
     sent.catch((failure: unknown) => {
-      setError(failure instanceof Error ? failure.message : String(failure));
+      setError(errorText(failure));
     });
   };
 
@@ -1871,9 +1870,7 @@ function Settings({
             ...(moved && { repositories }),
           })
           .then(onSaved, (failure: unknown) => {
-            setError(
-              failure instanceof Error ? failure.message : String(failure),
-            );
+            setError(errorText(failure));
           })
           .finally(() => {
             setSaving(false);
@@ -2009,9 +2006,7 @@ function StartFresh({
           api
             .post(`${path}/fresh`)
             .then(onDone, (failure: unknown) => {
-              setError(
-                failure instanceof Error ? failure.message : String(failure),
-              );
+              setError(errorText(failure));
             })
             .finally(() => {
               setBusy(false);
@@ -2084,9 +2079,7 @@ function ArchiveProject({
                 { archived: !archived },
               )
               .then(onDone, (failure: unknown) => {
-                setError(
-                  failure instanceof Error ? failure.message : String(failure),
-                );
+                setError(errorText(failure));
               });
           });
         }}

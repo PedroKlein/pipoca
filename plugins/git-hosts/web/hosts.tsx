@@ -1,3 +1,4 @@
+import { errorText } from "@pipoca/protocol";
 import { useApi, useLoaded } from "@pipoca/plugins/web";
 import {
   Badge,
@@ -67,7 +68,7 @@ export function HostsEditor({
         setSettingUp("github.com");
       },
       (failure: unknown) => {
-        setError(failure instanceof Error ? failure.message : String(failure));
+        setError(errorText(failure));
       },
     );
   };
@@ -272,7 +273,7 @@ export function ConnectSetup({
         setError(undefined);
       },
       (reason: unknown) => {
-        setError(reason instanceof Error ? reason.message : String(reason));
+        setError(errorText(reason));
       },
     );
   };
@@ -417,7 +418,7 @@ export function HostForm({
       clientSecret:
         form.get("removeSecret") === "on" ? null : text("clientSecret"),
     }).catch((reason: unknown) => {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      setError(errorText(reason));
     });
   };
 

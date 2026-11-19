@@ -23,10 +23,6 @@ export const teams: Scope = { prefix: "team/" };
 // name can be.
 export const groupPage = "group:";
 
-export function failureOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 const outcomes: Readonly<
   Record<RunOutcome, { readonly state: BadgeState; readonly label: string }>
 > = {

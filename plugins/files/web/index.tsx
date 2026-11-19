@@ -1,3 +1,4 @@
+import { errorText } from "@pipoca/protocol";
 import {
   ago,
   AttachedCard,
@@ -356,7 +357,7 @@ function UploadButton({
 
         send(chosen)
           .catch((error: unknown) => {
-            onProblem(error instanceof Error ? error.message : String(error));
+            onProblem(errorText(error));
           })
           .finally(() => {
             onSending(false);
@@ -549,7 +550,7 @@ function Attached({
         send(file).catch((error: unknown) => {
           change(file, {
             sent: 0,
-            problem: error instanceof Error ? error.message : String(error),
+            problem: errorText(error),
           });
         });
       }

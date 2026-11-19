@@ -1,3 +1,4 @@
+import { errorText } from "@pipoca/protocol";
 import {
   ConfigForm,
   defineWeb,
@@ -120,7 +121,7 @@ function Mailboxes(): ReactElement {
           reload();
         },
         (reason: unknown) => {
-          setError(reason instanceof Error ? reason.message : String(reason));
+          setError(errorText(reason));
         },
       );
   };

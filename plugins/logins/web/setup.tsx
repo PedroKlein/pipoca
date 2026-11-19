@@ -18,7 +18,11 @@ import {
   SearchInput,
   TextInput,
 } from "@pipoca/ui";
-import type { Environment, ProfileContent } from "@pipoca/protocol";
+import {
+  type Environment,
+  type ProfileContent,
+  errorText,
+} from "@pipoca/protocol";
 import { type ReactElement, type SubmitEvent, useState } from "react";
 import type { Account, Connectable } from "../src/model";
 import { ConnectionCard, PasteKey, useSend } from "./connect";
@@ -357,7 +361,7 @@ function AddPackage(): ReactElement {
         setError(undefined);
       },
       (reason: unknown) => {
-        setError(reason instanceof Error ? reason.message : String(reason));
+        setError(errorText(reason));
       },
     );
   };

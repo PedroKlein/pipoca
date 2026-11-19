@@ -1,3 +1,4 @@
+import { errorText } from "@pipoca/protocol";
 import {
   AttachPicker,
   AttachRow,
@@ -119,9 +120,7 @@ export function PublishFile({
 
           publish()
             .catch((error: unknown) => {
-              setProblem(
-                error instanceof Error ? error.message : String(error),
-              );
+              setProblem(errorText(error));
             })
             .finally(() => {
               setPublishing(false);

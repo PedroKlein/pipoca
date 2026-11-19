@@ -1,3 +1,4 @@
+import { errorText } from "@pipoca/protocol";
 import {
   defineWeb,
   type MountedSession,
@@ -114,7 +115,7 @@ function Checkout({
         setComments([]);
       },
       (error: unknown) => {
-        setSendError(error instanceof Error ? error.message : String(error));
+        setSendError(errorText(error));
       },
     );
   };
@@ -193,7 +194,7 @@ function PullRequestActions({
     session
       .send(["/pr", mode, name].filter((part) => part !== "").join(" "))
       .catch((error: unknown) => {
-        setSendError(error instanceof Error ? error.message : String(error));
+        setSendError(errorText(error));
       });
   };
 

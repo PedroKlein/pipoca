@@ -1,3 +1,4 @@
+import { errorText } from "@pipoca/protocol";
 import {
   ago,
   Slot,
@@ -68,7 +69,7 @@ export function ActivityPage(): ReactElement {
     setProblem(undefined);
 
     action.then(reload, (failed: unknown) => {
-      setProblem(failed instanceof Error ? failed.message : String(failed));
+      setProblem(errorText(failed));
     });
   };
 
@@ -264,9 +265,7 @@ function ActivitySettingsCard(): ReactElement {
                 api
                   .put("activity/settings", { topic, on })
                   .then(reload, (failed: unknown) => {
-                    setProblem(
-                      failed instanceof Error ? failed.message : String(failed),
-                    );
+                    setProblem(errorText(failed));
                   });
               }}
             />
