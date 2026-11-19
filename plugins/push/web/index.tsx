@@ -106,11 +106,7 @@ function Section(): ReactElement | null {
     setError(undefined);
 
     action().then(reload, (reason: unknown) => {
-      setError(
-        Notification.permission === "denied"
-          ? "Notifications are blocked for Pipoca in this browser's settings."
-          : String(reason),
-      );
+      setError(failure(reason));
 
       reload();
     });
@@ -155,4 +151,22 @@ function Section(): ReactElement | null {
       </ErrorText>
     </Page>
   );
+}
+
+// Chromium browsers without Google's push service, such as Brave by default,
+// fail every subscription with this AbortError.
+function failure(reason: unknown): string {
+  if (Notification.permission === "denied") {
+    return "Notifications are blocked for Pipoca in this browser's settings.";
+  }
+
+  if (
+    reason instanceof DOMException &&
+    reason.name === "AbortError" &&
+    reason.message.includes("push service")
+  ) {
+    return 'This browser could not reach its push service. In Brave, turn on "Use Google services for push messaging" in Settings > Privacy and security, restart Brave and try again. In other browsers, a network that blocks Google\'s push servers does this too.';
+  }
+
+  return String(reason);
 }
