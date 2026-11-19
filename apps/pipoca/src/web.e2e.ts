@@ -4735,6 +4735,7 @@ test("creates a Project and shares a file through its folder", async () => {
   // Inside the thread there's no list of threads beside it, nor a button
   // that would show one.
   expect(await rail.count()).toBe(0);
+
   expect(await page.getByRole("button", { name: "Show threads" }).count()).toBe(
     0,
   );
@@ -4771,12 +4772,13 @@ test("creates a Project and shares a file through its folder", async () => {
   await chip.getByText("Ready for review").waitFor();
 
   // The thread's finished turn reached the coordinator as context, with no
-  // turn of its own.
-  await page
-    .locator('#chat li[data-role="notice"]')
-    .getByRole("link", { name: "Docs" })
-    .first()
-    .waitFor();
+  // turn of its own, and the coordinator chat doesn't draw it.
+  expect(
+    await page
+      .locator('#chat li[data-role="notice"]')
+      .getByRole("link", { name: "Docs" })
+      .count(),
+  ).toBe(0);
 
   expect(
     await page
@@ -8338,10 +8340,16 @@ test("offers a fork once the team said more than Pi reads", async () => {
 test("names a teammate with @ in team work, who finds it on Activity", async () => {
   await page.goto(server.url.href);
 
+  const signedIn = (await page.context().cookies()).find(
+    ({ name }) => name === "pipoca-session",
+  );
+
+  const current = `${signedIn?.name ?? ""}=${signedIn?.value ?? ""}`;
+
   const [invite] = (await (
     await fetch(new URL("/api/invites", server.url), {
       method: "POST",
-      headers: { "content-type": "application/json", cookie },
+      headers: { "content-type": "application/json", cookie: current },
       body: JSON.stringify({}),
     })
   ).json()) as { readonly id: string; readonly token: string }[];
@@ -8372,7 +8380,7 @@ test("names a teammate with @ in team work, who finds it on Activity", async () 
       (
         await fetch(new URL(path, server.url), {
           method: "POST",
-          headers: { "content-type": "application/json", cookie },
+          headers: { "content-type": "application/json", cookie: current },
           body: JSON.stringify(body),
         })
       ).json();
