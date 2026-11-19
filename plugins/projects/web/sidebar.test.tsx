@@ -26,14 +26,12 @@ test("the sidebar's Assistant entry and its active Projects load the list once",
     throw new Error("the Assistant has no sidebar parts");
   }
 
-  function Sidebar(): ReactElement {
-    return (
-      <>
-        <Items path={undefined} />
-        <Live path={undefined} />
-      </>
-    );
-  }
+  const Sidebar = (): ReactElement => (
+    <>
+      <Items path={undefined} />
+      <Live path={undefined} />
+    </>
+  );
 
   const page = renderPart(
     { ...web, slots: { "session.header": Sidebar } },
