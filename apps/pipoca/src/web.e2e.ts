@@ -6473,12 +6473,12 @@ test("Pi suggests an edit in a thread, accepting it saves the next version, and 
 
   const edit = viewer.getByRole("figure", { name: "Suggested edit" });
 
-  await edit.getByText("Accepting saves version 2").waitFor();
+  await edit.getByText("Accepting edits the doc").waitFor();
   await edit.getByRole("button", { name: "Accept" }).click();
-  await edit.getByText("Accepted by You as version 2").waitFor();
+  await edit.getByText("Accepted by You", { exact: true }).waitFor();
 
   await page
-    .frameLocator('iframe[title="Plan, version 2"]')
+    .frameLocator('iframe[title="Plan, latest"]')
     .getByText("Ship Monday.")
     .waitFor();
 
