@@ -146,12 +146,17 @@ export function RepoPicker({
   // A folder listed only under its own filter can still be typed.
   const listed = [...recentShown, ...groups.flatMap(({ options }) => options)];
 
+  const typedRepository = /:\/\/|^[\w.-]+@[\w.-]+:/.test(typed);
+
+  // Without folders, such as on pods, only a repository can be typed.
   const made: RepoOption | undefined =
-    typed !== "" && !listed.some(({ value }) => value === typed)
+    typed !== "" &&
+    (typedRepository || folders !== undefined) &&
+    !listed.some(({ value }) => value === typed)
       ? {
           value: typed,
           name: `Use ${typed}`,
-          meta: /:\/\/|^[\w.-]+@[\w.-]+:/.test(typed) ? "clone" : "folder",
+          meta: typedRepository ? "clone" : "folder",
         }
       : undefined;
 

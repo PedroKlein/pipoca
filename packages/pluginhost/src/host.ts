@@ -1740,7 +1740,13 @@ export function startPlugins(
         guarded(plugin, "startsRunners", false, () => starts(environment)),
       );
 
-      return found && { plugin: found.plugin, ...found.kind };
+      return (
+        found && {
+          plugin: found.plugin,
+          ...found.kind,
+          ...(found.sharesFolders === false && { sharesFolders: false }),
+        }
+      );
     },
     replacesServerRunner: () =>
       starters.some(

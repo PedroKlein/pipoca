@@ -275,9 +275,13 @@ async function kubernetesEnvironment(
   });
 }
 
+// Pods share no folder, so their Sessions work in repositories.
 async function startSession(
   environment: Environment,
-  workspace: object = { kind: "folder", path: root },
+  workspace: object = {
+    kind: "clone",
+    repository: "https://github.com/acme/app.git",
+  },
 ): Promise<Session> {
   return kernel<Session>("/api/sessions", {
     environment: environment.id,
@@ -327,6 +331,7 @@ const fromKubernetes = {
   label: "Kubernetes",
   icon: "cloud",
   choice: "A pod for each person",
+  sharesFolders: false,
 };
 
 test("reads an Environment that starts runner pods as on demand, from Kubernetes", async () => {
@@ -1043,7 +1048,28 @@ test("gives each Session a pod of its own that mounts its claim, and brings it b
   expect(heldFirst).toMatchObject({ runner: null, status: "queued" });
   expect(heldSecond).toMatchObject({ runner: name });
 
-  await kernel(`/api/sessions/${second.id}`, { archived: true }, "PATCH");
+  const archived = await kernel<Session>(
+    `/api/sessions/${second.id}`,
+    { archived: true },
+    "PATCH",
+  );
+
+  const removed = await t
+    .as("ana")
+    .raw(`/runner/sessions/${second.id}/workspace-removal`, {
+      method: "POST",
+      body: JSON.stringify({
+        generation: archived.generation,
+        outcome: "removed",
+        restore: archived.workspace,
+      }),
+      headers: {
+        authorization: `Bearer ${tokenOf(name)}`,
+        [versionHeader]: String(protocolVersion),
+      },
+    });
+
+  expect(removed.status).toBe(204);
 
   const back = api.pods.get(name);
 

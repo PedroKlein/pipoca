@@ -412,6 +412,15 @@ export class Environments {
     return this.#polls.leaseLapsed(provider, runner);
   }
 
+  sharesFolders(provider: string): boolean {
+    const environment = this.all().find((each) => each.provider === provider);
+
+    return (
+      environment === undefined ||
+      this.#startsRunners(environment)?.sharesFolders !== false
+    );
+  }
+
   // Whether one of the Environment's runners reached every private host the
   // Workspace's repositories are on (ADR 0080).
   reaches(provider: string, workspace: Workspace | WorkspaceRequest): boolean {

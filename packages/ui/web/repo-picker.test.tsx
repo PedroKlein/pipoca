@@ -155,6 +155,21 @@ test("offers what was typed to use as it is, even a folder listed under its own 
   expect(picked).toEqual(["/home/pedro/notes"]);
 });
 
+test("offers a typed repository but not a typed folder where there are no folders", () => {
+  const page = picker({ folders: undefined });
+
+  click(byRole(page, "button", "Repositories"));
+
+  const search = byRole(page, "combobox", "Repositories");
+  type(search, "TestFolder");
+
+  expect(names(page)).not.toContain("Use TestFolder");
+
+  type(search, "https://github.com/acme/app.git");
+
+  expect(names(page)).toContain("Use https://github.com/acme/app.git");
+});
+
 test("says how many were picked, each in its own worktree", () => {
   const page = picker({
     selected: tools.slice(0, 2).map(({ value }) => value),

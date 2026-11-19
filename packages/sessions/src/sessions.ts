@@ -100,6 +100,8 @@ interface SessionEnvironments {
     provider: string,
     session: StoredSession,
   ) => boolean;
+  // Runners a plugin starts, such as pods, may share no folders.
+  readonly sharesFolders: (provider: string) => boolean;
   // Whether it reaches the private hosts a Workspace is on (ADR 0080).
   readonly reaches: (
     provider: string,
@@ -203,6 +205,7 @@ export type Rejection =
   | "not_failed"
   | "unknown_environment"
   | "unreachable_host"
+  | "no_folders"
   | "unknown_profile"
   | "not_movable"
   | "unknown_entry"
@@ -375,6 +378,14 @@ export class Sessions {
 
     if (!environment) {
       return { ok: false, reason: "unknown_environment" };
+    }
+
+    if (
+      (request.workspace.kind === "folder" ||
+        request.workspace.kind === "worktree") &&
+      !this.#environments.sharesFolders(environment.provider)
+    ) {
+      return { ok: false, reason: "no_folders" };
     }
 
     if (!this.#environments.reaches(environment.provider, request.workspace)) {
