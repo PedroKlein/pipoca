@@ -59,24 +59,6 @@ export function withSkill(
   return next.length === 0 ? rest : { ...rest, skills: next };
 }
 
-// The Profiles this one builds on, nearest first.
-export function chainOf(
-  profile: Profile,
-  profiles: readonly Profile[],
-): readonly Profile[] {
-  const found: Profile[] = [];
-
-  for (
-    let next = profiles.find(({ id }) => id === profile.buildsOn);
-    next !== undefined && next.id !== profile.id && !found.includes(next);
-    next = profiles.find(({ id }) => id === next.buildsOn)
-  ) {
-    found.push(next);
-  }
-
-  return found;
-}
-
 export function serverOf(config: unknown): string {
   const { url, command, args } = (config ?? {}) as Record<string, unknown>;
 

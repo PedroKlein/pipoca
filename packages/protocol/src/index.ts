@@ -33,6 +33,7 @@ export {
   type PiPackage,
   type Profile,
   type ProfileContent,
+  buildsOnChain,
   profileModel,
   profilePath,
   type RepositoryChoice,

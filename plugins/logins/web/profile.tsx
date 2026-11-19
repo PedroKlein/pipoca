@@ -1,6 +1,6 @@
 import { logins } from "../plugin";
 import { useLoaded, useApi } from "@pipoca/plugins/web";
-import type { Profile } from "@pipoca/protocol";
+import { buildsOnChain, type Profile } from "@pipoca/protocol";
 import {
   Badge,
   ErrorText,
@@ -58,9 +58,12 @@ export function ProfileLogins({
   }
 
   const own: LoginLayer = `profile:${profileId}`;
+  const picked = profiles.find(({ id }) => id === profileId);
 
   const below: readonly LoginLayer[] = [
-    ...chainOf(profileId, profiles).map((id): LoginLayer => `profile:${id}`),
+    ...(picked === undefined ? [] : buildsOnChain(picked, profiles)).map(
+      ({ id }): LoginLayer => `profile:${id}`,
+    ),
     "defaults",
     "base",
   ];
@@ -231,21 +234,6 @@ function describe(line: Line, profiles: readonly Profile[]): string {
   return line.type === undefined
     ? where.charAt(0).toUpperCase() + where.slice(1)
     : `${line.type}, ${where}`;
-}
-
-// The Profiles this one builds on, nearest first, as far as they're listed.
-function chainOf(id: string, profiles: readonly Profile[]): readonly string[] {
-  const found: string[] = [];
-
-  for (
-    let next = profiles.find((profile) => profile.id === id)?.buildsOn;
-    next !== null && next !== undefined && !found.includes(next) && next !== id;
-    next = profiles.find((profile) => profile.id === next)?.buildsOn
-  ) {
-    found.push(next);
-  }
-
-  return found;
 }
 
 function unique(keys: readonly string[]): readonly string[] {
