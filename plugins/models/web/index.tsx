@@ -1,5 +1,5 @@
 import { defineWeb, useApi, useLoaded } from "@pipoca/plugins/web";
-import type { Environment, ModelRef } from "@pipoca/protocol";
+import { type Environment, type ModelRef, errorText } from "@pipoca/protocol";
 import {
   Avatar,
   Badge,
@@ -176,7 +176,7 @@ function InThePicker({
       },
       (reason: unknown) => {
         setSaving(undefined);
-        setError(reason instanceof Error ? reason.message : String(reason));
+        setError(errorText(reason));
       },
     );
   };
@@ -290,7 +290,7 @@ function Aliases({
           onSaved();
         },
         (reason: unknown) => {
-          setError(reason instanceof Error ? reason.message : String(reason));
+          setError(errorText(reason));
         },
       );
   };

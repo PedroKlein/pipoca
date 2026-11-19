@@ -1,3 +1,4 @@
+import { errorText } from "@pipoca/protocol";
 import { logins } from "../plugin";
 import { useLoaded, useApi } from "@pipoca/plugins/web";
 import {
@@ -29,7 +30,7 @@ export function useSend(reload: () => void): {
         reload();
       },
       (reason: unknown) => {
-        setError(reason instanceof Error ? reason.message : String(reason));
+        setError(errorText(reason));
         reload();
       },
     );

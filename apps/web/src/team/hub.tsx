@@ -1,13 +1,11 @@
-import type { HubPage } from "@pipoca/protocol";
 import { type ReactElement, type ReactNode, useState } from "react";
-import { request } from "../data/client";
-import { useAction, useMe, useQuery } from "../data/hooks";
+import { useMe, useQuery } from "../data/hooks";
 import { NewSessionDialog } from "../shell/new-session";
 import { PluginBoundary } from "../plugin-boundary";
 import { guarded } from "../plugins";
 import { SessionView } from "../session/session-view";
 import { href, navigate, type Route, routeHref } from "../router";
-import { screens, pagesOf, hrefOf, newPageId } from "./hub-pages";
+import { hrefOf, screens, useHubPages } from "./hub-pages";
 import { AddPage } from "./add-page";
 import { LayoutPage, TeamSessions } from "./layout-page";
 import { TeamSetup } from "./setup";
@@ -26,21 +24,17 @@ export function TeamHub({ route }: { readonly route: Route }): ReactElement {
   const environments =
     useQuery("environments.list", { query: { scope: "team" } }).data ?? [];
 
-  const layout = useQuery("settings.hub").data;
   const [starting, setStarting] = useState(false);
   const [drawer, setDrawer] = useState(false);
   const [drawerRoute, setDrawerRoute] = useState(route);
-  const pages = pagesOf(layout?.pages ?? null);
+  const hub = useHubPages();
+  const { pages } = hub;
   const current = routeHref(route);
 
   if (drawerRoute !== route) {
     setDrawerRoute(route);
     setDrawer(false);
   }
-
-  const lay = useAction(async (next: readonly HubPage[]) =>
-    request("settings.hub.update", { body: { pages: next } }),
-  );
 
   const opened = route.name === "teamSession" ? route.params.id : undefined;
 
@@ -170,17 +164,13 @@ export function TeamHub({ route }: { readonly route: Route }): ReactElement {
         page={page}
         sessions={sessions ?? []}
         admin={admin}
-        error={lay.error}
+        error={hub.error}
         onStart={() => {
           setStarting(true);
         }}
-        onChange={(changed) => {
-          void lay.run(
-            pages.map((each) => (each.id === changed.id ? changed : each)),
-          );
-        }}
+        onChange={hub.change}
         onRemove={() => {
-          void lay.run(pages.filter((each) => each.id !== page.id));
+          hub.remove(page.id);
           navigate(href("team"));
         }}
       />
@@ -208,20 +198,7 @@ export function TeamHub({ route }: { readonly route: Route }): ReactElement {
             setStarting(true);
           }}
           {...(admin && {
-            footer: (
-              <AddPage
-                onAdd={(title) => {
-                  const page = {
-                    id: newPageId(title, pages),
-                    title,
-                    panels: [],
-                  };
-
-                  void lay.run([...pages, page]);
-                  navigate(hrefOf(page));
-                }}
-              />
-            ),
+            footer: <AddPage onAdd={hub.add} />,
           })}
         />
       </Drawer>

@@ -20,9 +20,8 @@ import {
   PluginSwitch,
   switchQuestion,
 } from "../settings/plugins/plugin-card";
-import { navigate } from "../router";
 import { AddPage } from "./add-page";
-import { hrefOf, newPageId, pagesOf } from "./hub-pages";
+import { hrefOf, useHubPages } from "./hub-pages";
 
 export function TeamNaming(): ReactElement {
   const name = useQuery("settings.team").data?.name;
@@ -144,22 +143,8 @@ export function TeamPlugins(): ReactElement {
 
 // The hub's pages in sidebar order. Home always comes first and stays.
 export function HubLayout(): ReactElement {
-  const pages = pagesOf(useQuery("settings.hub").data?.pages ?? null);
+  const { pages, error, add, remove: removePage, move } = useHubPages();
   const [ask, asking] = useConfirm();
-
-  const lay = useAction(async (next: readonly HubPage[]) =>
-    request("settings.hub.update", { body: { pages: next } }),
-  );
-
-  const move = (from: number, to: number): void => {
-    const next = [...pages];
-    const [page] = next.splice(from, 1);
-
-    if (page !== undefined) {
-      next.splice(to, 0, page);
-      void lay.run(next);
-    }
-  };
 
   const remove = async (page: HubPage): Promise<void> => {
     if (
@@ -170,7 +155,7 @@ export function HubLayout(): ReactElement {
         danger: true,
       })
     ) {
-      void lay.run(pages.filter((each) => each.id !== page.id));
+      removePage(page.id);
     }
   };
 
@@ -179,7 +164,7 @@ export function HubLayout(): ReactElement {
       title="Hub layout"
       description="The pages under More in everyone's team sidebar, and the panels on each. Open a page to place its panels."
     >
-      <ErrorText className="mb-4">{lay.error}</ErrorText>
+      <ErrorText className="mb-4">{error}</ErrorText>
       <Rows label="Hub pages">
         {pages.map((page, index) => {
           const home = index === 0;
@@ -241,14 +226,7 @@ export function HubLayout(): ReactElement {
         })}
       </Rows>
       <div className="mt-3">
-        <AddPage
-          onAdd={(title) => {
-            const page = { id: newPageId(title, pages), title, panels: [] };
-
-            void lay.run([...pages, page]);
-            navigate(hrefOf(page));
-          }}
-        />
+        <AddPage onAdd={add} />
       </div>
       {asking}
     </Page>

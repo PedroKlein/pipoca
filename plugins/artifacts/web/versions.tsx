@@ -1,3 +1,4 @@
+import { errorText } from "@pipoca/protocol";
 import { isHttpError, previewed } from "@pipoca/plugins";
 import {
   useApi,
@@ -442,7 +443,7 @@ export function Editor({
       if (isHttpError(error) && error.code === "stale") {
         setRefused(error.message);
       } else {
-        setProblem(error instanceof Error ? error.message : String(error));
+        setProblem(errorText(error));
       }
     }
   };

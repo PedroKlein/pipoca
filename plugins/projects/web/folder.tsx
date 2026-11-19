@@ -1,3 +1,4 @@
+import { errorText } from "@pipoca/protocol";
 import {
   ago,
   uploadBlob,
@@ -146,7 +147,7 @@ export function Folder({
     try {
       await api.delete(`${path}/file?path=${encodeURIComponent(name)}`);
     } catch (problem) {
-      setError(problem instanceof Error ? problem.message : String(problem));
+      setError(errorText(problem));
     }
 
     reload();

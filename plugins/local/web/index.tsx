@@ -1,5 +1,5 @@
 import { defineWeb, useApi, useLoaded } from "@pipoca/plugins/web";
-import type { Environment } from "@pipoca/protocol";
+import { type Environment, errorText } from "@pipoca/protocol";
 import {
   Button,
   Card,
@@ -97,7 +97,7 @@ function Settings({
         setError(undefined);
       },
       (reason: unknown) => {
-        setError(reason instanceof Error ? reason.message : String(reason));
+        setError(errorText(reason));
       },
     );
   };

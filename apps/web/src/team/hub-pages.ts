@@ -2,8 +2,10 @@ import type { NavItemsProps, PageProps } from "@pipoca/plugins/web";
 import type { HubPage } from "@pipoca/protocol";
 import type { IconName } from "@pipoca/ui";
 import type { ComponentType } from "react";
+import { request } from "../data/client";
+import { useAction, useQuery } from "../data/hooks";
 import { enabledPlugins } from "../plugins";
-import { href } from "../router";
+import { href, navigate } from "../router";
 
 export interface Entry {
   readonly href: string;
@@ -76,7 +78,51 @@ export function hrefOf({ id }: HubPage): string {
   return id === "home" ? href("team") : href("teamPage", { id });
 }
 
-export function newPageId(title: string, pages: readonly HubPage[]): string {
+// The hub's pages and an admin's changes to them, from the hub or from
+// Team setup alike.
+export function useHubPages(): {
+  readonly pages: readonly HubPage[];
+  readonly error: string | undefined;
+  // Adds an empty page and opens it.
+  readonly add: (title: string) => void;
+  readonly change: (page: HubPage) => void;
+  readonly remove: (id: string) => void;
+  readonly move: (from: number, to: number) => void;
+} {
+  const pages = pagesOf(useQuery("settings.hub").data?.pages ?? null);
+
+  const lay = useAction(async (next: readonly HubPage[]) =>
+    request("settings.hub.update", { body: { pages: next } }),
+  );
+
+  return {
+    pages,
+    error: lay.error,
+    add: (title) => {
+      const page = { id: newPageId(title, pages), title, panels: [] };
+
+      void lay.run([...pages, page]);
+      navigate(hrefOf(page));
+    },
+    change: (page) => {
+      void lay.run(pages.map((each) => (each.id === page.id ? page : each)));
+    },
+    remove: (id) => {
+      void lay.run(pages.filter((each) => each.id !== id));
+    },
+    move: (from, to) => {
+      const next = [...pages];
+      const [page] = next.splice(from, 1);
+
+      if (page !== undefined) {
+        next.splice(to, 0, page);
+        void lay.run(next);
+      }
+    },
+  };
+}
+
+function newPageId(title: string, pages: readonly HubPage[]): string {
   const base =
     title
       .toLowerCase()

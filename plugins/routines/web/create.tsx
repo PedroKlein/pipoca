@@ -30,6 +30,7 @@ import {
   checkoutName,
   type DeclaredAction,
   type DeclaredEvent,
+  errorText,
 } from "@pipoca/protocol";
 import { ReachWarning } from "./reach";
 import { type ReactElement, useState } from "react";
@@ -186,7 +187,7 @@ export function NewRoutine({
         setDraftId(asked.id);
       },
       (error: unknown) => {
-        setFailure(error instanceof Error ? error.message : String(error));
+        setFailure(errorText(error));
       },
     );
   };
@@ -968,7 +969,7 @@ function DraftCard({
           location.hash = pageHref(routines, `${prefix}${target}`);
         },
         (error: unknown) => {
-          setFailure(error instanceof Error ? error.message : String(error));
+          setFailure(errorText(error));
         },
       );
   };

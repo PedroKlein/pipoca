@@ -1,4 +1,4 @@
-import type { ApiReply } from "@pipoca/protocol";
+import { type ApiReply, errorText } from "@pipoca/protocol";
 
 type ConfigList = ApiReply<"settings.config">;
 
@@ -101,7 +101,7 @@ export function jsonError(
       ? undefined
       : "It must hold an object with a key per plugin.";
   } catch (error) {
-    return error instanceof Error ? error.message : String(error);
+    return errorText(error);
   }
 }
 

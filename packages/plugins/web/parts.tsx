@@ -180,6 +180,12 @@ export function href(
   return `#plugin/${plugin.id}/${path}`;
 }
 
+// A Session's address. The app moves it to the page of the plugin that
+// shows the Session, if one does (ADR 0028).
+export function sessionHref(sessionId: string): string {
+  return `#${sessionId}`;
+}
+
 // Fills a tool's call slot to leave its calls out of the chat.
 export function Hidden(): null {
   return null;

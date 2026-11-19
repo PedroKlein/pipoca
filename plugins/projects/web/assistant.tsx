@@ -6,7 +6,12 @@ import {
   useLoaded,
   useApi,
 } from "@pipoca/plugins/web";
-import { type Environment, modelRefOf, type Session } from "@pipoca/protocol";
+import {
+  type Environment,
+  modelRefOf,
+  type Session,
+  errorText,
+} from "@pipoca/protocol";
 import {
   Button,
   ErrorText,
@@ -335,7 +340,7 @@ function Composer({
       },
       (reason: unknown) => {
         setSending(false);
-        setError(reason instanceof Error ? reason.message : String(reason));
+        setError(errorText(reason));
         textRef.current?.focus();
       },
     );

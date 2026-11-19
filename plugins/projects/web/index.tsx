@@ -5,12 +5,14 @@ import {
   type ToolCall,
   type ToolCallProps,
   type PageProps,
+  ago,
   useLoaded,
   useNow,
   defineWeb,
   ModelField,
   pickerModels,
   RepositoryField,
+  sessionHref,
   SessionView,
   Slot,
   useApi,
@@ -24,6 +26,7 @@ import {
   profileModel,
   recentPlaces,
   type Session,
+  errorText,
 } from "@pipoca/protocol";
 import {
   Avatar,
@@ -185,7 +188,9 @@ function ThreadLink({ target, label }: LinkProps): ReactElement {
   return (
     <a
       href={
-        thread ? link(`${thread.projectId}/${thread.sessionId}`) : `#${target}`
+        thread
+          ? link(`${thread.projectId}/${thread.sessionId}`)
+          : sessionHref(target)
       }
       className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-line bg-elevated px-2 align-baseline text-label leading-relaxed font-medium text-fg no-underline hover:bg-hover"
     >
@@ -460,7 +465,7 @@ function ThreadNotice(props: NoticeProps): ReactElement | null {
     <>
       <Icon name="chat" className="size-4 shrink-0" />
       <a
-        href={`#${threadId}`}
+        href={sessionHref(threadId)}
         className="max-w-1/2 shrink-0 truncate font-medium text-fg"
       >
         {title}
@@ -502,7 +507,7 @@ function ThreadMessageNotice(props: NoticeProps): ReactElement {
   return (
     <MessageNotice
       from={
-        <a href={`#${threadId}`} className="font-medium text-fg">
+        <a href={sessionHref(threadId)} className="font-medium text-fg">
           {title}
         </a>
       }
@@ -996,9 +1001,7 @@ function CreateForm({
         (failure: unknown) => {
           setCreating(false);
 
-          setError(
-            failure instanceof Error ? failure.message : String(failure),
-          );
+          setError(errorText(failure));
         },
       );
   };
@@ -1615,7 +1618,7 @@ function Rail({
           meta={[
             environments.find(({ id }) => id === thread.environmentId)?.name ??
               thread.environmentId,
-            since(thread.lastActivity, now),
+            ago(thread.lastActivity, now),
           ].join(" · ")}
         />
       ))}
@@ -1671,24 +1674,6 @@ function Rail({
   );
 }
 
-function since(time: string, now: number): string {
-  const minutes = Math.floor((now - Date.parse(time)) / 60_000);
-
-  if (minutes < 1) {
-    return "just now";
-  }
-
-  if (minutes < 60) {
-    return `${String(minutes)}m ago`;
-  }
-
-  const hours = Math.floor(minutes / 60);
-
-  return hours < 24
-    ? `${String(hours)}h ago`
-    : `${String(Math.floor(hours / 24))}d ago`;
-}
-
 function ThreadRow({
   thread,
   current,
@@ -1725,7 +1710,7 @@ function ThreadMenu({ thread }: { readonly thread: ThreadView }): ReactElement {
     setError("");
 
     sent.catch((failure: unknown) => {
-      setError(failure instanceof Error ? failure.message : String(failure));
+      setError(errorText(failure));
     });
   };
 
@@ -1852,9 +1837,7 @@ function Settings({
             ...(moved && { repositories }),
           })
           .then(onSaved, (failure: unknown) => {
-            setError(
-              failure instanceof Error ? failure.message : String(failure),
-            );
+            setError(errorText(failure));
           })
           .finally(() => {
             setSaving(false);
@@ -1990,9 +1973,7 @@ function StartFresh({
           api
             .post(`${path}/fresh`)
             .then(onDone, (failure: unknown) => {
-              setError(
-                failure instanceof Error ? failure.message : String(failure),
-              );
+              setError(errorText(failure));
             })
             .finally(() => {
               setBusy(false);
@@ -2065,9 +2046,7 @@ function ArchiveProject({
                 { archived: !archived },
               )
               .then(onDone, (failure: unknown) => {
-                setError(
-                  failure instanceof Error ? failure.message : String(failure),
-                );
+                setError(errorText(failure));
               });
           });
         }}

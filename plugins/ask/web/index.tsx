@@ -1,3 +1,4 @@
+import { errorText } from "@pipoca/protocol";
 import {
   defineWeb,
   type MountedSession,
@@ -128,7 +129,7 @@ function QuestionCard({
     api
       .post(`questions/${asked.id}/answer`, { text: answer })
       .catch((failure: unknown) => {
-        setError(failure instanceof Error ? failure.message : String(failure));
+        setError(errorText(failure));
       });
   };
 
@@ -248,7 +249,7 @@ function VoteCard({ vote }: { readonly vote: Vote }): ReactElement {
     setError(undefined);
 
     sent.catch((failure: unknown) => {
-      setError(failure instanceof Error ? failure.message : String(failure));
+      setError(errorText(failure));
     });
   };
 
@@ -388,7 +389,7 @@ function VoteForm({
       })
       .then(onDone)
       .catch((failure: unknown) => {
-        setError(failure instanceof Error ? failure.message : String(failure));
+        setError(errorText(failure));
       });
   };
 
