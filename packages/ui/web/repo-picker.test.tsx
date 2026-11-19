@@ -155,8 +155,8 @@ test("offers what was typed to use as it is, even a folder listed under its own 
   expect(picked).toEqual(["/home/pedro/notes"]);
 });
 
-test("offers a typed repository but not a typed folder where there are no folders", () => {
-  const page = picker({ folders: undefined });
+test("offers a typed repository but not a typed folder where only repositories go", () => {
+  const page = picker({ folders: undefined, repositoriesOnly: true });
 
   click(byRole(page, "button", "Repositories"));
 

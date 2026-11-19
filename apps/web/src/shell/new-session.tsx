@@ -384,6 +384,7 @@ export function NewSessionForm({
           selected={choices.where}
           recent={recent}
           team={team}
+          repositoriesOnly={withFolders === undefined}
           {...(withFolders && {
             folders: {
               label: `Folders on ${withFolders.name}`,

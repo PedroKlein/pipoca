@@ -38,6 +38,7 @@ export function RepoPicker({
   recent,
   folders,
   placeholder,
+  repositoriesOnly = false,
   footer,
   hint,
   onSearch,
@@ -54,6 +55,8 @@ export function RepoPicker({
     | { readonly label: string; readonly options: readonly RepoOption[] }
     | undefined;
   readonly placeholder: string;
+  // Only a repository can be typed, such as where machines share no folders.
+  readonly repositoriesOnly?: boolean;
   // Under the list, such as a choice that applies to what was picked.
   readonly footer?: ReactNode;
   // Says where the repositories come from.
@@ -148,10 +151,9 @@ export function RepoPicker({
 
   const typedRepository = /:\/\/|^[\w.-]+@[\w.-]+:/.test(typed);
 
-  // Without folders, such as on pods, only a repository can be typed.
   const made: RepoOption | undefined =
     typed !== "" &&
-    (typedRepository || folders !== undefined) &&
+    (typedRepository || !repositoriesOnly) &&
     !listed.some(({ value }) => value === typed)
       ? {
           value: typed,

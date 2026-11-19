@@ -65,6 +65,7 @@ export function RepositoryField({
   folders,
   team,
   placeholder = "Search, or paste a repository URL",
+  repositoriesOnly = false,
   footer,
   hint,
   onChange,
@@ -78,6 +79,7 @@ export function RepositoryField({
     { readonly label: string; readonly paths: readonly string[] } | undefined;
   readonly team: boolean;
   readonly placeholder?: string;
+  readonly repositoriesOnly?: boolean;
   readonly footer?: ReactNode;
   readonly hint?: ReactNode;
   readonly onChange: (values: readonly string[]) => void;
@@ -131,6 +133,7 @@ export function RepositoryField({
         },
       })}
       placeholder={placeholder}
+      repositoriesOnly={repositoriesOnly}
       footer={footer}
       hint={hint}
       onSearch={search}
