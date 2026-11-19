@@ -5116,7 +5116,8 @@ test("keeps a plugin's newest list when an older load answers last", async () =>
     loads.push(route);
     watched(undefined);
 
-    if (loads.length === 2) {
+    // Only the first load is held; every one after the change answers.
+    if (loads.length > 1) {
       await route.fulfill({ json: projects("Newer") });
     }
   });

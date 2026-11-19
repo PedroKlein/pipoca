@@ -64,7 +64,6 @@ import {
   useEffect,
   useState,
 } from "react";
-import type { TypedClient } from "@pipoca/plugins";
 import { projects } from "../plugin";
 import {
   AssistantItems,
@@ -77,6 +76,7 @@ import {
   useAssistant,
   useEnvironments,
 } from "./assistant";
+import { useProjectList } from "./project-list";
 import {
   AttachFolderFile,
   FolderSavedCards,
@@ -153,13 +153,6 @@ export const web = defineWeb(projects, {
     "session.toolCall:message_thread": MessageThreadCard,
   },
 });
-
-// A person outside team work gets none of the team's.
-async function teamList(api: TypedClient): Promise<ProjectSummary[]> {
-  const response = await api.raw("team/projects");
-
-  return response.ok ? ((await response.json()) as ProjectSummary[]) : [];
-}
 
 function useThread(id: string | undefined): ThreadLinkView | undefined {
   const api = useApi(projects);
@@ -574,13 +567,9 @@ function TeamCount(): ReactElement | null {
 }
 
 function useActive(team: boolean): readonly ProjectSummary[] | undefined {
-  const api = useApi(projects);
-
-  return useLoaded(
-    async () => (team ? teamList(api) : api.get<ProjectSummary[]>("projects")),
-    team ? "team-projects" : "projects",
-    watched,
-  ).value?.filter(({ coordinatorState }) => coordinatorState !== "archived");
+  return useProjectList(team)?.filter(
+    ({ coordinatorState }) => coordinatorState !== "archived",
+  );
 }
 
 // Below the sidebar's entries, the Projects that aren't archived.
@@ -710,17 +699,9 @@ function ProjectList({
   const api = useApi(projects);
   const [creating, setCreating] = useState(false);
 
-  const list = useLoaded(
-    async () => (team ? teamList(api) : api.get<ProjectSummary[]>("projects")),
-    team ? "team-projects" : "projects",
-    watched,
-  ).value;
-
-  const others = useLoaded(
-    async () => (team ? [] : teamList(api)),
-    team ? "no-team-projects" : "team-projects",
-    watched,
-  ).value;
+  const list = useProjectList(team);
+  const theTeams = useProjectList(true);
+  const others = team ? [] : theTeams;
 
   const teamName =
     useLoaded(
