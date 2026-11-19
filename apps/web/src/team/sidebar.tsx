@@ -7,7 +7,7 @@ import {
   useState,
 } from "react";
 import type { NavItemsProps } from "@pipoca/plugins/web";
-import { useMe } from "../data/hooks";
+import { shownName, useMe } from "../data/hooks";
 import { PluginBoundary } from "../plugin-boundary";
 import { href } from "../router";
 import { AccountMenu } from "../shell/account-menu";
@@ -198,7 +198,7 @@ export function TeamSidebar({
                 {here.slice(0, 4).map((person) => (
                   <Avatar
                     key={person.id}
-                    name={person.name}
+                    name={shownName(person)}
                     size="xs"
                     className="bg-elevated text-fg-dim ring-2 ring-panel"
                   />

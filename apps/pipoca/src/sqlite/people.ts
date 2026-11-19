@@ -48,7 +48,7 @@ export function peopleStore(db: DatabaseSync, clock: Clock): PeopleStore {
   );
 
   const selectUsers = db.prepare(
-    "select id, name, admin, email, username from users order by created_at",
+    "select id, name, admin, email, username, display_name from users order by created_at",
   );
 
   const selectAccount = db.prepare(
@@ -234,6 +234,7 @@ export function peopleStore(db: DatabaseSync, clock: Clock): PeopleStore {
         selectUsers.all() as unknown as (UserRow & {
           readonly email: string | null;
           readonly username: string | null;
+          readonly display_name: string | null;
         })[]
       ).flatMap((row) => {
         const found = userOfRow(row);
@@ -247,6 +248,9 @@ export function peopleStore(db: DatabaseSync, clock: Clock): PeopleStore {
             ...found,
             ...(row.email !== null && { email: row.email }),
             ...(row.username !== null && { username: row.username }),
+            ...(row.display_name !== null && {
+              displayName: row.display_name,
+            }),
           },
         ];
       }),

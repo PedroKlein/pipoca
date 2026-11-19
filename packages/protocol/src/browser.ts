@@ -503,6 +503,8 @@ const teammate = Type.Object({
   name: Type.String(),
   // What they're @-mentioned by in place of their name, if they chose it.
   username: Type.Optional(Type.String()),
+  // The name they chose to be shown by, if it isn't their sign-in name.
+  displayName: Type.Optional(Type.String()),
   // Used the web app in the last few minutes.
   here: Type.Optional(Type.Boolean()),
 });

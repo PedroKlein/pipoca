@@ -1,6 +1,6 @@
 import type { Teammate } from "@pipoca/protocol";
 import { type Completion, useCompletion } from "@pipoca/ui";
-import { useMe, useQuery } from "../../data/hooks";
+import { shownName, useMe, useQuery } from "../../data/hooks";
 import type { Feed } from "../feed";
 import { ranked, type Trigger, trigger } from "./suggest";
 
@@ -41,7 +41,7 @@ function optionsFor(
       return [
         ...ranked(people, typed.query, handleOf).map((each) => ({
           value: `@${handleOf(each)}`,
-          detail: each.username === undefined ? null : each.name,
+          detail: shownName(each) === handleOf(each) ? null : shownName(each),
         })),
         ...ranked(feed.files, typed.query, (path) => path).map((path) => ({
           value: `@${path}`,

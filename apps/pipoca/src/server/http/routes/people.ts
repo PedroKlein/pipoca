@@ -17,28 +17,24 @@ export function peopleRoutes({
       const here = people.here();
       const users = people.users();
 
-      const usernames = new Map(
-        users.flatMap(({ id, username }) =>
-          username === undefined ? [] : [[id, username]],
-        ),
-      );
-
-      return caller.admin
-        ? people.people().map((person) => {
-            const username = usernames.get(person.id);
-
-            return {
-              ...person,
-              ...(username !== undefined && { username }),
-              here: here.has(person.id),
-            };
-          })
-        : users.map(({ id, name, username }): Teammate => ({
+      const teammates = new Map(
+        users.map(({ id, name, username, displayName }): [string, Teammate] => [
+          id,
+          {
             id,
             name,
             ...(username !== undefined && { username }),
+            ...(displayName !== undefined && { displayName }),
             here: here.has(id),
-          }));
+          },
+        ]),
+      );
+
+      return caller.admin
+        ? people
+            .people()
+            .map((person) => ({ ...person, ...teammates.get(person.id) }))
+        : [...teammates.values()];
     },
     "people.update": ({ params: { id }, body: { admin } }) => {
       const changed = people.changeRole(id, admin);

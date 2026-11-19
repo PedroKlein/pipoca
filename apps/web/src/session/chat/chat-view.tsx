@@ -9,7 +9,7 @@ import {
   useMemo,
   useRef,
 } from "react";
-import { useQuery } from "../../data/hooks";
+import { usePersonName } from "../../data/hooks";
 import { usePrimaryId } from "../../primary";
 import type { Feed } from "../feed";
 import { TerminalText } from "../terminal/terminal-text";
@@ -37,20 +37,20 @@ export function ChatView({
   const content = useRef<HTMLOListElement>(null);
   const atBottom = useRef(true);
   const top = useRef(0);
-  const people = useQuery("people.list").data;
+  const nameOf = usePersonName();
 
-  const shown = useMemo(() => {
-    const names = new Map((people ?? []).map(({ id, name }) => [id, name]));
-
-    return turns(
-      voiced(
-        feed.items,
-        feed.voices,
-        (person) => names.get(person) ?? "Someone",
+  const shown = useMemo(
+    () =>
+      turns(
+        voiced(
+          feed.items,
+          feed.voices,
+          (person) => nameOf(person) ?? "Someone",
+        ),
+        claimed,
       ),
-      claimed,
-    );
-  }, [feed.items, feed.voices, people]);
+    [feed.items, feed.voices, nameOf],
+  );
 
   const chatId = usePrimaryId("chat");
 

@@ -24,7 +24,7 @@ import {
   shortName,
   workspaceName,
 } from "../names";
-import { useMe, useQuery } from "../data/hooks";
+import { useMe, usePersonName } from "../data/hooks";
 import { matches } from "../notices";
 import { enabledPlugins, pageLabel, sessionHref } from "../plugins";
 
@@ -276,10 +276,15 @@ export function SessionState({
 // Who started a Session, as team lists name them.
 export function useStartedBy(): (id: string | null) => string | undefined {
   const { user } = useMe();
-  const people = useQuery("people.list").data ?? [];
+  const nameOf = usePersonName();
 
-  return (id) =>
-    id === user.id ? "You" : people.find((person) => person.id === id)?.name;
+  return (id) => {
+    if (id === user.id) {
+      return "You";
+    }
+
+    return id === null ? undefined : nameOf(id);
+  };
 }
 
 function ownerLabel(plugin: string): string {

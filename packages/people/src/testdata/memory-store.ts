@@ -35,6 +35,10 @@ export function memoryStore(): PeopleStore {
         const email = emails.get(id) ?? undefined;
         const username = usernames.get(id) ?? undefined;
 
+        const displayName = named.has(id)
+          ? (named.get(id) ?? undefined)
+          : users.find((each) => each.id === id)?.displayName;
+
         if (found === undefined) {
           return [];
         }
@@ -44,6 +48,7 @@ export function memoryStore(): PeopleStore {
             ...found,
             ...(email !== undefined && { email }),
             ...(username !== undefined && { username }),
+            ...(displayName !== undefined && { displayName }),
           },
         ];
       }),
