@@ -9,7 +9,7 @@ import {
   testSession,
 } from "@pipoca/testing";
 import { until } from "@pipoca/testing/until";
-import { blobRoutes } from "@pipoca/protocol";
+import { blobRoutes, type Session } from "@pipoca/protocol";
 import type {
   ActivityItem,
   ArtifactSummary,
@@ -44,7 +44,7 @@ async function setUp() {
     people: [
       { id: "ana", name: "Ana", admin: true },
       { id: "bo", name: "Bo" },
-      { id: "cy", name: "Cy" },
+      { id: "cy", name: "Cy", username: "cyrus" },
       { id: "bolee", name: "Bo Lee" },
     ],
   });
@@ -894,8 +894,9 @@ test("people react to comments, one reaction of each kind each, and mention the 
   expect((await react("bo", "🍕", true)).status).toBe(422);
   expect((await react("cy", "👍", true)).status).toBe(403);
 
+  // Someone with a username is mentioned by it.
   expect(await t.as("ana").get(`artifacts/${id}/people`)).toEqual({
-    people: ["Bo", "Cy"],
+    people: ["Bo", "cyrus"],
   });
 
   expect(await t.as("cy").get(`artifacts/${id}/people`)).toEqual({
@@ -2123,7 +2124,7 @@ test("people are told of mentions, review requests, replies in their threads and
 
   // A mention says so once, even to the artifact's owner, and only people
   // who see the artifact hear.
-  const bo = await comment("bo", "Friday is too soon, @Ana @Cy @Dee");
+  const bo = await comment("bo", "Friday is too soon, @Ana @cyrus @Dee");
 
   expect((await told("ana")).items).toMatchObject([
     {
@@ -2133,7 +2134,7 @@ test("people are told of mentions, review requests, replies in their threads and
       thread: bo.id,
       by: "Bo",
       byPi: false,
-      excerpt: "Friday is too soon, @Ana @Cy @Dee",
+      excerpt: "Friday is too soon, @Ana @cyrus @Dee",
       read: false,
     },
   ]);
@@ -2284,4 +2285,72 @@ test("people are told of mentions, review requests, replies in their threads and
 
   expect(t.emitted("artifacts.activity").length).toBe(events);
   expect((await told("cy")).items).toEqual([]);
+});
+
+test("people named with @ in team work hear of it on Activity and elsewhere, if they see the work", async () => {
+  const { t } = await setUp();
+  const team = await t.session({ owner: "team", startedBy: "ana" });
+  const mine = await t.session({ owner: person("ana") });
+
+  const said = (where: string, text: string): void => {
+    t.emit({
+      type: "TeamMessage",
+      session: { id: where } as Session,
+      actor: "user:bo",
+      said: "team",
+      text,
+    });
+  };
+
+  const told = async (who: string) =>
+    t
+      .as(who)
+      .get<{ items: ActivityItem[]; unread: number }>("activity?view=mine");
+
+  said(team.id, "@cyrus @Ana can you look at the rollout? @Bo");
+  said(team.id, "See @Cy/notes.md and @cyrus.old, @Bo.");
+  said(mine.id, "@Cy this is Ana's own work");
+
+  await until(async () => (await told("cy")).unread === 1);
+
+  expect((await told("cy")).items).toMatchObject([
+    {
+      kind: "mention",
+      artifact: null,
+      session: team.id,
+      by: "Bo",
+      excerpt: "@cyrus @Ana can you look at the rollout? @Bo",
+      read: false,
+    },
+  ]);
+
+  expect((await told("ana")).items).toMatchObject([
+    { kind: "mention", session: team.id },
+  ]);
+
+  expect((await told("bo")).items).toEqual([]);
+
+  expect(
+    t
+      .emitted("artifacts.activity")
+      .filter(({ to }) => to[0] === person("cy"))
+      .map(({ fields }) => fields),
+  ).toEqual([
+    {
+      kind: "mention",
+      session: team.id,
+      headline: expect.stringMatching(/^Bo mentioned you in /) as string,
+      text: "@cyrus @Ana can you look at the rollout? @Bo",
+      url: `/#${team.id}`,
+    },
+  ]);
+
+  const [item] = (await told("cy")).items;
+
+  await t.as("cy").post("activity/read", { ids: [item?.id] });
+
+  expect(await told("cy")).toMatchObject({
+    unread: 0,
+    items: [{ read: true }],
+  });
 });

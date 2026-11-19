@@ -501,6 +501,8 @@ export const personUpdate = Type.Object({ admin: Type.Boolean() });
 const teammate = Type.Object({
   id: Type.String(),
   name: Type.String(),
+  // What they're @-mentioned by in place of their name, if they chose it.
+  username: Type.Optional(Type.String()),
   // Used the web app in the last few minutes.
   here: Type.Optional(Type.Boolean()),
 });
@@ -782,13 +784,14 @@ export const teamView = Type.Object({
 
 export type TeamView = Wire<typeof teamView>;
 
-// The signed-in person's own account: the name people see, beside the
-// username they sign in with, and the Environment their Sessions start in
+// The signed-in person's own account: the name people see and the username
+// they're mentioned by, beside the name they sign in with, and the Environment their Sessions start in
 // when they don't pick one.
 export const account = Type.Object({
   ...user.properties,
   displayName: nullable(Type.String()),
   email: nullable(Type.String()),
+  username: nullable(Type.String()),
   defaultEnvironment: nullable(Type.String()),
 });
 
@@ -798,6 +801,8 @@ export const accountChange = Type.Object({
   displayName: Type.Optional(Type.String()),
   // Empty takes it off.
   email: Type.Optional(Type.String({ maxLength: 254 })),
+  // Empty takes it off.
+  username: Type.Optional(Type.String({ maxLength: 32 })),
   defaultEnvironment: Type.Optional(nullable(Type.String())),
 });
 

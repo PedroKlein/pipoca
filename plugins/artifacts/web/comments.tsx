@@ -730,8 +730,12 @@ function ThreadCard({
           {element
             ? `on “${top.quote}”`
             : ago(new Date(top.createdAt).toISOString(), now)}
-          {top.version === version ? "" : ` · version ${String(top.version)}`}
         </span>
+        {top.version !== version && (
+          <Badge title={`Made on version ${String(top.version)}`}>
+            Version {top.version}
+          </Badge>
+        )}
         {top.kind !== "comment" && <Badge>{kindLabels[top.kind]}</Badge>}
         {top.resolvedByPi && <Badge state="done">Resolved by Pi</Badge>}
       </div>

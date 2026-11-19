@@ -150,7 +150,11 @@ export function turnItems({
       />
     ),
     turn.notice && (
-      <li key={`${String(turn.key)}-notice`} data-role="notice">
+      <li
+        key={`${String(turn.key)}-notice`}
+        data-role="notice"
+        className="empty:hidden"
+      >
         <Notice notice={turn.notice} session={session} />
       </li>
     ),

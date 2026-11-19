@@ -288,6 +288,9 @@ alter table runner_models add column reasoning integer check (reasoning in (0, 1
   // Where a person is told of what asks for them, by mail or a chat app
   // that finds them by it (ADR 0081).
   "alter table users add column email text;",
+  // The handle people @-mention a person by instead of their sign-in name.
+  `alter table users add column username text;
+create unique index users_username on users (username) where username is not null;`,
 ];
 
 export const kernelSchema: Schema = { owner: "kernel", sql, migrations };

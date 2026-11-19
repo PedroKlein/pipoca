@@ -444,6 +444,8 @@ export const server = defineServer(
 
         return artifact !== undefined && sees(artifact, person);
       },
+      seesSession: (id, person) => sessions.sees(id, person),
+      sessionTitle: (id) => sessions.get(id)?.title ?? "team work",
       docType: async (id, person) => {
         const artifact = row(id);
 
@@ -456,7 +458,10 @@ export const server = defineServer(
           "activity",
           {
             ...what,
-            url: `/#plugin/artifacts/${what.artifact}/comments${thread === null ? "" : `/${thread}`}`,
+            url:
+              what.session === undefined
+                ? `/#plugin/artifacts/${what.artifact ?? ""}/comments${thread === null ? "" : `/${thread}`}`
+                : `/#${what.session}`,
           },
           { to: [owners.of(person)] },
         );
@@ -1213,27 +1218,47 @@ export const server = defineServer(
       tell(session.id);
     });
 
-    // The people a comment names with @, by their whole name: the longest
-    // that fits, so @Ana Silva isn't also @Ana.
+    // The people a comment names with @, by their username or whole name:
+    // the longest that fits, so @Ana Silva isn't also @Ana.
     const mentioned = (text: string): string[] => {
       let left = text;
 
-      return [...people.list()]
-        .sort((one, other) => other.name.length - one.name.length)
-        .filter((each) => {
-          const named = new RegExp(
-            `(^|\\s)@${each.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w-])`,
-            "gi",
-          );
+      const handles = people
+        .list()
+        .flatMap((each) =>
+          [each.username, each.name].flatMap((handle) =>
+            handle === undefined ? [] : [{ id: each.id, handle }],
+          ),
+        )
+        .sort((one, other) => other.handle.length - one.handle.length);
 
-          const found = named.test(left);
+      const found = handles.filter(({ handle }) => {
+        const named = new RegExp(
+          `(^|\\s)@${handle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w-]|[./]\\w)`,
+          "gi",
+        );
 
-          left = left.replace(named, "$1");
+        const hit = named.test(left);
 
-          return found;
-        })
-        .map((each) => each.id);
+        left = left.replace(named, "$1");
+
+        return hit;
+      });
+
+      return [...new Set(found.map(({ id }) => id))];
     };
+
+    // Whoever someone names in team work hears of it, as on an artifact.
+    events.on("TeamMessage", ({ session, actor, text }) => {
+      if (actor.startsWith("user:")) {
+        activity.mention(session.id, mentioned(text), {
+          actor: actor.slice("user:".length),
+          text,
+        });
+
+        routes.topic("artifacts");
+      }
+    });
 
     routes.get(
       "artifacts/:id/comments",
@@ -1526,7 +1551,7 @@ export const server = defineServer(
             .filter(
               (each) => each.id !== caller.person.id && sees(artifact, each.id),
             )
-            .map((each) => each.name)
+            .map((each) => each.username ?? each.name)
             .sort((a, b) => a.localeCompare(b)),
         };
       },

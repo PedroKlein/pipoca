@@ -242,6 +242,51 @@ test("a thread that messaged the coordinator reports its turn as context", async
   expect(s.coordinator.delivered()[0]?.turn).toBe(false);
 });
 
+test("routine thread reports stay out of the coordinator chat, while a failed turn shows", async () => {
+  const s = await started();
+  await using _ = s.t;
+  const thread = await threadOf(s, "Docs");
+
+  await thread.turn([asked("Do Docs"), reply("Wrote the docs.")]);
+  await until(() => s.coordinator.delivered().length === 1);
+
+  await s.t.tool("set_status", { state: "done" }, { session: thread });
+
+  await thread.turn([
+    asked("And the changelog"),
+    {
+      type: "message",
+      message: {
+        role: "assistant",
+        content: [],
+        stopReason: "error",
+        errorMessage: "overloaded",
+      },
+    },
+  ]);
+
+  await until(() => s.coordinator.delivered().length === 3);
+
+  expect(
+    s.coordinator
+      .delivered()
+      .map(({ notice }) => (notice as { data: { quiet?: true } }).data.quiet),
+  ).toEqual([true, true, undefined]);
+});
+
+test("a finished thread the person writes to again is back at work, not finished", async () => {
+  const s = await started();
+  await using _ = s.t;
+  const thread = await threadOf(s, "Docs");
+
+  await s.t.tool("set_status", { state: "done" }, { session: thread });
+  await thread.turn([asked("One more thing"), reply("Sure.")]);
+
+  expect(
+    (await s.t.as("ana").get<ProjectView>(`projects/${s.project.id}`)).threads,
+  ).toMatchObject([{ sessionId: thread.id, workState: "in_progress" }]);
+});
+
 test("memory writes go on top of the revision they read", async () => {
   const s = await started();
   await using _ = s.t;

@@ -13,7 +13,7 @@ A Project groups work toward one goal across one or more repositories (the `proj
 
 Create a Project on the Projects page, under the sidebar's Assistant entry, with a name, a goal, its repositories and an Environment. That starts its coordinator, a Session with every repository checked out.
 
-Tell the coordinator what you want. It starts a thread for each piece of work, gets a turn with a short notice after each thread turn, and shares Project memory with the threads. The Projects page lists the threads with their run and work state, and highlights the ones that need you. You can open any thread and talk to it directly. Threads and the coordinator show only inside their Project.
+Tell the coordinator what you want. It starts a thread for each piece of work, reads a short notice after each thread turn without being woken, and shares Project memory with the threads. Those notices stay out of the coordinator chat, which shows only threads that failed or stopped. The Projects page lists the threads with their run and work state, and highlights the ones that need you. A finished thread you write to again is back at work. You can open any thread and talk to it directly. Threads and the coordinator show only inside their Project.
 
 ## Memory
 

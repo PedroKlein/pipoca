@@ -33,6 +33,8 @@ The composer in a team Session has three targets:
 - **To the team** is for people. Pi doesn't answer it, but reads it the next time someone sends To Pi.
 - **Off the record** is seen by the team and never by Pi, now or in a summary.
 
+Typing `@` suggests teammates and files. Naming a teammate, such as `@mia`, tells them on their [Activity](artifacts-and-files.md#activity) page, and by push, Slack or email as they choose, if they can see the work. People are named by the username they set in Settings > General > **Edit profile**, or by their sign-in name until they set one.
+
 Typing `@pipoca` in a message switches it to To Pi. The composer always shows the current target. When a message goes To Pi, Pi reads the team messages since its last turn, up to `team.messagesRead` (40 by default). Every message reaches Pi with its author's name.
 
 A reply quotes the message it answers, in one flat timeline, and Pi sees what each reply answers.

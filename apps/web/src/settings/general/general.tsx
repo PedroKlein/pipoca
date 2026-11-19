@@ -53,7 +53,7 @@ export function GeneralPage(): ReactElement {
               {admin && <Badge>Admin</Badge>}
             </>
           }
-          description={`@${user} · signed in to ${location.host}`}
+          description={`@${account?.username ?? user} · signed in to ${location.host}`}
         >
           <EditProfile account={account} />
         </Row>

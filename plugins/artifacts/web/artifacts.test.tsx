@@ -4714,7 +4714,8 @@ test("Activity lists what's for the person, opens each where it happened and mar
 
   const entry = (o: Partial<ActivityItem> & { readonly id: string }) => ({
     kind: "mention" as const,
-    artifact: "a1",
+    artifact: "a1" as string | null,
+    session: null as string | null,
     title: "Webhooks v2 delivery design",
     thread: "t1",
     quote: "retries",
@@ -4758,6 +4759,15 @@ test("Activity lists what's for the person, opens each where it happened and mar
         title: "Rollout checklist",
         thread: "t9",
         excerpt: "Add a step",
+      }),
+      entry({
+        id: "i5",
+        artifact: null,
+        session: "s7",
+        title: "Launch prep",
+        thread: null,
+        quote: "",
+        excerpt: "@ana can you check the rollout?",
       }),
     ].map((each) => ({ ...each, read: read.has(each.id) }));
 
@@ -4819,7 +4829,7 @@ test("Activity lists what's for the person, opens each where it happened and mar
     ...page.querySelectorAll<HTMLElement>("ul[aria-label=Activity] button"),
   ];
 
-  await drawn(() => rows().length === 4);
+  await drawn(() => rows().length === 5);
 
   const text = (at: number): string =>
     (rows()[at]?.textContent ?? "").replaceAll("\u00a0", " ");
@@ -4847,6 +4857,21 @@ test("Activity lists what's for the person, opens each where it happened and mar
   expect(text(2)).toContain("Pi suggested an edit in a thread you're in");
   expect(text(3)).toContain("Rui commented on Rollout checklist");
   expect(text(3)).toContain("Your artifact · ");
+  expect(text(4)).toContain("Rui mentioned you in Launch prep");
+  expect(text(4)).toContain("“@ana can you check the rollout?” · ");
+
+  // A mention in team work opens that work.
+  act(() => {
+    rows()[4]?.click();
+  });
+
+  expect(location.hash).toBe("#s7");
+
+  act(() => {
+    location.hash = "#plugin/artifacts/activity";
+  });
+
+  await drawn(() => rows().length === 5);
 
   // A row opens the artifact at its thread and marks it read.
   act(() => {
@@ -4859,11 +4884,11 @@ test("Activity lists what's for the person, opens each where it happened and mar
 
   await drawn(() => !text(3).includes("Unread"));
 
-  expect(asked.find(({ url }) => url.endsWith("/activity/read"))?.body).toEqual(
-    {
-      ids: ["i4"],
-    },
-  );
+  expect(
+    asked
+      .filter(({ url }) => url.endsWith("/activity/read"))
+      .map(({ body }) => body),
+  ).toEqual([{ ids: ["i5"] }, { ids: ["i4"] }]);
 
   act(() => {
     named(page, "Mark all read")?.click();
@@ -5064,4 +5089,55 @@ test("above the composer, it says how many threads wait for Pi's turn to end", a
   });
 
   await drawn(() => page.textContent === "");
+});
+
+test("a thread made on an older version says which, however long its quote", async () => {
+  const asked: Served[] = [];
+
+  const viewer = renderPart(
+    web,
+    "overlay",
+    {},
+    {
+      hash: "#session-1?artifact=a1&comments=1",
+      fetch: serving({ ...artifact({ versions: 3 }), ...viewed(3) }, asked, {
+        comments: () => [
+          thread({
+            id: "t1",
+            version: 1,
+            element: "#intro",
+            quote:
+              "Async backup. Three levels of simplicity, from one key to many",
+            body: "Lets discuss this?",
+          }),
+          thread({ id: "t2", version: 3, body: "On this one" }),
+        ],
+      }),
+    },
+  );
+
+  await opened(asked);
+  await drawn(() => viewer.textContent.includes("Lets discuss this?"));
+
+  const cards = [...viewer.querySelectorAll("li[data-thread]")];
+
+  const badge = (card: Element | undefined) =>
+    [...(card?.querySelectorAll("[title^='Made on version']") ?? [])].map(
+      (each) => each.textContent,
+    );
+
+  // Outside the quote, which is cut short, so it always shows.
+  expect(
+    badge(cards.find((each) => each.textContent.includes("Lets discuss"))),
+  ).toEqual(["Version 1"]);
+
+  expect(
+    cards
+      .find((each) => each.textContent.includes("Lets discuss"))
+      ?.querySelector(".truncate [title^='Made on version']"),
+  ).toBeNull();
+
+  expect(
+    badge(cards.find((each) => each.textContent.includes("On this one"))),
+  ).toEqual([]);
 });

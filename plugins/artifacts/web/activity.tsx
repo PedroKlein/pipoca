@@ -136,6 +136,12 @@ export function ActivityPage(): ReactElement {
                         void api.post("activity/read", { ids: [item.id] });
                       }
 
+                      if (item.artifact === null) {
+                        location.hash = item.session ?? "";
+
+                        return;
+                      }
+
                       open({
                         artifact: item.artifact,
                         comments: "1",

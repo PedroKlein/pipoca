@@ -14,6 +14,7 @@ export function memoryStore(): PeopleStore {
 
   const named = new Map<string, string | null>();
   const emails = new Map<string, string | null>();
+  const usernames = new Map<string, string | null>();
 
   const user = (id: string | undefined) => {
     const found = users.find((each) => each.id === id);
@@ -31,15 +32,20 @@ export function memoryStore(): PeopleStore {
     users: () =>
       users.flatMap(({ id }) => {
         const found = user(id);
-        const email = emails.get(id);
+        const email = emails.get(id) ?? undefined;
+        const username = usernames.get(id) ?? undefined;
 
         if (found === undefined) {
           return [];
         }
 
-        return email === undefined || email === null
-          ? [found]
-          : [{ ...found, email }];
+        return [
+          {
+            ...found,
+            ...(email !== undefined && { email }),
+            ...(username !== undefined && { username }),
+          },
+        ];
       }),
     account: (id) => {
       const found = users.find((each) => each.id === id);
@@ -53,6 +59,7 @@ export function memoryStore(): PeopleStore {
             ? (named.get(id) ?? null)
             : (found.displayName ?? null),
           email: emails.get(id) ?? null,
+          username: usernames.get(id) ?? null,
           defaultEnvironment: defaults.get(id) ?? null,
         }
       );
@@ -62,6 +69,9 @@ export function memoryStore(): PeopleStore {
     },
     setEmail: (id, email) => {
       emails.set(id, email);
+    },
+    setUsername: (id, username) => {
+      usernames.set(id, username);
     },
     setDefaultEnvironment: (id, environment) => {
       defaults.set(id, environment);

@@ -1746,9 +1746,14 @@ test("edits the person's name and what new Sessions start with on General", asyn
   await dialog.getByRole("button", { name: "Save" }).click();
   await dialog.getByText("pedro@ isn't an email address").waitFor();
   await dialog.getByLabel("Email").fill("pedro@example.com");
+  await dialog.getByLabel("Username").fill("pipoca");
+  await dialog.getByRole("button", { name: "Save" }).click();
+  await dialog.getByText("@pipoca is taken").waitFor();
+  await dialog.getByLabel("Username").fill("PK");
   await dialog.getByRole("button", { name: "Save" }).click();
   await dialog.waitFor({ state: "detached" });
   await you.getByText("Pedro K.").waitFor();
+  await you.getByText(/^@pk · /).waitFor();
 
   // Everywhere one's own name shows, it is the name chosen here.
   await page.goto(server.url.href);
@@ -1795,6 +1800,7 @@ test("edits the person's name and what new Sessions start with on General", asyn
   expect(await me()).toMatchObject({
     displayName: "Pedro K.",
     email: "pedro@example.com",
+    username: "pk",
     defaultEnvironment: environment?.id,
   });
 
@@ -1806,6 +1812,7 @@ test("edits the person's name and what new Sessions start with on General", asyn
     body: JSON.stringify({
       displayName: "Pedro Klein",
       email: "",
+      username: "",
       defaultEnvironment: null,
     }),
   });
@@ -4725,6 +4732,14 @@ test("creates a Project and shares a file through its folder", async () => {
   await page.getByRole("heading", { level: 1, name: /Docs$/ }).waitFor();
   await side.waitFor({ state: "detached" });
 
+  // Inside the thread there's no list of threads beside it, nor a button
+  // that would show one.
+  expect(await rail.count()).toBe(0);
+
+  expect(await page.getByRole("button", { name: "Show threads" }).count()).toBe(
+    0,
+  );
+
   await page
     .getByRole("button", { name: "Show beside the coordinator" })
     .click();
@@ -4757,12 +4772,13 @@ test("creates a Project and shares a file through its folder", async () => {
   await chip.getByText("Ready for review").waitFor();
 
   // The thread's finished turn reached the coordinator as context, with no
-  // turn of its own.
-  await page
-    .locator('#chat li[data-role="notice"]')
-    .getByRole("link", { name: "Docs" })
-    .first()
-    .waitFor();
+  // turn of its own, and the coordinator chat doesn't draw it.
+  expect(
+    await page
+      .locator('#chat li[data-role="notice"]')
+      .getByRole("link", { name: "Docs" })
+      .count(),
+  ).toBe(0);
 
   expect(
     await page
@@ -5188,6 +5204,7 @@ test("opens what Pi made from the header's Files menu in the file viewer, and st
   await page.keyboard.press("Escape");
   await viewer.waitFor({ state: "detached" });
   await page.locator("button[aria-label='Files, 2']:focus").waitFor();
+  await overlayClosed();
 }, 90_000);
 
 test("opens what Pi's turn saved from the card under its reply, publishes it as an artifact, and attaches the artifact to the next message", async () => {
@@ -8351,6 +8368,108 @@ test("offers a fork once the team said more than Pi reads", async () => {
 
   expect(forked.ownedBy).toBe("team");
 });
+
+test("names a teammate with @ in team work, who finds it on Activity", async () => {
+  await page.goto(server.url.href);
+
+  const signedIn = (await page.context().cookies()).find(
+    ({ name }) => name === "pipoca-session",
+  );
+
+  const current = `${signedIn?.name ?? ""}=${signedIn?.value ?? ""}`;
+
+  const [invite] = (await (
+    await fetch(new URL("/api/invites", server.url), {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie: current },
+      body: JSON.stringify({}),
+    })
+  ).json()) as { readonly id: string; readonly token: string }[];
+
+  const other = await browser.newContext({
+    viewport: { width: 1280, height: 900 },
+  });
+
+  try {
+    const mia = await other.newPage();
+    await mia.goto(new URL(`/#join/${invite?.token ?? ""}`, server.url).href);
+
+    const account = mia.getByRole("form", { name: "Make your account" });
+    await account.getByLabel("Username").fill("mia");
+    await account.getByLabel("Password").fill("correct horse");
+    await account.getByRole("button", { name: "Join" }).click();
+    await mia.getByRole("list", { name: "Your steps" }).waitFor();
+
+    await other.request.patch(new URL("/api/me/setup", server.url).href, {
+      data: { finished: true },
+    });
+
+    await other.request.patch(new URL("/api/me", server.url).href, {
+      data: { username: "mia.r" },
+    });
+
+    const post = async (path: string, body: unknown): Promise<unknown> =>
+      (
+        await fetch(new URL(path, server.url), {
+          method: "POST",
+          headers: { "content-type": "application/json", cookie: current },
+          body: JSON.stringify(body),
+        })
+      ).json();
+
+    const environment = (await post("/api/environments", {
+      name: "mention-pods",
+      team: true,
+    })) as Environment;
+
+    const profile = (await post("/api/profiles", {
+      name: "Mentions",
+      team: true,
+    })) as Profile;
+
+    const folder = join(root, "mentions");
+    await mkdir(folder, { recursive: true });
+
+    const session = (await post("/api/sessions", {
+      team: true,
+      environment: environment.id,
+      profile: profile.id,
+      workspace: { kind: "folder", path: folder },
+    })) as Session;
+
+    await page.goto(new URL(`/#${session.id}`, server.url).href);
+
+    // The composer offers teammates by their username.
+    const prompt = page.locator("#prompt-text");
+    await prompt.fill("@mi");
+    await page.getByRole("option", { name: /@mia\.r/ }).waitFor();
+    await prompt.press("Tab");
+
+    await page.waitForFunction(
+      `document.querySelector("#prompt-text")?.value === "@mia.r "`,
+    );
+
+    await post(`/api/sessions/${session.id}/messages`, {
+      to: "team",
+      text: "@mia.r can you check the retries?",
+    });
+
+    // A fresh load, past the setup the page opened on.
+    await mia.goto(new URL("/#plugin/artifacts/activity", server.url).href);
+    await mia.reload();
+    await mia.goto(new URL("/#plugin/artifacts/activity", server.url).href);
+
+    const row = mia
+      .getByRole("list", { name: "Activity" })
+      .getByRole("button", { name: /mentioned you in/ });
+
+    await row.getByText("“@mia.r can you check the retries?").waitFor();
+    await row.click();
+    await mia.waitForURL((url) => url.hash.endsWith(session.id));
+  } finally {
+    await other.close();
+  }
+}, 60_000);
 
 test("shows on the hub's Home who limited team work", async () => {
   await page.goto(server.url.href);

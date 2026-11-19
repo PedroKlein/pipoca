@@ -18,6 +18,8 @@ export interface User {
   readonly admin: boolean;
   // Where they're told of what asks for them, if they gave one.
   readonly email?: string;
+  // How people @-mention them instead of their sign-in name, if they chose one.
+  readonly username?: string;
 }
 
 export interface StoredUser extends User {
@@ -45,6 +47,7 @@ export interface PeopleStore {
   readonly account: (id: string) => Account | undefined;
   readonly setDisplayName: (id: string, name: string | null) => void;
   readonly setEmail: (id: string, email: string | null) => void;
+  readonly setUsername: (id: string, username: string | null) => void;
   readonly setDefaultEnvironment: (
     id: string,
     environment: string | null,
@@ -159,6 +162,11 @@ export class People {
     const email =
       change.email === undefined ? undefined : this.#ownEmail(id, change.email);
 
+    const username =
+      change.username === undefined
+        ? undefined
+        : this.#ownUsername(id, change.username);
+
     if (change.displayName !== undefined) {
       this.#store.setDisplayName(
         id,
@@ -168,6 +176,10 @@ export class People {
 
     if (email !== undefined) {
       this.#store.setEmail(id, email);
+    }
+
+    if (username !== undefined) {
+      this.#store.setUsername(id, username);
     }
 
     if (change.defaultEnvironment !== undefined) {
@@ -201,6 +213,34 @@ export class People {
     return checked ?? null;
   }
 
+  // An @ names one person, so a username is no one else's username or
+  // sign-in name, and never Pi's.
+  #ownUsername(id: string, username: string): string | null {
+    const checked = checkedUsername(username);
+
+    if (checked === undefined) {
+      return null;
+    }
+
+    if (reservedUsernames.has(checked)) {
+      throw new InvalidCredentials(`@${checked} is taken`);
+    }
+
+    if (
+      this.#store
+        .users()
+        .some(
+          (each) =>
+            each.id !== id &&
+            (each.username === checked || each.name.toLowerCase() === checked),
+        )
+    ) {
+      throw new InvalidCredentials(`@${checked} is someone else's`);
+    }
+
+    return checked;
+  }
+
   active(userId: string): void {
     const now = this.#clock.now();
 
@@ -230,7 +270,12 @@ export class People {
 
     const trimmed = checkedName(name);
 
-    if (this.#store.userByName(trimmed) !== undefined) {
+    if (
+      this.#store.userByName(trimmed) !== undefined ||
+      this.#store
+        .users()
+        .some(({ username }) => username === trimmed.toLowerCase())
+    ) {
       return undefined;
     }
 
@@ -443,6 +488,20 @@ export function checkedDisplayName(name: string): string | undefined {
   if (trimmed.length > maxNameLength) {
     throw new InvalidCredentials(
       `display name must be at most ${String(maxNameLength)} characters`,
+    );
+  }
+
+  return trimmed === "" ? undefined : trimmed;
+}
+
+const reservedUsernames = new Set(["pipoca", "pi", "team", "everyone"]);
+
+function checkedUsername(username: string): string | undefined {
+  const trimmed = username.trim().toLowerCase();
+
+  if (trimmed !== "" && !/^[a-z0-9][a-z0-9._-]{0,30}[a-z0-9]$/.test(trimmed)) {
+    throw new InvalidCredentials(
+      "A username has 2 to 32 letters, digits, dots, dashes or underscores, and starts and ends with a letter or digit",
     );
   }
 

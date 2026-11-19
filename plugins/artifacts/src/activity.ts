@@ -39,9 +39,19 @@ interface ItemRow {
   readonly read_at: number | null;
 }
 
+interface SessionRow {
+  readonly id: string;
+  readonly session_id: string;
+  readonly actor_user_id: string | null;
+  readonly body: string;
+  readonly created_at: number;
+  readonly read_at: number | null;
+}
+
 interface Told {
   readonly kind: Exclude<ActivityKind, "comment">;
-  readonly artifact: string;
+  readonly artifact?: string;
+  readonly session?: string;
   readonly thread: string | null;
   readonly headline: string;
   readonly text: string;
@@ -49,12 +59,14 @@ interface Told {
 
 // What each person is told of on artifacts they see: mentions, review
 // requests, replies in threads they're in and, when they ask, comments on
-// their own artifacts (ADR 0081).
+// their own artifacts (ADR 0081). Mentions in team work they see join them.
 export function activityLog({
   store,
   clock,
   name,
   sees,
+  seesSession,
+  sessionTitle,
   docType,
   told,
 }: {
@@ -62,6 +74,8 @@ export function activityLog({
   readonly clock: Clock;
   readonly name: (person: string | null, reader: string) => string;
   readonly sees: (artifact: string, person: string) => boolean;
+  readonly seesSession: (session: string, person: string) => boolean;
+  readonly sessionTitle: (session: string) => string;
   readonly docType: (
     artifact: string,
     person: string,
@@ -77,6 +91,11 @@ export function activityLog({
       readonly actor: string;
       readonly byPi?: boolean;
     },
+  ) => void;
+  readonly mention: (
+    session: string,
+    people: readonly string[],
+    what: { readonly actor: string; readonly text: string },
   ) => void;
   readonly list: (
     person: string,
@@ -102,13 +121,40 @@ export function activityLog({
     ) as ActivitySettings;
   };
 
+  const sessionMentions = (person: string, unreadOnly = false): SessionRow[] =>
+    store
+      .all<SessionRow>(
+        `select id, session_id, actor_user_id, body, created_at, read_at from artifacts_session_mentions where user_id = ?${unreadOnly ? " and read_at is null" : ` order by created_at desc, id desc limit ${String(shownItems * 4)}`}`,
+        person,
+      )
+      .filter(({ session_id }) => seesSession(session_id, person));
+
   const unread = (person: string): number =>
     store
       .all<{ artifact_id: string }>(
         "select artifact_id from artifacts_activity where user_id = ? and read_at is null",
         person,
       )
-      .filter(({ artifact_id }) => sees(artifact_id, person)).length;
+      .filter(({ artifact_id }) => sees(artifact_id, person)).length +
+    sessionMentions(person, true).length;
+
+  const sessionItem = (each: SessionRow, person: string): ActivityItem => ({
+    id: each.id,
+    kind: "mention",
+    artifact: null,
+    session: each.session_id,
+    title: sessionTitle(each.session_id),
+    thread: null,
+    quote: "",
+    by: name(each.actor_user_id, person),
+    byPi: false,
+    suggested: false,
+    excerpt: excerpt(each.body),
+    doc: null,
+    version: 0,
+    at: each.created_at,
+    read: each.read_at !== null,
+  });
 
   const select = `select a.id, a.kind, a.artifact_id, t.title, a.comment_id,
       coalesce(c.parent_id, c.id) as thread_id, top.quote, c.body,
@@ -128,6 +174,7 @@ export function activityLog({
       id: each.id,
       kind: each.kind,
       artifact: each.artifact_id,
+      session: null,
       title: each.title,
       thread: each.thread_id,
       quote: each.quote ?? "",
@@ -211,8 +258,49 @@ export function activityLog({
             byPi,
             suggested: row.suggested === 1,
             title: row.title,
+            session: null,
           }),
           text: excerpt(row.body ?? ""),
+        });
+      }
+    },
+    mention: (session, people, { actor, text }) => {
+      const now = clock.now();
+
+      for (const person of new Set(people)) {
+        if (
+          person === actor ||
+          !seesSession(session, person) ||
+          !settings(person).asked
+        ) {
+          continue;
+        }
+
+        const id = Bun.randomUUIDv7();
+
+        store.run(
+          "insert into artifacts_session_mentions (id, user_id, session_id, actor_user_id, body, created_at) values (?, ?, ?, ?, ?, ?)",
+          id,
+          person,
+          session,
+          actor,
+          text,
+          now,
+        );
+
+        told(person, {
+          kind: "mention",
+          session,
+          thread: null,
+          headline: headline({
+            kind: "mention",
+            by: name(actor, person),
+            byPi: false,
+            suggested: false,
+            title: sessionTitle(session),
+            session,
+          }),
+          text: excerpt(text),
         });
       }
     },
@@ -225,12 +313,34 @@ export function activityLog({
             )
           : following(person);
 
-      const seen = rows
-        .filter((each) => sees(each.artifact_id, person))
+      const newest = (
+        one: { created_at: number; id: string },
+        other: { created_at: number; id: string },
+      ): number =>
+        other.created_at - one.created_at || other.id.localeCompare(one.id);
+
+      const shown = [
+        ...rows
+          .filter((each) => sees(each.artifact_id, person))
+          .map((each) => ({ ...each, on: "artifact" as const })),
+        ...(view === "mine"
+          ? sessionMentions(person).map((each) => ({
+              ...each,
+              on: "session" as const,
+            }))
+          : []),
+      ]
+        .sort(newest)
         .slice(0, shownItems);
 
       return {
-        items: await Promise.all(seen.map(async (each) => item(each, person))),
+        items: await Promise.all(
+          shown.map(async (each) =>
+            each.on === "artifact"
+              ? item(each, person)
+              : sessionItem(each, person),
+          ),
+        ),
         unread: view === "mine" ? unread(person) : 0,
       };
     },
@@ -238,24 +348,28 @@ export function activityLog({
     read: (person, ids) => {
       const now = clock.now();
 
-      if (ids === undefined) {
-        store.run(
-          "update artifacts_activity set read_at = ? where user_id = ? and read_at is null",
-          now,
-          person,
-        );
-
-        return;
-      }
+      const tables = ["artifacts_activity", "artifacts_session_mentions"];
 
       store.transaction(() => {
-        for (const id of ids) {
-          store.run(
-            "update artifacts_activity set read_at = ? where id = ? and user_id = ? and read_at is null",
-            now,
-            id,
-            person,
-          );
+        for (const table of tables) {
+          if (ids === undefined) {
+            store.run(
+              `update ${table} set read_at = ? where user_id = ? and read_at is null`,
+              now,
+              person,
+            );
+
+            continue;
+          }
+
+          for (const id of ids) {
+            store.run(
+              `update ${table} set read_at = ? where id = ? and user_id = ? and read_at is null`,
+              now,
+              id,
+              person,
+            );
+          }
         }
       });
     },

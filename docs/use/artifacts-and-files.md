@@ -72,14 +72,14 @@ A design doc, spec or plan is an artifact people review. Pi marks one with front
 
 ### Activity
 
-The **Activity** page, pinned in the sidebar with the number unread, tells you what happened on artifacts you can see.
+The **Activity** page, pinned in the sidebar with the number unread, tells you what happened on artifacts you can see, and when someone names you in [team work](team.md) you can see.
 
 ![The Activity page with a mention, Pi's suggested edit and comments, and the switches for what you're told of](../images/activity-light.png)
 
-- **For you** lists mentions, review requests, replies in threads you wrote in and, if you turn it on, every new comment on your own artifacts. A row opens the artifact at its thread and marks it read. **Mark all read** marks the rest.
+- **For you** lists mentions, review requests, replies in threads you wrote in and, if you turn it on, every new comment on your own artifacts. A row opens the artifact at its thread, or the team work you were named in, and marks it read. **Mark all read** marks the rest.
 - **Everything I follow** lists the comments others write on artifacts you own, wrote in or review.
 - **Tell me about artifact activity** turns each kind on or off, and says where it reaches you: here, by push to a browser you subscribed, in Slack and by email. Mentions and review requests go everywhere you can be reached; replies go to push only.
 
-Slack and email need the email on your account, in Settings > General > **Edit profile**. Mail goes to it, and Slack finds you by it ([Slack and email](slack-and-email.md#telling-people)). Nothing checks the address is yours, so these messages carry only what happened and a link, never what was written.
+People mention you as `@` and the username you set in Settings > General > **Edit profile**, or your sign-in name until you set one. Slack and email need the email on your account, set in the same place. Mail goes to it, and Slack finds you by it ([Slack and email](slack-and-email.md#telling-people)). Nothing checks the address is yours, so these messages carry only what happened and a link, never what was written.
 
 Settings has a section for each of the Files, Artifacts and Projects plugins' limits.
