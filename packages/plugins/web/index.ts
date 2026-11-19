@@ -238,6 +238,27 @@ export interface ToolPermissionProps extends SessionPartProps {
   readonly onAnswer: (answer: Permission) => void;
 }
 
+// Parts that load the same key in one go, such as two sidebar entries
+// drawn together, share one request.
+const loading = new Map<string, Promise<unknown>>();
+
+async function shared<T>(id: string, load: () => Promise<T>): Promise<T> {
+  const found = loading.get(id) as Promise<T> | undefined;
+
+  if (found !== undefined) {
+    return found;
+  }
+
+  const started = load();
+  loading.set(id, started);
+
+  queueMicrotask(() => {
+    loading.delete(id);
+  });
+
+  return started;
+}
+
 // Loads data for a component, again when key changes, on reload(), when one
 // of the topics or the plugin's changes changes, and every everyMs for data
 // that changes outside Pipoca. changes are named as the plugin's routes name
@@ -282,7 +303,7 @@ export function useLoaded<T>(
     const fetchNow = (): void => {
       const request = order.send();
 
-      run().then(
+      shared(`${plugin ?? ""} ${key}`, run).then(
         (value) => {
           if (order.accept(request)) {
             setLoaded({ key, value });
@@ -309,7 +330,7 @@ export function useLoaded<T>(
       unwatch?.();
       clearInterval(timer);
     };
-  }, [key, version, watched, everyMs]);
+  }, [plugin, key, version, watched, everyMs]);
 
   const value = loaded?.key === key ? loaded.value : undefined;
 
