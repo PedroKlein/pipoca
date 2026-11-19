@@ -1,3 +1,4 @@
+import { errorText } from "@pipoca/protocol";
 import {
   defineWeb,
   type SetupStep,
@@ -423,8 +424,7 @@ function ProviderRow({
             .then(setTest, (reason: unknown) => {
               setTest({
                 ok: false,
-                error:
-                  reason instanceof Error ? reason.message : String(reason),
+                error: errorText(reason),
               });
             });
         }}
@@ -487,7 +487,7 @@ function Rules({
         setError(undefined);
       },
       (reason: unknown) => {
-        setError(reason instanceof Error ? reason.message : String(reason));
+        setError(errorText(reason));
       },
     );
   };
@@ -618,7 +618,7 @@ function ProviderForm({
     };
 
     save(input).catch((reason: unknown) => {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      setError(errorText(reason));
     });
   };
 

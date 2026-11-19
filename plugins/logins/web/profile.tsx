@@ -1,6 +1,6 @@
 import { logins } from "../plugin";
 import { useLoaded, useApi } from "@pipoca/plugins/web";
-import type { Profile } from "@pipoca/protocol";
+import { type Profile, errorText } from "@pipoca/protocol";
 import {
   Badge,
   ErrorText,
@@ -127,7 +127,7 @@ export function ProfileLogins({
         reload();
       },
       (reason: unknown) => {
-        setError(reason instanceof Error ? reason.message : String(reason));
+        setError(errorText(reason));
         reload();
       },
     );

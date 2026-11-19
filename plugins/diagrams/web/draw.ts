@@ -1,3 +1,4 @@
+import { errorText } from "@pipoca/protocol";
 import type { Mermaid } from "mermaid";
 
 export type Drawing = { readonly code: string } & (
@@ -68,7 +69,7 @@ async function drawOnce(code: string, theme: string): Promise<Drawing> {
 
     return { code, svg };
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = errorText(error);
 
     return { code, error: (message.split("\n")[0] ?? "").replace(/:$/, "") };
   }

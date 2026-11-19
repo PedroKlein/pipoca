@@ -1,6 +1,6 @@
 import type { TypedClient } from "@pipoca/plugins";
 import { RepositoryField, useApi, useLoaded } from "@pipoca/plugins/web";
-import { checkoutName } from "@pipoca/protocol";
+import { checkoutName, errorText } from "@pipoca/protocol";
 import {
   Button,
   buttonClass,
@@ -23,7 +23,6 @@ import type { Group } from "../src/group";
 import type { GroupDetail, GroupView, Imported } from "../src/model";
 import {
   changes,
-  failureOf,
   groupPage,
   OutcomeBadge,
   pageAt,
@@ -162,7 +161,7 @@ export function ImportGroup({
         </FileButton>
       </div>
       <ErrorText size="inherit" className="text-ui">
-        {failure === undefined ? undefined : failureOf(failure)}
+        {failure === undefined ? undefined : errorText(failure)}
       </ErrorText>
     </Section>
   );
@@ -310,7 +309,7 @@ export function GroupPage({
                   void api
                     .post(`${path}/resume`)
                     .then(reload, (error: unknown) => {
-                      setFailure(failureOf(error));
+                      setFailure(errorText(error));
                     });
                 }}
               >
@@ -334,7 +333,7 @@ export function GroupPage({
                       location.hash = pageAt("");
                     },
                     (error: unknown) => {
-                      setFailure(failureOf(error));
+                      setFailure(errorText(error));
                     },
                   );
                 });
@@ -606,7 +605,7 @@ function GroupForm({
         onSaved(target);
       },
       (error: unknown) => {
-        setFailure(failureOf(error));
+        setFailure(errorText(error));
       },
     );
   };

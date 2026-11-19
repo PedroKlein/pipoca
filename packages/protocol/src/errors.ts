@@ -76,3 +76,9 @@ export const apiError = Type.Object(
 );
 
 export type ApiError = Wire<typeof apiError>;
+
+// What to tell a person about a failure: an Error's message, or the thrown
+// value itself.
+export function errorText(reason: unknown): string {
+  return reason instanceof Error ? reason.message : String(reason);
+}

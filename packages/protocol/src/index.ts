@@ -64,7 +64,7 @@ export {
   type Relayed,
   repositoryHost,
 } from "./reach";
-export { type ErrorCode } from "./errors";
+export { type ErrorCode, errorText } from "./errors";
 export {
   type Answer,
   browserCommand,

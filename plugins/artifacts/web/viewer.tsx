@@ -1,3 +1,4 @@
+import { errorText } from "@pipoca/protocol";
 import {
   hashParts,
   href,
@@ -568,7 +569,7 @@ function Shown({
     try {
       await run();
     } catch (error) {
-      setProblem(error instanceof Error ? error.message : String(error));
+      setProblem(errorText(error));
     }
   };
 

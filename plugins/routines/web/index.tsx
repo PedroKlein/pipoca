@@ -21,7 +21,11 @@ import {
   useConfirm,
 } from "@pipoca/ui";
 import type { TypedClient } from "@pipoca/plugins";
-import type { DeclaredAction, DeclaredEvent } from "@pipoca/protocol";
+import {
+  type DeclaredAction,
+  type DeclaredEvent,
+  errorText,
+} from "@pipoca/protocol";
 import { type ReactElement, useState } from "react";
 import { routines } from "../plugin";
 import { DeclaredExtras, TriggerLines } from "./extras";
@@ -32,7 +36,6 @@ import { ChainStrip, OutputSection, RunsTable, useChain } from "./chain";
 import { NewRoutine } from "./create";
 import {
   changes,
-  failureOf,
   groupPage,
   pageAt,
   type Scope,
@@ -208,7 +211,7 @@ function RoutinePage({
         reload();
       },
       (error: unknown) => {
-        setFailure(failureOf(error));
+        setFailure(errorText(error));
       },
     );
   };
@@ -540,7 +543,7 @@ function Editor({
           onSaved(target);
         },
         (error: unknown) => {
-          setFailure(failureOf(error));
+          setFailure(errorText(error));
         },
       );
   };

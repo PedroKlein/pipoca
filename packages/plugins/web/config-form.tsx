@@ -1,3 +1,4 @@
+import { errorText } from "@pipoca/protocol";
 import {
   Button,
   Card,
@@ -48,7 +49,7 @@ function useStored(id: string): {
       },
       (failed: unknown) => {
         if (current) {
-          setError(messageOf(failed));
+          setError(errorText(failed));
         }
       },
     );
@@ -537,10 +538,6 @@ function collectionKey(schema: TSchema): string | undefined {
 
 function isRecord(value: unknown): value is Value {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 export async function storedConfig(
