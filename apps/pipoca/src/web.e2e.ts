@@ -7518,6 +7518,37 @@ test("turns on push notifications before this browser has a service worker", asy
   await context.close();
 }, 30_000);
 
+test("tells how to fix a browser without a push service", async () => {
+  const context = await browser.newContext();
+  await context.addCookies(await page.context().cookies());
+
+  await context.addInitScript(`
+    PushManager.prototype.getSubscription = async () => null;
+    PushManager.prototype.subscribe = async () => {
+      throw new DOMException("Registration failed - push service error", "AbortError");
+    };
+    Object.defineProperty(Notification, "permission", { get: () => "granted" });
+    Notification.requestPermission = async () => "granted";
+  `);
+
+  const tab = await context.newPage();
+  tab.setDefaultTimeout(10_000);
+  await tab.goto(new URL(server.url).origin);
+  await tab.getByRole("button", { name: "Account" }).click();
+  await tab.getByRole("menuitem", { name: "Settings" }).click();
+
+  await tab
+    .getByRole("navigation", { name: "Settings" })
+    .getByRole("link", { name: "Notifications", exact: true })
+    .click();
+
+  await tab.getByRole("button", { name: "Turn on for this device" }).click();
+
+  await tab.getByText(/Use Google services for push messaging/).waitFor();
+
+  await context.close();
+}, 30_000);
+
 test("signs in in the browser for the desktop app and hands it a link only it can use", async () => {
   const verifier = randomBytes(32).toString("base64url");
   const challenge = createHash("sha256").update(verifier).digest("base64url");
