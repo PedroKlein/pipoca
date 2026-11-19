@@ -5065,3 +5065,51 @@ test("above the composer, it says how many threads wait for Pi's turn to end", a
 
   await drawn(() => page.textContent === "");
 });
+
+test("a thread made on an older version says which, however long its quote", async () => {
+  const asked: Served[] = [];
+
+  const viewer = renderPart(
+    web,
+    "overlay",
+    {},
+    {
+      hash: "#session-1?artifact=a1&comments=1",
+      fetch: serving({ ...artifact({ versions: 3 }), ...viewed(3) }, asked, {
+        comments: () => [
+          thread({
+            id: "t1",
+            version: 1,
+            element: "#intro",
+            quote:
+              "Async backup. Three levels of simplicity, from one key to many",
+            body: "Lets discuss this?",
+          }),
+          thread({ id: "t2", version: 3, body: "On this one" }),
+        ],
+      }),
+    },
+  );
+
+  await opened(asked);
+  await drawn(() => viewer.textContent.includes("Lets discuss this?"));
+
+  const cards = [...viewer.querySelectorAll("li[data-thread]")];
+  const badge = (card: Element | undefined) =>
+    [...(card?.querySelectorAll("[title^='Made on version']") ?? [])].map(
+      (each) => each.textContent,
+    );
+
+  // Outside the quote, which is cut short, so it always shows.
+  expect(
+    badge(cards.find((each) => each.textContent.includes("Lets discuss"))),
+  ).toEqual(["Version 1"]);
+  expect(
+    cards
+      .find((each) => each.textContent.includes("Lets discuss"))
+      ?.querySelector(".truncate [title^='Made on version']"),
+  ).toBeNull();
+  expect(
+    badge(cards.find((each) => each.textContent.includes("On this one"))),
+  ).toEqual([]);
+});
