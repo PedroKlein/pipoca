@@ -1,5 +1,9 @@
 import { defineWeb, useApi, useLoaded } from "@pipoca/plugins/web";
-import type { Environment, EnvironmentTemplate } from "@pipoca/protocol";
+import {
+  type Environment,
+  type EnvironmentTemplate,
+  errorText,
+} from "@pipoca/protocol";
 import {
   Button,
   Card,
@@ -183,7 +187,7 @@ function Settings({
         setError(undefined);
       },
       (reason: unknown) => {
-        setError(reason instanceof Error ? reason.message : String(reason));
+        setError(errorText(reason));
       },
     );
   };
@@ -194,7 +198,7 @@ function Settings({
     try {
       run(settingsOf(new FormData(event.currentTarget), shown));
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      setError(errorText(reason));
     }
   };
 

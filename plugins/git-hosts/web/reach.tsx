@@ -1,5 +1,5 @@
 import { useApi, useLoaded } from "@pipoca/plugins/web";
-import type { PrivateHosts } from "@pipoca/protocol";
+import { type PrivateHosts, errorText } from "@pipoca/protocol";
 import {
   Badge,
   Button,
@@ -178,7 +178,7 @@ function CaRow({
         listed.reload();
       },
       (failure: unknown) => {
-        setError(failure instanceof Error ? failure.message : String(failure));
+        setError(errorText(failure));
       },
     );
   };
@@ -318,9 +318,7 @@ export function PrivateSwitch({
               onChange();
             },
             (failure: unknown) => {
-              setError(
-                failure instanceof Error ? failure.message : String(failure),
-              );
+              setError(errorText(failure));
             },
           );
         }}

@@ -1,3 +1,4 @@
+import { errorText } from "@pipoca/protocol";
 import { ago, useApi, useNow } from "@pipoca/plugins/web";
 import {
   Badge,
@@ -198,7 +199,7 @@ export function CommentBox({
       onDone(saved);
     } catch (error) {
       setSaving(false);
-      setProblem(error instanceof Error ? error.message : String(error));
+      setProblem(errorText(error));
     }
   };
 
@@ -425,7 +426,7 @@ export function CommentList({
 
       settled(`Sent ${String(sent)} to Pi`);
     } catch (error) {
-      setProblem(error instanceof Error ? error.message : String(error));
+      setProblem(errorText(error));
     } finally {
       setSending(false);
     }

@@ -7,6 +7,7 @@
   },
   "dependencies": {
     "@pipoca/plugins": "workspace:*",
+    "@pipoca/protocol": "workspace:*",
     "@pipoca/ui": "workspace:*",
     "mermaid": "12.2.0",
     "react": "19.3.1"

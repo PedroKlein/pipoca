@@ -10,7 +10,10 @@ Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
-const { seed, useAction, useMe, useQuery } = await import("./hooks");
+
+const { seed, useAction, useMe, usePersonName, useQuery } =
+  await import("./hooks");
+
 const { request } = await import("./client");
 
 type Listener = (event: { readonly data: string }) => void;
@@ -127,6 +130,25 @@ test("components reading one route share one request", async () => {
   expect(requests).toEqual(["GET /api/people"]);
   expect(text(page, "one")).toBe("Bea");
   expect(text(page, "two")).toBe("Bea");
+});
+
+function Named({ ids }: { readonly ids: readonly string[] }): ReactElement {
+  const nameOf = usePersonName();
+
+  return <p id="named">{ids.map((id) => nameOf(id) ?? "?").join(", ")}</p>;
+}
+
+test("teammates are named by the name they chose, else their sign-in name", async () => {
+  answer = () =>
+    Response.json([
+      { id: "u1", name: "bea", displayName: "Bea Lima" },
+      { id: "u2", name: "cy" },
+    ]);
+
+  const page = render(<Named ids={["u1", "u2", "u3"]} />);
+  await settle();
+
+  expect(text(page, "named")).toBe("Bea Lima, cy, ?");
 });
 
 test("a change event for the route's topic reads it again", async () => {

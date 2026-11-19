@@ -1,3 +1,4 @@
+import { errorText } from "@pipoca/protocol";
 import { useApi, useLoaded, useViewer } from "@pipoca/plugins/web";
 import {
   Avatar,
@@ -126,9 +127,7 @@ export function ShareDialog({
       refused.current = mine;
       setShares(saved.current);
 
-      setProblem(
-        `Couldn't save who has access: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      setProblem(`Couldn't save who has access: ${errorText(error)}`);
 
       return false;
     } finally {

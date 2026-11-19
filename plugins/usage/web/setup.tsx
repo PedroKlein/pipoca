@@ -1,3 +1,4 @@
+import { errorText } from "@pipoca/protocol";
 import { usage } from "../plugin";
 import { useLoaded, useApi } from "@pipoca/plugins/web";
 import {
@@ -64,7 +65,7 @@ export function Budgets(): ReactElement {
         reload();
       })
       .catch((reason: unknown) => {
-        setError(reason instanceof Error ? reason.message : String(reason));
+        setError(errorText(reason));
       });
   };
 

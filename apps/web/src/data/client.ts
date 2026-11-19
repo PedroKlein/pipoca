@@ -34,11 +34,6 @@ export const request: ApiClient = Object.assign(
   { response: client.response },
 );
 
-// What a person reads when something failed.
-export function errorText(reason: unknown): string {
-  return reason instanceof Error ? reason.message : String(reason);
-}
-
 type BrowserCommand = ApiInput<"sessions.commands.create">["body"];
 
 const sending = new Map<string, Promise<unknown>>();

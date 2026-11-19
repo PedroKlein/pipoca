@@ -391,6 +391,27 @@ test("only an admin lists everyone in full; others see names and who is here", a
   );
 });
 
+test("teammates see the name each person chose to be shown by", async () => {
+  const anas = await ana();
+
+  await server.as(anas)("/api/me", {
+    method: "PATCH",
+    body: { displayName: "Ana Souza" },
+  });
+
+  const listed = async (
+    as: typeof server.api,
+  ): Promise<(string | undefined)[]> =>
+    (
+      await json<{ name: string; displayName?: string }[]>(as("/api/people"))
+    ).map(({ displayName }) => displayName);
+
+  expect([await listed(server.api), await listed(server.as(anas))]).toEqual([
+    [undefined, "Ana Souza"],
+    [undefined, "Ana Souza"],
+  ]);
+});
+
 test("shows someone as here while they use the web app", async () => {
   const anas = await ana();
 

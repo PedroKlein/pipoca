@@ -10,7 +10,7 @@ import {
   Section,
 } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
-import type { Profile } from "@pipoca/protocol";
+import { type Profile, errorText } from "@pipoca/protocol";
 import { logins } from "../plugin";
 import type { Account } from "../src/model";
 import { ConnectForm, ConnectionCard } from "./connect";
@@ -124,7 +124,7 @@ function Accounts(): ReactElement | null {
         reload();
       },
       (reason: unknown) => {
-        setError(reason instanceof Error ? reason.message : String(reason));
+        setError(errorText(reason));
         reload();
       },
     );

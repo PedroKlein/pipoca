@@ -1,3 +1,4 @@
+import { errorText } from "@pipoca/protocol";
 import { useApi, useLoaded } from "@pipoca/plugins/web";
 import {
   Badge,
@@ -176,9 +177,7 @@ export function IdentityForm({
         (failure: unknown) => {
           setSaved(false);
 
-          setError(
-            failure instanceof Error ? failure.message : String(failure),
-          );
+          setError(errorText(failure));
         },
       );
   };
@@ -269,7 +268,7 @@ export function PullRequestChoices(): ReactElement | null {
     api
       .post("preferences", { ...value, ...change })
       .then(reload, (failure: unknown) => {
-        setError(failure instanceof Error ? failure.message : String(failure));
+        setError(errorText(failure));
       });
   };
 
@@ -426,7 +425,7 @@ export function TokenForm({
         onDone(true);
       },
       (reason: unknown) => {
-        setError(reason instanceof Error ? reason.message : String(reason));
+        setError(errorText(reason));
       },
     );
   };

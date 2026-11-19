@@ -15,13 +15,12 @@ import {
   Section,
   Table,
 } from "@pipoca/ui";
-import type { DeclaredEvent } from "@pipoca/protocol";
+import { type DeclaredEvent, errorText } from "@pipoca/protocol";
 import { type ReactElement, type ReactNode, useState } from "react";
 import { routines } from "../plugin";
 import type { RoutineDetail, RoutineView } from "../src/model";
 import {
   changes,
-  failureOf,
   groupPage,
   OutcomeBadge,
   pageAt,
@@ -281,7 +280,7 @@ function RoutineRow({
     setFailure(undefined);
 
     api.post(`${path}/${action}`, body).catch((error: unknown) => {
-      setFailure(failureOf(error));
+      setFailure(errorText(error));
     });
   };
 
