@@ -39,7 +39,7 @@ export const web = defineWeb(greeter, {
 
 ## Pages and settings
 
-- `pages` are the plugin's pages, under `#plugin/<id>/<path>`. `nav` lists one in the sidebar, under More unless it is `pinned` or the person pins it, and `area` puts it on the team hub (`"hub"`) or in Team setup (`"setup"`) instead. A plugin can list several pages, each pinned on its own. `href(plugin, path)` links to one.
+- `pages` are the plugin's pages, under `#plugin/<id>/<path>`. `nav` lists one in the sidebar, under More unless it is `pinned` or the person pins it, and `area` puts it on the team hub (`"hub"`) or in Team setup (`"setup"`) instead. A plugin can list several pages, each pinned on its own. `href(plugin, path)` links to one, and `sessionHref(id)` links to a Session, which opens in the page of the plugin that shows it.
 - `nav.Count` draws a number beside the entry, such as what's unread. `nav.Items` lists rows under it, and `nav.Live` lists work below all the entries, such as active Projects.
 - A page whose `bare(path)` is true for the rest of the address is drawn alone in the window, without the sidebar, as a link to one artifact is.
 - `settings` is its section on the Settings page: `form: "auto"` draws a form from its config, or give your own `Section`.

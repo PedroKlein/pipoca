@@ -5,6 +5,7 @@ import {
   useApi,
   useLoaded,
   useNow,
+  sessionHref,
   useOverlay,
   ViewerClose,
   viewerHeaderClass,
@@ -729,7 +730,7 @@ function Shown({
             icon: "chevron-right" as const,
             divided: true,
             run: () => {
-              const session = `#${String(artifact.sessionId)}`;
+              const session = sessionHref(String(artifact.sessionId));
 
               if (hashParts(location.hash).page === session) {
                 onClose();
