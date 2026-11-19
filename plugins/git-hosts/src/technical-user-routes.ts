@@ -6,6 +6,7 @@ import {
   owners,
   type ServerContext,
   Type,
+  Unreachable,
 } from "@pipoca/plugins";
 import type { gitHosts, TechnicalUserItem } from "../plugin";
 import { hostCall, HostRefused, loginOf } from "./github";
@@ -127,7 +128,7 @@ export function technicalUserRoutes(
         error: null,
       };
     } catch (failure) {
-      if (!(failure instanceof HostRefused)) {
+      if (!(failure instanceof HostRefused || failure instanceof Unreachable)) {
         throw failure;
       }
 

@@ -2867,3 +2867,52 @@ test("a private host's token can't be checked until an Environment of the person
     `${host} is a private host and no Environment of yours reaches it.`,
   );
 });
+
+test("lists the technical users when a private host's App can't be reached, saying so on that App", async () => {
+  const internal = "github.acme.internal";
+  process.env["PIPOCA_TEST_BOT_TOKEN"] = botToken;
+  process.env["PIPOCA_TEST_APP_KEY"] = appKey.privateKey;
+
+  await using t = await testPlugin(server, {
+    people,
+    config: {
+      hosts: [
+        ...(listed.hosts ?? []),
+        { host: internal, api: `https://${internal}/api/v3` },
+      ],
+      technicalUsers: [
+        {
+          name: "ci-bot",
+          host,
+          users: ["team"],
+          token: { env: "PIPOCA_TEST_BOT_TOKEN" },
+        },
+        {
+          name: "internal-bot",
+          host: internal,
+          users: ["team"],
+          app: {
+            id: 7,
+            slug: "internal-bot",
+            url: `https://${internal}/github-apps/internal-bot`,
+            privateKey: { env: "PIPOCA_TEST_APP_KEY" },
+            hook: "internal",
+          },
+        },
+      ],
+    },
+    kernelConfig: {
+      privateHosts: { hosts: [{ host: internal, ca: null, teamWatch: false }] },
+    },
+  });
+
+  expect(await t.as("pedro").get("technical-users")).toEqual([
+    expect.objectContaining({ name: "ci-bot", kind: "token", error: null }),
+    expect.objectContaining({
+      name: "internal-bot",
+      kind: "app",
+      installedOn: [],
+      error: `${internal} is a private host and no team Environment reaches it.`,
+    }),
+  ]);
+});

@@ -416,6 +416,10 @@ function appDescription(
     return `Only needed for team work on ${host.label}. It pushes as its own bot and sends pull request events back. It never signs people in.`;
   }
 
+  if (app.error !== null) {
+    return `${app.login}: ${app.error}`;
+  }
+
   const where =
     app.installedOn === null || app.installedOn.length === 0
       ? "not installed yet"
