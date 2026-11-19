@@ -23,6 +23,57 @@ export interface Version {
   // What changed, in Pi's or the person's words.
   readonly note: string;
   readonly createdAt: number;
+  // On a living doc, what makes this save a version, such as Approved by
+  // Ana, or null for an edit.
+  readonly label: string | null;
+}
+
+// ADR 0082: a Markdown artifact is edited in place, and only its labelled
+// saves are versions. Every save of any other artifact is one.
+export function living(kind: Kind): boolean {
+  return kind === "markdown";
+}
+
+// The version a save is, numbered among versions, or null for an edit.
+export function versionOf(
+  artifact: Pick<ArtifactView, "living" | "history">,
+  save: number,
+): number | null {
+  if (!artifact.living) {
+    return save;
+  }
+
+  const saves = artifact.history.slice(0, save);
+
+  return (saves.at(-1)?.label ?? null) === null
+    ? null
+    : saves.filter(({ label }) => label !== null).length;
+}
+
+// How many versions it has, for a list: none on a living doc no one named
+// or approved yet.
+export function versionTag(
+  artifact: Pick<ArtifactSummary, "named">,
+): readonly string[] {
+  return artifact.named === 0 ? [] : [`v${String(artifact.named)}`];
+}
+
+// What people call a save: Version 2 · Approved by Ana, Version 3, or on a
+// living doc an edit.
+export function saveName(
+  artifact: Pick<ArtifactView, "living" | "history">,
+  save: number,
+): string {
+  const number = versionOf(artifact, save);
+  const label = artifact.history[save - 1]?.label ?? null;
+
+  if (number === null) {
+    return "Edit";
+  }
+
+  return label === null
+    ? `Version ${String(number)}`
+    : `Version ${String(number)} · ${label}`;
 }
 
 // Who opens it besides the people who see its Session: only them, people
@@ -42,7 +93,11 @@ export interface ArtifactSummary {
   readonly audience: Audience;
   readonly sharedWith: readonly string[];
   readonly openComments: number;
+  // How many saves it has, the newest being that number.
   readonly versions: number;
+  // Whether it's edited in place, and how many of its saves are versions.
+  readonly living: boolean;
+  readonly named: number;
   readonly updatedAt: number;
   // When the viewer last opened it, or null.
   readonly openedAt: number | null;

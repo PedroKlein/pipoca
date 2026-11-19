@@ -107,6 +107,7 @@ export function ReviewBar({
   steers,
   onReviewers,
   onVerdict,
+  onSinceApproval,
 }: {
   readonly doc: Doc;
   readonly threads: readonly Thread[];
@@ -115,6 +116,9 @@ export function ReviewBar({
   readonly steers: boolean;
   readonly onReviewers: (names: readonly string[]) => void;
   readonly onVerdict: (verdict: Verdict) => void;
+  // Compares the latest text with the version last approved, once it was
+  // edited after.
+  readonly onSinceApproval?: (() => void) | undefined;
 }): ReactElement {
   const names = doc.reviewers.map(({ name }) => name);
   const asked = people.filter((name) => !names.includes(name));
@@ -163,6 +167,11 @@ export function ReviewBar({
             },
           }))}
         />
+      )}
+      {onSinceApproval !== undefined && (
+        <Button variant="ghost" size="sm" onClick={onSinceApproval}>
+          Changes since approval
+        </Button>
       )}
       <span className="ml-auto text-caption text-fg-dim">
         {open === 1 ? "1 open question" : `${String(open)} open questions`} ·{" "}

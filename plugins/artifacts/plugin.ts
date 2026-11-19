@@ -174,6 +174,9 @@ create table artifacts_activity_settings (
   read_at integer
 ) strict;
 create index artifacts_session_mentions_user on artifacts_session_mentions (user_id, created_at);`,
+    // 11: a Markdown artifact is edited in place, and only its labelled
+    // saves are versions (ADR 0082).
+    `alter table artifacts_versions add column label text;`,
   ],
   events: {
     // ADR 0081: mentions, review requests and replies, for the plugins that

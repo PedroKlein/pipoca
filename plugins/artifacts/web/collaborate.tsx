@@ -3,7 +3,7 @@ import { cn } from "@pipoca/ui";
 import { type ReactElement, useCallback, useEffect, useRef } from "react";
 import { isHttpError, type TypedClient } from "@pipoca/plugins";
 import { artifacts as plugin } from "../plugin";
-import type { ArtifactView } from "../src/artifacts";
+import { type ArtifactView, versionOf } from "../src/artifacts";
 import type { Span } from "../src/diff";
 import type { Outline } from "./doc";
 
@@ -251,7 +251,7 @@ export function Frame({
     <iframe
       ref={frame}
       key={`${artifact.id}-${String(version)}`}
-      title={`${artifact.title}, version ${String(version)}`}
+      title={`${artifact.title}, ${frameName(artifact, version)}`}
       src={`${base}/artifacts/${artifact.id}/view?v=${String(version)}`}
       {...(artifact.kind !== "pdf" && { sandbox: frameSandbox })}
       onLoad={() => {
@@ -323,4 +323,18 @@ function boxOf(value: unknown): Box | undefined {
     typeof height === "number"
     ? { x, y, width, height }
     : undefined;
+}
+
+function frameName(artifact: ArtifactView, save: number): string {
+  if (!artifact.living) {
+    return `version ${String(save)}`;
+  }
+
+  if (save === artifact.versions) {
+    return "latest";
+  }
+
+  const number = versionOf(artifact, save);
+
+  return number === null ? "an earlier edit" : `version ${String(number)}`;
 }

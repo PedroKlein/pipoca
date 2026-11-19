@@ -206,10 +206,7 @@ function detail(
 
   const parts: Readonly<Record<ActivityKind, readonly string[]>> = {
     mention: on,
-    review: [
-      item.doc === null ? "Doc" : docLabels[item.doc],
-      `version ${String(item.version)}`,
-    ],
+    review: [item.doc === null ? "Doc" : docLabels[item.doc]],
     reply: [],
     comment: view === "mine" ? ["Your artifact"] : [],
   };

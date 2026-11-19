@@ -19,6 +19,7 @@ import {
   kindLabel,
   kindOf,
   type Published,
+  versionTag,
 } from "../src/artifacts";
 
 // The Session's artifacts, first in the header's Files menu (ADR 0081).
@@ -60,7 +61,7 @@ export function SessionArtifacts({
                 key={each.id}
                 icon="file-text"
                 name={each.title}
-                detail={`v${String(each.versions)}`}
+                detail={versionTag(each).join("")}
                 onOpen={() => {
                   open({ artifact: each.id });
                 }}
@@ -178,7 +179,7 @@ export function AttachArtifact({
           title: each.title,
           detail: [
             kindLabel(each.kind),
-            `v${String(each.versions)}`,
+            ...versionTag(each),
             ...(each.sessionId === session.id || each.sessionTitle === null
               ? []
               : [`from ${each.sessionTitle}`]),
@@ -193,7 +194,9 @@ export function AttachArtifact({
               key: `artifact:${picked.id}`,
               title: picked.title,
               icon: "file-text",
-              detail: `artifact · version ${String(picked.versions)}`,
+              detail: picked.living
+                ? "artifact · latest text"
+                : `artifact · version ${String(picked.versions)}`,
               // Someone else may have named it, so the title goes as data.
               text: `Attached: the artifact ${JSON.stringify(picked.title)} (${picked.id}), version ${String(picked.versions)}. Read it with read_artifact.`,
             });

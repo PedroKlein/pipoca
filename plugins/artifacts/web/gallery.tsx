@@ -16,6 +16,7 @@ import {
   type Kind,
   kindLabel,
   kinds,
+  versionTag,
 } from "../src/artifacts";
 import { base } from "./collaborate";
 import { ArtifactLink } from "./viewer";
@@ -221,7 +222,7 @@ function GalleryCard({
         <div className="truncate text-caption text-fg-dim">
           {[
             kindLabel(artifact.kind),
-            `v${String(artifact.versions)}`,
+            ...versionTag(artifact),
             audienceOf(artifact),
             ago(new Date(artifact.updatedAt).toISOString(), now),
           ].join(" · ")}

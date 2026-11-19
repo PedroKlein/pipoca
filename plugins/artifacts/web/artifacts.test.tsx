@@ -222,7 +222,7 @@ test("threads sent to Pi show in the chat as one row that opens them, with their
     ),
   ).toEqual([
     "Ana on “three times”Attempts or retries?",
-    "Pedro on version 1Add the error rate",
+    "Pedro on the whole pageAdd the error rate",
   ]);
 
   await act(async () => {
@@ -1682,6 +1682,8 @@ function artifact(o: Partial<ArtifactSummary> = {}): ArtifactSummary {
     sharedWith: [],
     openComments: 0,
     versions: 1,
+    living: false,
+    named: o.versions ?? 1,
     updatedAt: 0,
     openedAt: null,
     ...o,
@@ -1698,6 +1700,7 @@ function viewed(versions: number) {
       by: "Pi",
       note: at === 0 ? "first draft" : "",
       createdAt: Date.now(),
+      label: null,
     })),
     access: "steer",
     shares: [],
@@ -2970,7 +2973,7 @@ test("drafts for Pi are listed with the page's pins, and the checked ones go to 
       resolved: true,
       resolvedByPi: true,
     }),
-    // An element is pinned only on its own version; quoted text on any.
+    // A thread carries over to newer versions: its element, or its text.
     thread({
       id: "t6",
       version: 1,
@@ -3075,6 +3078,12 @@ test("drafts for Pi are listed with the page's pins, and the checked ones go to 
           quote: "Nov 3",
           selector: "body > span:nth-of-type(4)",
           active: true,
+        },
+        {
+          n: 6,
+          quote: "Header",
+          selector: "body > h1:nth-of-type(1)",
+          active: false,
         },
         { n: 7, quote: "p95", selector: "", active: false },
       ],
@@ -4853,7 +4862,7 @@ test("Activity lists what's for the person, opens each where it happened and mar
     "Pedro asked you to review Webhooks v2 delivery design",
   );
 
-  expect(text(1)).toContain("Design doc · version 5 · ");
+  expect(text(1)).toContain("Design doc · ");
   expect(text(2)).toContain("Pi suggested an edit in a thread you're in");
   expect(text(3)).toContain("Rui commented on Rollout checklist");
   expect(text(3)).toContain("Your artifact · ");
@@ -5054,6 +5063,157 @@ test("a version Pi publishes while the artifact is open says so and compares it 
   );
 });
 
+test("a Markdown doc lists its versions, then its edits by person and hour, names the latest as a version, and compares what changed since approval", async () => {
+  const asked: Served[] = [];
+  const hour = 60 * 60 * 1000;
+  const now = Date.now();
+
+  const save = (
+    number: number,
+    by: string,
+    ago: number,
+    label: string | null = null,
+  ) => ({
+    number,
+    name: "plan.md",
+    size: 10,
+    author: by === "Pi" ? "session:session-1" : `user:${by.toLowerCase()}`,
+    by,
+    note: "",
+    createdAt: now - ago,
+    label,
+  });
+
+  const shown = (history: readonly object[], status = "review") => ({
+    ...artifact({
+      title: "Plan",
+      kind: "markdown",
+      versions: history.length,
+      living: true,
+      named: history.filter((each) => "label" in each && each.label !== null)
+        .length,
+    }),
+    ...viewed(1),
+    history,
+    doc: {
+      type: "design",
+      status,
+      marked: "person",
+      reviewers: [{ name: "Ana", you: true, verdict: null }],
+    },
+  });
+
+  // Pi's two edits in an hour, an approved one of Pi's, then Ana's two.
+  let served = shown([
+    save(1, "Pi", 5 * hour),
+    save(2, "Pi", 4.5 * hour),
+    save(3, "Pi", 3 * hour, "Approved by Bo"),
+    save(4, "Ana", 20 * 60_000),
+    save(5, "Ana", 5 * 60_000),
+  ]);
+
+  const fetch = serving(served, asked);
+
+  const page = renderPart(
+    web,
+    "overlay",
+    {},
+    {
+      hash: "#session-1?artifact=a1",
+      fetch: async (url, init) =>
+        url.endsWith("/artifacts/a1") && (init?.method ?? "GET") === "GET"
+          ? Response.json(served)
+          : fetch(url, init),
+    },
+  );
+
+  await opened(asked);
+  await drawn(() => versionMenu(page) !== undefined);
+
+  expect(versionMenu(page)?.textContent).toBe("Latest");
+
+  act(() => {
+    versionMenu(page)?.click();
+  });
+
+  expect(menuItems(page).map((each) => each.textContent)).toEqual([
+    "Version 1Approved by Bo · 3h ago",
+    "Edited by Ana latest5m ago · 2 edits",
+    "Edited by Pi3h ago",
+    "Edited by Pi4h ago · 2 edits",
+    "Compare versions…",
+  ]);
+
+  // Its review bar compares the latest text with the version approved.
+  act(() => {
+    versionMenu(page)?.click();
+    named(page, "Changes since approval")?.click();
+  });
+
+  await drawn(() => page.textContent.includes("Comparing two versions"));
+
+  expect(
+    [...page.querySelectorAll("section[aria-label]")].map((each) =>
+      each.getAttribute("aria-label"),
+    ),
+  ).toEqual(["Version 1", "Latest"]);
+
+  act(() => {
+    named(page, "Back to latest")?.click();
+  });
+
+  // Someone who steers it names the latest text.
+  act(() => {
+    named(page, "More")?.click();
+  });
+
+  act(() => {
+    item(page, "Save version…")?.click();
+  });
+
+  const dialog = page.querySelector<HTMLElement>("dialog[open]");
+  const field = dialog?.querySelector("input");
+
+  act(() => {
+    if (field !== null && field !== undefined) {
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set?.call(field, "Sent to legal");
+
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+  });
+
+  act(() => {
+    named(dialog ?? page, "Save version")?.click();
+  });
+
+  await act(async () =>
+    until(() => asked.some(({ url }) => url.endsWith("/a1/label"))),
+  );
+
+  expect(asked.find(({ url }) => url.endsWith("/a1/label"))).toMatchObject({
+    method: "POST",
+    body: { label: "Sent to legal" },
+  });
+
+  // Once it's a version, the menu offers no Save version.
+  served = shown([...served.history, save(6, "Ana", 0, "Sent to legal")]);
+
+  act(() => {
+    changed("artifacts.artifacts");
+  });
+
+  await drawn(() => versionMenu(page)?.textContent === "Version 2 · latest");
+
+  act(() => {
+    named(page, "More")?.click();
+  });
+
+  expect(item(page, "Save version…")).toBeUndefined();
+});
+
 test("above the composer, it says how many threads wait for Pi's turn to end", async () => {
   const asked: string[] = [];
   let threads = 2;
@@ -5091,7 +5251,7 @@ test("above the composer, it says how many threads wait for Pi's turn to end", a
   await drawn(() => page.textContent === "");
 });
 
-test("a thread made on an older version says which, however long its quote", async () => {
+test("a thread carries over to newer versions, and is Outdated only where its passage is gone, however long its quote", async () => {
   const asked: Served[] = [];
 
   const viewer = renderPart(
@@ -5110,7 +5270,13 @@ test("a thread made on an older version says which, however long its quote", asy
               "Async backup. Three levels of simplicity, from one key to many",
             body: "Lets discuss this?",
           }),
-          thread({ id: "t2", version: 3, body: "On this one" }),
+          thread({
+            id: "t2",
+            version: 1,
+            quote: "Ship Friday",
+            body: "Still true?",
+          }),
+          thread({ id: "t3", version: 3, body: "On the whole page" }),
         ],
       }),
     },
@@ -5119,25 +5285,33 @@ test("a thread made on an older version says which, however long its quote", asy
   await opened(asked);
   await drawn(() => viewer.textContent.includes("Lets discuss this?"));
 
-  const cards = [...viewer.querySelectorAll("li[data-thread]")];
-
-  const badge = (card: Element | undefined) =>
-    [...(card?.querySelectorAll("[title^='Made on version']") ?? [])].map(
-      (each) => each.textContent,
+  const card = (said: string) =>
+    [...viewer.querySelectorAll("li[data-thread]")].find((each) =>
+      each.textContent.includes(said),
     );
+
+  const outdated = (said: string) =>
+    card(said)?.querySelector("[title^='What it']")?.textContent ?? null;
+
+  // Until the page says what it pinned, nothing is called Outdated, and no
+  // thread names the version it was written on.
+  expect(outdated("Lets discuss")).toBeNull();
+  expect(viewer.textContent).not.toContain("Version 1");
+
+  frameOf(viewer).tell({
+    pipoca: "outline",
+    sections: [],
+    tops: [{ n: 2, top: 120 }],
+    scrolled: 0,
+  });
+
+  await drawn(() => outdated("Lets discuss") === "Outdated");
 
   // Outside the quote, which is cut short, so it always shows.
   expect(
-    badge(cards.find((each) => each.textContent.includes("Lets discuss"))),
-  ).toEqual(["Version 1"]);
-
-  expect(
-    cards
-      .find((each) => each.textContent.includes("Lets discuss"))
-      ?.querySelector(".truncate [title^='Made on version']"),
+    card("Lets discuss")?.querySelector(".truncate [title^='What it']"),
   ).toBeNull();
 
-  expect(
-    badge(cards.find((each) => each.textContent.includes("On this one"))),
-  ).toEqual([]);
+  expect(outdated("Still true?")).toBeNull();
+  expect(outdated("On the whole page")).toBeNull();
 });

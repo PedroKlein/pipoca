@@ -29,7 +29,12 @@ import {
   useState,
 } from "react";
 import { artifacts as plugin } from "../plugin";
-import { type ArtifactView, isText, kindLabel } from "../src/artifacts";
+import {
+  type ArtifactView,
+  isText,
+  kindLabel,
+  saveName,
+} from "../src/artifacts";
 import { type DiffLine, lineDiff, type Span, textChanges } from "../src/diff";
 import { audienceLabel, byline, versionChoices } from "./chrome";
 import { base, Frame } from "./collaborate";
@@ -82,6 +87,7 @@ export function Compare({
   mode,
   titleId,
   version,
+  since,
   onBack,
   onClose,
 }: {
@@ -89,6 +95,8 @@ export function Compare({
   readonly mode: ViewerMode;
   readonly titleId: string | undefined;
   readonly version: number;
+  // The older side to start from, such as the last approved version.
+  readonly since?: number | undefined;
   readonly onBack: () => void;
   readonly onClose: () => void;
 }): ReactElement {
@@ -96,11 +104,15 @@ export function Compare({
   const text = isText(artifact.kind);
   const [how, setHow] = useState<How>("side");
 
-  const [pair, setPair] = useState(() =>
-    version > 1
+  const [pair, setPair] = useState(() => {
+    if (since !== undefined && since < version) {
+      return { from: since, to: version };
+    }
+
+    return version > 1
       ? { from: version - 1, to: version }
-      : { from: 1, to: Math.min(2, artifact.versions) },
-  );
+      : { from: 1, to: Math.min(2, artifact.versions) };
+  });
 
   const { from, to } = pair;
   const key = `${artifact.id}:${String(from)}:${String(to)}`;
@@ -160,10 +172,23 @@ export function Compare({
     [marks],
   );
 
-  const label = (number: number): string =>
-    number === artifact.versions
-      ? `Version ${String(number)} · latest`
-      : `Version ${String(number)}`;
+  const label = (number: number): string => {
+    if (!artifact.living) {
+      return number === artifact.versions
+        ? `Version ${String(number)} · latest`
+        : `Version ${String(number)}`;
+    }
+
+    if (number === artifact.versions) {
+      return "Latest";
+    }
+
+    const name = saveName(artifact, number);
+
+    return name === "Edit"
+      ? `Edit by ${artifact.history[number - 1]?.by ?? "someone"}`
+      : (name.split(" · ")[0] ?? name);
+  };
 
   const picker = (side: "from" | "to", shown: number): ReactElement => (
     <Menu
@@ -189,12 +214,16 @@ export function Compare({
     />
   );
 
+  // What a side is, without saying which is the latest.
+  const sideName = (number: number): string =>
+    artifact.living ? label(number) : `Version ${String(number)}`;
+
   const strip = (number: number): string => {
     const found = artifact.history[number - 1];
 
     return found === undefined
-      ? `Version ${String(number)}`
-      : `Version ${String(number)} · ${byline(found, now)}`;
+      ? sideName(number)
+      : `${sideName(number)} · ${byline(found, now)}`;
   };
 
   return (
@@ -212,7 +241,7 @@ export function Compare({
           size="sm"
           iconOnly
           autoFocus
-          aria-label={`Back to version ${String(version)}`}
+          aria-label={`Back to ${sideName(version).toLowerCase()}`}
           onClick={onBack}
         >
           <Icon name="chevron-left" className="size-3.5" />
@@ -244,7 +273,7 @@ export function Compare({
           {[from, to].map((number, side) => (
             <section
               key={side}
-              aria-label={`Version ${String(number)}`}
+              aria-label={sideName(number)}
               className="flex min-h-0 flex-col border-line not-last:border-r"
             >
               <p className="border-b border-line bg-hover px-4 py-1.5 text-label text-fg">
@@ -451,7 +480,9 @@ export function Editor({
           line={[
             kindLabel(artifact.kind),
             audienceLabel(artifact),
-            `editing version ${String(editing)}`,
+            artifact.living
+              ? "editing the latest text"
+              : `editing version ${String(editing)}`,
           ].join(" · ")}
         />
         <Button
@@ -471,7 +502,9 @@ export function Editor({
             title={changed ? undefined : "Change something to save it"}
             onClick={() => void save(false)}
           >
-            Save as version {editing + 1}
+            {artifact.living
+              ? "Save"
+              : `Save as version ${String(editing + 1)}`}
           </Button>
         )}
         {mode !== "window" && (
@@ -500,7 +533,7 @@ export function Editor({
               );
             }}
           >
-            {known
+            {known && !artifact.living
               ? `Open version ${String(latest.number)}`
               : "Open the latest"}
           </Button>
@@ -511,7 +544,7 @@ export function Editor({
             title={changed ? undefined : "You haven't changed anything to save"}
             onClick={() => void save(true)}
           >
-            {known
+            {known && !artifact.living
               ? `Save anyway as version ${String(artifact.versions + 1)}`
               : "Save anyway"}
           </Button>
