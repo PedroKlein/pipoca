@@ -703,6 +703,20 @@ test("a new group's form saves its title, repositories, budget, on-call lists an
     "page",
     { path: "team/group:new" },
     {
+      repositories: [
+        {
+          url: "https://github.com/acme/shop",
+          name: "acme/shop",
+          group: "GitHub",
+          host: "github.com",
+        },
+        {
+          url: "https://github.com/acme/api",
+          name: "acme/api",
+          group: "GitHub",
+          host: "github.com",
+        },
+      ],
       fetch: async (url, init) => {
         const method = init?.method ?? "GET";
 
@@ -724,7 +738,29 @@ test("a new group's form saves its title, repositories, budget, on-call lists an
 
   await typeInto(field("Name"), "shop");
   await typeInto(field("Title"), "Shop");
-  await typeInto(field("Repositories"), "acme/shop\ngithub.com/acme/api\n");
+
+  // Repositories are picked from what the team's bots reach.
+  act(() => {
+    field("Repositories")?.click();
+  });
+
+  for (const name of ["acme/shop", "acme/api"]) {
+    await until(
+      () =>
+        page.querySelector(`[role='option'][aria-label='${name}']`) !== null,
+    );
+
+    act(() => {
+      page
+        .querySelector<HTMLElement>(`[role='option'][aria-label='${name}']`)
+        ?.click();
+    });
+  }
+
+  expect(
+    page.querySelector("button[aria-label='Repositories']")?.textContent,
+  ).toBe("shop, api");
+
   await typeInto(field("Daily budget"), "25");
   await typeInto(field("On call"), "triage: Ana, Bo\nnights: Bo");
   await typeInto(field("Editors"), "Ana, Bo");
@@ -743,7 +779,10 @@ test("a new group's form saves its title, repositories, budget, on-call lists an
       method: "PUT",
       body: {
         title: "Shop",
-        repositories: ["acme/shop", "github.com/acme/api"],
+        repositories: [
+          "https://github.com/acme/shop",
+          "https://github.com/acme/api",
+        ],
         budget: { dailySpend: 25 },
         onCall: { triage: ["Ana", "Bo"], nights: ["Bo"] },
         editors: ["Ana", "Bo"],

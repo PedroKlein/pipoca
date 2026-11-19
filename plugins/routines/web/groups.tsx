@@ -1,5 +1,6 @@
 import type { TypedClient } from "@pipoca/plugins";
-import { useApi, useLoaded } from "@pipoca/plugins/web";
+import { RepositoryField, useApi, useLoaded } from "@pipoca/plugins/web";
+import { checkoutName } from "@pipoca/protocol";
 import {
   Button,
   buttonClass,
@@ -544,8 +545,8 @@ function GroupForm({
   const [newName, setNewName] = useState("");
   const [title, setTitle] = useState(group?.title ?? "");
 
-  const [repositories, setRepositories] = useState(
-    (group?.repositories ?? []).join("\n"),
+  const [repositories, setRepositories] = useState<readonly string[]>(
+    group?.repositories ?? [],
   );
 
   const [profile, setProfile] = useState(group?.defaults?.profile ?? "");
@@ -589,7 +590,7 @@ function GroupForm({
 
     const value: Group = {
       title: title.trim(),
-      repositories: listOf(repositories),
+      repositories: [...repositories],
       ...(Object.keys(defaults).length > 0 && { defaults }),
       ...(group?.limits !== undefined && { limits: group.limits }),
       ...(budget.trim() !== "" && { budget: { dailySpend: spend } }),
@@ -640,20 +641,24 @@ function GroupForm({
           }}
         />
       </Field>
-      <Field
-        label="Repositories"
-        hint="One a line: owner/name on github.com, host/owner/name, or an https address"
-      >
-        <TextArea
-          aria-label="Repositories"
-          rows={3}
-          value={repositories}
-          onChange={(event) => {
-            setRepositories(event.target.value);
-          }}
-          className="h-auto font-mono text-label"
-        />
-      </Field>
+      <div className="flex min-w-0 flex-col gap-1.5">
+        <span className="text-label font-medium text-fg">Repositories</span>
+        <RepositoryField
+          label="Repositories"
+          selected={repositories}
+          recent={[]}
+          team={scope === teams}
+          onChange={setRepositories}
+        >
+          {repositories.length === 0 ? (
+            <span className="text-fg-dim">Add repositories</span>
+          ) : (
+            repositories
+              .map((repository) => checkoutName(repository) ?? repository)
+              .join(", ")
+          )}
+        </RepositoryField>
+      </div>
       <Field label="Profile" hint="What its routines' runs start with">
         <Select
           aria-label="Profile"

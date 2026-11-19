@@ -67,7 +67,9 @@ export function RepositoryField({
   placeholder = "Search, or paste a repository URL",
   repositoriesOnly = false,
   footer,
-  hint,
+  hint = team
+    ? "Only repositories the team's bots reach."
+    : "Only repositories your logins reach.",
   onChange,
 }: {
   readonly label: string;
