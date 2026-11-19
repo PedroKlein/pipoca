@@ -5,6 +5,7 @@ import {
   type ToolCall,
   type ToolCallProps,
   type PageProps,
+  ago,
   useLoaded,
   useNow,
   defineWeb,
@@ -1634,7 +1635,7 @@ function Rail({
           meta={[
             environments.find(({ id }) => id === thread.environmentId)?.name ??
               thread.environmentId,
-            since(thread.lastActivity, now),
+            ago(thread.lastActivity, now),
           ].join(" · ")}
         />
       ))}
@@ -1688,24 +1689,6 @@ function Rail({
       </div>
     </nav>
   );
-}
-
-function since(time: string, now: number): string {
-  const minutes = Math.floor((now - Date.parse(time)) / 60_000);
-
-  if (minutes < 1) {
-    return "just now";
-  }
-
-  if (minutes < 60) {
-    return `${String(minutes)}m ago`;
-  }
-
-  const hours = Math.floor(minutes / 60);
-
-  return hours < 24
-    ? `${String(hours)}h ago`
-    : `${String(Math.floor(hours / 24))}d ago`;
 }
 
 function ThreadRow({
