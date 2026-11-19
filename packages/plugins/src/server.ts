@@ -101,6 +101,7 @@ export interface Person {
   readonly name: string;
   readonly admin: boolean;
   readonly email?: string;
+  readonly username?: string;
 }
 
 export interface People {

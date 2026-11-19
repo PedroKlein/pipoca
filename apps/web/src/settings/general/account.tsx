@@ -25,7 +25,11 @@ export function EditProfile({
   const [open, setOpen] = useState(false);
 
   const rename = useAction(
-    async (change: { displayName: string; email: string }) => {
+    async (change: {
+      displayName: string;
+      username: string;
+      email: string;
+    }) => {
       await request("me.update", { body: change });
       close();
     },
@@ -48,7 +52,11 @@ export function EditProfile({
       return typeof value === "string" ? value : "";
     };
 
-    void rename.run({ displayName: text("displayName"), email: text("email") });
+    void rename.run({
+      displayName: text("displayName"),
+      username: text("username"),
+      email: text("email"),
+    });
   };
 
   return (
@@ -66,13 +74,24 @@ export function EditProfile({
           <DialogBody>
             <Field
               label="Your name"
-              hint={`People see it beside your username, @${account?.name ?? ""}.`}
+              hint={`People see it beside @${account?.username ?? account?.name ?? ""}.`}
             >
               <TextInput
                 name="displayName"
                 autoComplete="name"
                 maxLength={64}
                 defaultValue={account?.displayName ?? ""}
+              />
+            </Field>
+            <Field
+              label="Username"
+              hint={`People mention you as @username. Without one, they use @${account?.name ?? ""}.`}
+            >
+              <TextInput
+                name="username"
+                autoComplete="username"
+                maxLength={32}
+                defaultValue={account?.username ?? ""}
               />
             </Field>
             <Field

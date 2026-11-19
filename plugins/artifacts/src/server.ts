@@ -1213,26 +1213,34 @@ export const server = defineServer(
       tell(session.id);
     });
 
-    // The people a comment names with @, by their whole name: the longest
-    // that fits, so @Ana Silva isn't also @Ana.
+    // The people a comment names with @, by their username or whole name:
+    // the longest that fits, so @Ana Silva isn't also @Ana.
     const mentioned = (text: string): string[] => {
       let left = text;
 
-      return [...people.list()]
-        .sort((one, other) => other.name.length - one.name.length)
-        .filter((each) => {
-          const named = new RegExp(
-            `(^|\\s)@${each.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w-])`,
-            "gi",
-          );
+      const handles = people
+        .list()
+        .flatMap((each) =>
+          [each.username, each.name].flatMap((handle) =>
+            handle === undefined ? [] : [{ id: each.id, handle }],
+          ),
+        )
+        .sort((one, other) => other.handle.length - one.handle.length);
 
-          const found = named.test(left);
+      const found = handles.filter(({ handle }) => {
+        const named = new RegExp(
+          `(^|\\s)@${handle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w-])`,
+          "gi",
+        );
 
-          left = left.replace(named, "$1");
+        const hit = named.test(left);
 
-          return found;
-        })
-        .map((each) => each.id);
+        left = left.replace(named, "$1");
+
+        return hit;
+      });
+
+      return [...new Set(found.map(({ id }) => id))];
     };
 
     routes.get(
@@ -1526,7 +1534,7 @@ export const server = defineServer(
             .filter(
               (each) => each.id !== caller.person.id && sees(artifact, each.id),
             )
-            .map((each) => each.name)
+            .map((each) => each.username ?? each.name)
             .sort((a, b) => a.localeCompare(b)),
         };
       },

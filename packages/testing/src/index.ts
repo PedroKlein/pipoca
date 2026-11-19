@@ -41,6 +41,7 @@ export interface TestPerson {
   readonly name?: string;
   readonly admin?: boolean;
   readonly email?: string;
+  readonly username?: string;
 }
 
 // A config value as pipoca.json holds it: any field may be left to its

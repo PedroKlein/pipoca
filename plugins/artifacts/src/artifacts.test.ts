@@ -44,7 +44,7 @@ async function setUp() {
     people: [
       { id: "ana", name: "Ana", admin: true },
       { id: "bo", name: "Bo" },
-      { id: "cy", name: "Cy" },
+      { id: "cy", name: "Cy", username: "cyrus" },
       { id: "bolee", name: "Bo Lee" },
     ],
   });
@@ -894,8 +894,9 @@ test("people react to comments, one reaction of each kind each, and mention the 
   expect((await react("bo", "🍕", true)).status).toBe(422);
   expect((await react("cy", "👍", true)).status).toBe(403);
 
+  // Someone with a username is mentioned by it.
   expect(await t.as("ana").get(`artifacts/${id}/people`)).toEqual({
-    people: ["Bo", "Cy"],
+    people: ["Bo", "cyrus"],
   });
 
   expect(await t.as("cy").get(`artifacts/${id}/people`)).toEqual({
@@ -2123,7 +2124,7 @@ test("people are told of mentions, review requests, replies in their threads and
 
   // A mention says so once, even to the artifact's owner, and only people
   // who see the artifact hear.
-  const bo = await comment("bo", "Friday is too soon, @Ana @Cy @Dee");
+  const bo = await comment("bo", "Friday is too soon, @Ana @cyrus @Dee");
 
   expect((await told("ana")).items).toMatchObject([
     {
@@ -2133,7 +2134,7 @@ test("people are told of mentions, review requests, replies in their threads and
       thread: bo.id,
       by: "Bo",
       byPi: false,
-      excerpt: "Friday is too soon, @Ana @Cy @Dee",
+      excerpt: "Friday is too soon, @Ana @cyrus @Dee",
       read: false,
     },
   ]);

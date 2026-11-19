@@ -180,6 +180,7 @@ test("keeps the first user's display name beside their username", async () => {
     name: "pedro",
     displayName: "Pedro Klein",
     email: null,
+    username: null,
     admin: true,
     defaultEnvironment: null,
   });

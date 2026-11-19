@@ -1746,9 +1746,14 @@ test("edits the person's name and what new Sessions start with on General", asyn
   await dialog.getByRole("button", { name: "Save" }).click();
   await dialog.getByText("pedro@ isn't an email address").waitFor();
   await dialog.getByLabel("Email").fill("pedro@example.com");
+  await dialog.getByLabel("Username").fill("pipoca");
+  await dialog.getByRole("button", { name: "Save" }).click();
+  await dialog.getByText("@pipoca is taken").waitFor();
+  await dialog.getByLabel("Username").fill("PK");
   await dialog.getByRole("button", { name: "Save" }).click();
   await dialog.waitFor({ state: "detached" });
   await you.getByText("Pedro K.").waitFor();
+  await you.getByText(/^@pk · /).waitFor();
 
   // Everywhere one's own name shows, it is the name chosen here.
   await page.goto(server.url.href);
@@ -1795,6 +1800,7 @@ test("edits the person's name and what new Sessions start with on General", asyn
   expect(await me()).toMatchObject({
     displayName: "Pedro K.",
     email: "pedro@example.com",
+    username: "pk",
     defaultEnvironment: environment?.id,
   });
 
@@ -1806,6 +1812,7 @@ test("edits the person's name and what new Sessions start with on General", asyn
     body: JSON.stringify({
       displayName: "Pedro Klein",
       email: "",
+      username: "",
       defaultEnvironment: null,
     }),
   });

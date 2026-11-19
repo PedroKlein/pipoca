@@ -249,3 +249,41 @@ test("a person's email is an address no one else has, and clearing it takes it o
     { email: "ana@example.com" },
   );
 });
+
+test("a person's username is a handle no one else has or goes by, and clearing it takes it off", () => {
+  const { people } = server();
+  const ana = people.createUser("ana@example.com", false)?.id ?? "";
+  const bea = people.createUser("bea", false)?.id ?? "";
+
+  expect(people.changeAccount(ana, { username: " Ana.Silva " })).toMatchObject({
+    username: "ana.silva",
+  });
+
+  expect(people.users().find((each) => each.id === ana)).toMatchObject({
+    username: "ana.silva",
+  });
+
+  expect(() => people.changeAccount(bea, { username: "ANA.SILVA" })).toThrow(
+    "@ana.silva is someone else's",
+  );
+
+  expect(() => people.changeAccount(ana, { username: "bea" })).toThrow(
+    "@bea is someone else's",
+  );
+
+  expect(() => people.changeAccount(bea, { username: "pipoca" })).toThrow(
+    "@pipoca is taken",
+  );
+
+  expect(() => people.changeAccount(bea, { username: "bea lee" })).toThrow(
+    "A username has 2 to 32 letters, digits, dots, dashes or underscores",
+  );
+
+  expect(people.changeAccount(ana, { username: "" })).toMatchObject({
+    username: null,
+  });
+
+  expect(people.changeAccount(bea, { username: "ana.silva" })).toMatchObject({
+    username: "ana.silva",
+  });
+});

@@ -48,14 +48,18 @@ export function peopleStore(db: DatabaseSync, clock: Clock): PeopleStore {
   );
 
   const selectUsers = db.prepare(
-    "select id, name, admin, email from users order by created_at",
+    "select id, name, admin, email, username from users order by created_at",
   );
 
   const selectAccount = db.prepare(
-    "select id, name, admin, display_name, email, default_environment_id from users where id = ?",
+    "select id, name, admin, display_name, email, username, default_environment_id from users where id = ?",
   );
 
   const updateEmail = db.prepare("update users set email = ? where id = ?");
+
+  const updateUsername = db.prepare(
+    "update users set username = ? where id = ?",
+  );
 
   const updateDisplayName = db.prepare(
     "update users set display_name = ? where id = ?",
@@ -229,6 +233,7 @@ export function peopleStore(db: DatabaseSync, clock: Clock): PeopleStore {
       (
         selectUsers.all() as unknown as (UserRow & {
           readonly email: string | null;
+          readonly username: string | null;
         })[]
       ).flatMap((row) => {
         const found = userOfRow(row);
@@ -237,13 +242,20 @@ export function peopleStore(db: DatabaseSync, clock: Clock): PeopleStore {
           return [];
         }
 
-        return row.email === null ? [found] : [{ ...found, email: row.email }];
+        return [
+          {
+            ...found,
+            ...(row.email !== null && { email: row.email }),
+            ...(row.username !== null && { username: row.username }),
+          },
+        ];
       }),
     account: (id) => {
       const row = selectAccount.get(id) as
         | (UserRow & {
             readonly display_name: string | null;
             readonly email: string | null;
+            readonly username: string | null;
             readonly default_environment_id: string | null;
           })
         | undefined;
@@ -255,6 +267,7 @@ export function peopleStore(db: DatabaseSync, clock: Clock): PeopleStore {
           admin: row.admin === 1,
           displayName: row.display_name,
           email: row.email,
+          username: row.username,
           defaultEnvironment: row.default_environment_id,
         }
       );
@@ -264,6 +277,9 @@ export function peopleStore(db: DatabaseSync, clock: Clock): PeopleStore {
     },
     setEmail: (id, email) => {
       updateEmail.run(email, id);
+    },
+    setUsername: (id, username) => {
+      updateUsername.run(username, id);
     },
     setDefaultEnvironment: (id, environment) => {
       updateDefaultEnvironment.run(environment, id);
