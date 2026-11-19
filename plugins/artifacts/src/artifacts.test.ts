@@ -9,7 +9,7 @@ import {
   testSession,
 } from "@pipoca/testing";
 import { until } from "@pipoca/testing/until";
-import { blobRoutes } from "@pipoca/protocol";
+import { blobRoutes, type Session } from "@pipoca/protocol";
 import type {
   ActivityItem,
   ArtifactSummary,
@@ -2285,4 +2285,71 @@ test("people are told of mentions, review requests, replies in their threads and
 
   expect(t.emitted("artifacts.activity").length).toBe(events);
   expect((await told("cy")).items).toEqual([]);
+});
+
+test("people named with @ in team work hear of it on Activity and elsewhere, if they see the work", async () => {
+  const { t } = await setUp();
+  const team = await t.session({ owner: "team", startedBy: "ana" });
+  const mine = await t.session({ owner: person("ana") });
+
+  const said = (where: string, text: string): void => {
+    t.emit({
+      type: "TeamMessage",
+      session: { id: where } as Session,
+      actor: "user:bo",
+      said: "team",
+      text,
+    });
+  };
+
+  const told = async (who: string) =>
+    t
+      .as(who)
+      .get<{ items: ActivityItem[]; unread: number }>("activity?view=mine");
+
+  said(team.id, "@cyrus @Ana can you look at the rollout? @Bo");
+  said(mine.id, "@Cy this is Ana's own work");
+
+  await until(async () => (await told("cy")).unread === 1);
+
+  expect((await told("cy")).items).toMatchObject([
+    {
+      kind: "mention",
+      artifact: null,
+      session: team.id,
+      by: "Bo",
+      excerpt: "@cyrus @Ana can you look at the rollout? @Bo",
+      read: false,
+    },
+  ]);
+
+  expect((await told("ana")).items).toMatchObject([
+    { kind: "mention", session: team.id },
+  ]);
+
+  expect((await told("bo")).items).toEqual([]);
+
+  expect(
+    t
+      .emitted("artifacts.activity")
+      .filter(({ to }) => to[0] === person("cy"))
+      .map(({ fields }) => fields),
+  ).toEqual([
+    {
+      kind: "mention",
+      session: team.id,
+      headline: expect.stringMatching(/^Bo mentioned you in /) as string,
+      text: "@cyrus @Ana can you look at the rollout? @Bo",
+      url: `/#${team.id}`,
+    },
+  ]);
+
+  const [item] = (await told("cy")).items;
+
+  await t.as("cy").post("activity/read", { ids: [item?.id] });
+
+  expect(await told("cy")).toMatchObject({
+    unread: 0,
+    items: [{ read: true }],
+  });
 });

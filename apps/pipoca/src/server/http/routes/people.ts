@@ -15,15 +15,28 @@ export function peopleRoutes({
     // see their roles and when they were last active.
     "people.list": ({ caller }) => {
       const here = people.here();
+      const users = people.users();
+
+      const usernames = new Map(
+        users.flatMap(({ id, username }) =>
+          username === undefined ? [] : [[id, username]],
+        ),
+      );
 
       return caller.admin
-        ? people.people().map((person) => ({
-            ...person,
-            here: here.has(person.id),
-          }))
-        : people.users().map(({ id, name }): Teammate => ({
+        ? people.people().map((person) => {
+            const username = usernames.get(person.id);
+
+            return {
+              ...person,
+              ...(username !== undefined && { username }),
+              here: here.has(person.id),
+            };
+          })
+        : users.map(({ id, name, username }): Teammate => ({
             id,
             name,
+            ...(username !== undefined && { username }),
             here: here.has(id),
           }));
     },

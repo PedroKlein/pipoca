@@ -82,7 +82,7 @@ export function Composer({
   const generatedId = useId();
   const textId = usePrimaryId("prompt-text") ?? generatedId;
   const modelMenu = useRef<HTMLButtonElement>(null);
-  const suggestions = useSuggestions(feed);
+  const suggestions = useSuggestions(feed, talk);
   const running = feed.session?.status === "running";
   const { steering, followUp } = feed.queue;
   const [columns, setColumns] = useState<number>();

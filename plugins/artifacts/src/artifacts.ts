@@ -235,7 +235,9 @@ export const topicOf: Readonly<Record<ActivityKind, ActivityTopic>> = {
 export interface ActivityItem {
   readonly id: string;
   readonly kind: ActivityKind;
-  readonly artifact: string;
+  // What it's on: an artifact, or the team work someone named them in.
+  readonly artifact: string | null;
+  readonly session: string | null;
   readonly title: string;
   // The thread it's in, by its first comment.
   readonly thread: string | null;
@@ -252,11 +254,14 @@ export interface ActivityItem {
 }
 
 export function headline(
-  item: Pick<ActivityItem, "kind" | "by" | "byPi" | "suggested" | "title">,
+  item: Pick<
+    ActivityItem,
+    "kind" | "by" | "byPi" | "suggested" | "title" | "session"
+  >,
 ): string {
   switch (item.kind) {
     case "mention":
-      return `${item.by} mentioned you on ${item.title}`;
+      return `${item.by} mentioned you ${item.session === null ? "on" : "in"} ${item.title}`;
     case "review":
       return `${item.by} asked you to review ${item.title}`;
     case "comment":

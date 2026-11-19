@@ -8335,6 +8335,102 @@ test("offers a fork once the team said more than Pi reads", async () => {
   expect(forked.ownedBy).toBe("team");
 });
 
+test("names a teammate with @ in team work, who finds it on Activity", async () => {
+  await page.goto(server.url.href);
+
+  const [invite] = (await (
+    await fetch(new URL("/api/invites", server.url), {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie },
+      body: JSON.stringify({}),
+    })
+  ).json()) as { readonly id: string; readonly token: string }[];
+
+  const other = await browser.newContext({
+    viewport: { width: 1280, height: 900 },
+  });
+
+  try {
+    const mia = await other.newPage();
+    await mia.goto(new URL(`/#join/${invite?.token ?? ""}`, server.url).href);
+
+    const account = mia.getByRole("form", { name: "Make your account" });
+    await account.getByLabel("Username").fill("mia");
+    await account.getByLabel("Password").fill("correct horse");
+    await account.getByRole("button", { name: "Join" }).click();
+    await mia.getByRole("list", { name: "Your steps" }).waitFor();
+
+    await other.request.patch(new URL("/api/me/setup", server.url).href, {
+      data: { finished: true },
+    });
+
+    await other.request.patch(new URL("/api/me", server.url).href, {
+      data: { username: "mia.r" },
+    });
+
+    const post = async (path: string, body: unknown): Promise<unknown> =>
+      (
+        await fetch(new URL(path, server.url), {
+          method: "POST",
+          headers: { "content-type": "application/json", cookie },
+          body: JSON.stringify(body),
+        })
+      ).json();
+
+    const environment = (await post("/api/environments", {
+      name: "mention-pods",
+      team: true,
+    })) as Environment;
+
+    const profile = (await post("/api/profiles", {
+      name: "Mentions",
+      team: true,
+    })) as Profile;
+
+    const folder = join(root, "mentions");
+    await mkdir(folder, { recursive: true });
+
+    const session = (await post("/api/sessions", {
+      team: true,
+      environment: environment.id,
+      profile: profile.id,
+      workspace: { kind: "folder", path: folder },
+    })) as Session;
+
+    await page.goto(new URL(`/#${session.id}`, server.url).href);
+
+    // The composer offers teammates by their username.
+    const prompt = page.locator("#prompt-text");
+    await prompt.fill("@mi");
+    await page.getByRole("option", { name: /@mia\.r/ }).waitFor();
+    await prompt.press("Tab");
+
+    await page.waitForFunction(
+      `document.querySelector("#prompt-text")?.value === "@mia.r "`,
+    );
+
+    await post(`/api/sessions/${session.id}/messages`, {
+      to: "team",
+      text: "@mia.r can you check the retries?",
+    });
+
+    // A fresh load, past the setup the page opened on.
+    await mia.goto(new URL("/#plugin/artifacts/activity", server.url).href);
+    await mia.reload();
+    await mia.goto(new URL("/#plugin/artifacts/activity", server.url).href);
+
+    const row = mia
+      .getByRole("list", { name: "Activity" })
+      .getByRole("button", { name: /mentioned you in/ });
+
+    await row.getByText("“@mia.r can you check the retries?").waitFor();
+    await row.click();
+    await mia.waitForURL((url) => url.hash.endsWith(session.id));
+  } finally {
+    await other.close();
+  }
+}, 60_000);
+
 test("shows on the hub's Home who limited team work", async () => {
   await page.goto(server.url.href);
 

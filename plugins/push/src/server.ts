@@ -214,7 +214,7 @@ export const server = defineServer(
             {
               title: fields.headline,
               body: fields.text,
-              tag: `artifacts.${fields.artifact}`,
+              tag: `artifacts.${fields.artifact ?? fields.session ?? ""}`,
               url: fields.url,
             },
             fields.kind !== "reply",

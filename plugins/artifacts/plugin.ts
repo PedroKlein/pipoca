@@ -163,21 +163,34 @@ create table artifacts_activity_settings (
   told integer not null check (told in (0, 1)),
   primary key (user_id, topic)
 ) strict, without rowid;`,
+    // 10: the people someone named with @ in team work.
+    `create table artifacts_session_mentions (
+  id text primary key,
+  user_id text not null references users (id) on delete cascade,
+  session_id text not null references sessions (id) on delete cascade,
+  actor_user_id text references users (id) on delete set null,
+  body text not null,
+  created_at integer not null,
+  read_at integer
+) strict;
+create index artifacts_session_mentions_user on artifacts_session_mentions (user_id, created_at);`,
   ],
   events: {
     // ADR 0081: mentions, review requests and replies, for the plugins that
     // tell people elsewhere, such as push, Slack and email.
     activity: event({
-      title: "Artifact activity for a person",
+      title: "Activity for a person",
       description:
-        "Someone mentioned the person, asked them to review a doc, or replied in a thread they're in.",
+        "Someone mentioned the person on an artifact or in team work, asked them to review a doc, or replied in a thread they're in.",
       fields: Type.Object({
         kind: Type.Union([
           Type.Literal("mention"),
           Type.Literal("review"),
           Type.Literal("reply"),
         ]),
-        artifact: Type.String(),
+        // What it's on: an artifact, or the team work someone named them in.
+        artifact: Type.Optional(Type.String()),
+        session: Type.Optional(Type.String()),
         headline: Type.String({ description: "What happened, in a line" }),
         text: Type.String({ description: "What was written, cut short" }),
         url: Type.String({

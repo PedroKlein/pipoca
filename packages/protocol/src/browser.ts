@@ -501,6 +501,8 @@ export const personUpdate = Type.Object({ admin: Type.Boolean() });
 const teammate = Type.Object({
   id: Type.String(),
   name: Type.String(),
+  // What they're @-mentioned by in place of their name, if they chose it.
+  username: Type.Optional(Type.String()),
   // Used the web app in the last few minutes.
   here: Type.Optional(Type.Boolean()),
 });

@@ -444,6 +444,8 @@ export const server = defineServer(
 
         return artifact !== undefined && sees(artifact, person);
       },
+      seesSession: (id, person) => sessions.sees(id, person),
+      sessionTitle: (id) => sessions.get(id)?.title ?? "team work",
       docType: async (id, person) => {
         const artifact = row(id);
 
@@ -456,7 +458,10 @@ export const server = defineServer(
           "activity",
           {
             ...what,
-            url: `/#plugin/artifacts/${what.artifact}/comments${thread === null ? "" : `/${thread}`}`,
+            url:
+              what.session === undefined
+                ? `/#plugin/artifacts/${what.artifact ?? ""}/comments${thread === null ? "" : `/${thread}`}`
+                : `/#${what.session}`,
           },
           { to: [owners.of(person)] },
         );
@@ -1242,6 +1247,16 @@ export const server = defineServer(
 
       return [...new Set(found.map(({ id }) => id))];
     };
+
+    // Whoever someone names in team work hears of it, as on an artifact.
+    events.on("TeamMessage", ({ session, actor, text }) => {
+      if (actor.startsWith("user:")) {
+        activity.mention(session.id, mentioned(text), {
+          actor: actor.slice("user:".length),
+          text,
+        });
+      }
+    });
 
     routes.get(
       "artifacts/:id/comments",
