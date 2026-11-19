@@ -25,7 +25,8 @@ import {
 } from "react";
 import type { TypedClient } from "@pipoca/plugins";
 import { projects } from "../plugin";
-import type { ProjectSummary, ProjectView } from "../src/model";
+import { useProjectList } from "./project-list";
+import type { ProjectView } from "../src/model";
 
 // Team work runs on team Environments, whose models differ from a person's.
 const modelKeys = {
@@ -170,13 +171,10 @@ export function AssistantItems({
   readonly path: string | undefined;
 }): ReactElement {
   const assistant = useAssistant();
-  const api = useApi(projects);
 
-  const active = useLoaded(
-    async () => api.get<ProjectSummary[]>("projects"),
-    "projects",
-    { topics: ["sessions"], changes: ["projects"] },
-  ).value?.filter(({ coordinatorState }) => coordinatorState !== "archived");
+  const active = useProjectList(false)?.filter(
+    ({ coordinatorState }) => coordinatorState !== "archived",
+  );
 
   const item = (to: string, label: string): ReactElement => (
     <li>

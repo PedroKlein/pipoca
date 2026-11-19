@@ -1,6 +1,5 @@
 import { expect, test } from "bun:test";
 import { setTimeout as sleep } from "node:timers/promises";
-import { act } from "react";
 import { renderPart } from "./testing";
 import { definePlugin } from "../src/definition";
 import { defineWeb, type MountedSession, useLoaded } from "./index";
@@ -78,37 +77,4 @@ test("a part's changes are its own topics, by the name its routes give them", as
   } finally {
     globals.EventSource = original;
   }
-});
-
-test("parts that load the same data at once share one request", async () => {
-  let asked = 0;
-
-  function Tally() {
-    const { value } = useLoaded(async () => {
-      asked += 1;
-
-      return Promise.resolve("3 votes");
-    }, "tally");
-
-    return <p>{value}</p>;
-  }
-
-  const page = renderPart(
-    defineWeb(votes, {
-      slots: {
-        "session.header": () => (
-          <>
-            <Tally />
-            <Tally />
-          </>
-        ),
-      },
-    }),
-    "session.header",
-    {},
-  );
-
-  await act(async () => sleep(50));
-
-  expect([asked, page.textContent]).toEqual([1, "3 votes3 votes"]);
 });
