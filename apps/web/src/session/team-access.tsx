@@ -2,7 +2,7 @@ import type { Session, SessionAccess } from "@pipoca/protocol";
 import { Button, Dialog, ErrorText, Icon, Picker, Segmented } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
 import { request } from "../data/client";
-import { useAction, useQuery } from "../data/hooks";
+import { shownName, useAction, usePersonName, useQuery } from "../data/hooks";
 
 type Kind = SessionAccess["kind"];
 
@@ -66,7 +66,7 @@ function AccessForm({
   );
 
   const others = teammates.filter(({ id }) => id !== session.startedBy);
-  const names = new Map(teammates.map(({ id, name }) => [id, name]));
+  const nameOf = usePersonName();
 
   const update = useAction(async (access: SessionAccess) => {
     await request("sessions.update", {
@@ -128,13 +128,16 @@ function AccessForm({
           label="People"
           placeholder="Search people"
           multiple
-          options={others.map(({ id, name }) => ({ value: id, label: name }))}
+          options={others.map((person) => ({
+            value: person.id,
+            label: shownName(person),
+          }))}
           selected={people}
           onChange={setPeople}
         >
           {people.length === 0
             ? "Pick people"
-            : people.map((id) => names.get(id) ?? id).join(", ")}
+            : people.map((id) => nameOf(id) ?? id).join(", ")}
         </Picker>
       )}
 

@@ -1,3 +1,4 @@
+import { errorText } from "@pipoca/protocol";
 import {
   defineWeb,
   type NoticeProps,
@@ -128,7 +129,7 @@ function Bots(): ReactElement {
           reload();
         },
         (reason: unknown) => {
-          setError(reason instanceof Error ? reason.message : String(reason));
+          setError(errorText(reason));
         },
       );
   };

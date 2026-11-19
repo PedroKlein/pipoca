@@ -1,3 +1,4 @@
+import { errorText } from "@pipoca/protocol";
 import { ago, useApi, useNow, useViewer } from "@pipoca/plugins/web";
 import {
   Avatar,
@@ -196,7 +197,7 @@ export function ThreadView({
         onChanged();
       })
       .catch((error: unknown) => {
-        setProblem(error instanceof Error ? error.message : String(error));
+        setProblem(errorText(error));
       })
       .finally(() => {
         setBusy(false);
@@ -376,7 +377,7 @@ function Message({
       onSaid(thread ? "Thread deleted" : "Reply deleted");
       onChanged();
     } catch (error) {
-      setProblem(error instanceof Error ? error.message : String(error));
+      setProblem(errorText(error));
     }
   };
 
@@ -405,7 +406,7 @@ function Message({
       })
       .catch((error: unknown) => {
         setPressedOn(undefined);
-        setProblem(error instanceof Error ? error.message : String(error));
+        setProblem(errorText(error));
       });
   };
 
@@ -544,7 +545,7 @@ function SuggestedEdit({
       })
       .then(onChanged)
       .catch((error: unknown) => {
-        setProblem(error instanceof Error ? error.message : String(error));
+        setProblem(errorText(error));
       })
       .finally(() => {
         setBusy(false);
@@ -673,7 +674,7 @@ function Composer({
         onChanged();
       })
       .catch((error: unknown) => {
-        setProblem(error instanceof Error ? error.message : String(error));
+        setProblem(errorText(error));
       })
       .finally(() => {
         setSending(false);

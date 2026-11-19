@@ -25,7 +25,7 @@ import {
   TextInput,
   useConfirm,
 } from "@pipoca/ui";
-import type { RepositoryChoice } from "@pipoca/protocol";
+import { type RepositoryChoice, errorText } from "@pipoca/protocol";
 import { type ReactElement, type SubmitEvent, useState } from "react";
 import { gitHosts } from "../plugin";
 import type {
@@ -177,7 +177,7 @@ function PullRequest({
     api
       .post(`pull-requests/${watch.id}/${action}`, body)
       .then(reload, (failure: unknown) => {
-        setError(failure instanceof Error ? failure.message : String(failure));
+        setError(errorText(failure));
       });
   };
 
@@ -390,7 +390,7 @@ function Bots({ hosts }: { readonly hosts: readonly string[] }): ReactElement {
           reload();
         },
         (reason: unknown) => {
-          setError(reason instanceof Error ? reason.message : String(reason));
+          setError(errorText(reason));
         },
       );
   };

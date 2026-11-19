@@ -6,15 +6,17 @@ import {
   type RouteKey,
   type Routes,
   type User,
+  errorText,
 } from "@pipoca/protocol";
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
 } from "react";
-import { errorText, request, store } from "./client";
+import { request, store } from "./client";
 
 // The routes a page reads: GETs that answer JSON.
 type QueryKey = {
@@ -253,6 +255,31 @@ export function useDisplayName(): string {
   const { user } = useMe();
 
   return useQuery("me").data?.displayName ?? user.name;
+}
+
+// The name people see for a teammate: the one they chose, or else their
+// sign-in name.
+export function shownName({
+  name,
+  displayName,
+}: {
+  readonly name: string;
+  readonly displayName?: string | undefined;
+}): string {
+  return displayName ?? name;
+}
+
+// Names teammates by id as people see them, undefined for no one known.
+export function usePersonName(): (id: string) => string | undefined {
+  const people = useQuery("people.list").data;
+
+  return useMemo(() => {
+    const names = new Map(
+      (people ?? []).map((person) => [person.id, shownName(person)]),
+    );
+
+    return (id: string) => names.get(id);
+  }, [people]);
 }
 
 export function useMe(): Me {

@@ -13,7 +13,12 @@ import {
   ShellProvider,
   watchChanges,
 } from "@pipoca/plugins/web/host";
-import type { PluginInfo, RepositoryChoice, Session } from "@pipoca/protocol";
+import {
+  type PluginInfo,
+  type RepositoryChoice,
+  type Session,
+  errorText,
+} from "@pipoca/protocol";
 import * as sdk from "@pipoca/plugins";
 import * as plugins from "@pipoca/plugins/web";
 import * as ui from "@pipoca/ui";
@@ -238,7 +243,7 @@ async function importWebPart(
 
     return web;
   } catch (error) {
-    webErrors.set(id, error instanceof Error ? error.message : String(error));
+    webErrors.set(id, errorText(error));
 
     return undefined;
   }

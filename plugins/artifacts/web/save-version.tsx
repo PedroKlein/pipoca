@@ -1,3 +1,4 @@
+import { errorText } from "@pipoca/protocol";
 import { useApi } from "@pipoca/plugins/web";
 import {
   Button,
@@ -69,7 +70,7 @@ function SaveVersionForm({
             onSaved(label.trim());
           })
           .catch((error: unknown) => {
-            setProblem(error instanceof Error ? error.message : String(error));
+            setProblem(errorText(error));
           })
           .finally(() => {
             setBusy(false);

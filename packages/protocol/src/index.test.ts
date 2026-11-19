@@ -3,6 +3,7 @@ import {
   type Assignment,
   checkoutName,
   emptyProfile,
+  errorText,
   loggedStart,
   type Profile,
   profileModel,
@@ -107,4 +108,11 @@ test("takes the model a Profile starts with from the nearest layer that sets eac
   expect(profileModel(plain, profiles, [base])).toBe("aicore/sonnet");
   expect(profileModel(plain, profiles, [])).toBeUndefined();
   expect(profileModel(undefined, profiles, [base])).toBe("aicore/sonnet");
+});
+
+test("a failure reads as its Error's message, or else as the thrown value", () => {
+  expect([
+    errorText(new Error("No such Profile")),
+    errorText("offline"),
+  ]).toEqual(["No such Profile", "offline"]);
 });
