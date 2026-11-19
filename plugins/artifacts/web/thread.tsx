@@ -10,6 +10,7 @@ import {
   TextArea,
   type Typed,
   useCompletion,
+  useConfirm,
 } from "@pipoca/ui";
 import {
   type ReactElement,
@@ -254,6 +255,7 @@ export function ThreadView({
               names={names}
               now={now}
               canReact={canComment}
+              onSaid={onSaid}
               onChanged={onChanged}
             >
               {each === top && top.kind !== "comment" && (
@@ -328,6 +330,7 @@ function Message({
   names,
   now,
   canReact,
+  onSaid,
   onChanged,
   children,
 }: {
@@ -336,6 +339,7 @@ function Message({
   readonly names: readonly string[];
   readonly now: number;
   readonly canReact: boolean;
+  readonly onSaid: (text: string) => void;
   readonly onChanged: () => void;
   // Beside the name, such as the thread's kind.
   readonly children?: ReactNode;
@@ -348,6 +352,33 @@ function Message({
   const [pressedOn, setPressedOn] = useState<readonly Reaction[]>();
   const busy = pressedOn === comment.reactions;
   const who = comment.byPi ? "Pi" : comment.author;
+  const [confirm, asking] = useConfirm();
+  const thread = comment.parent === null;
+
+  const remove = async (): Promise<void> => {
+    const yes = await confirm({
+      title: thread ? "Delete this thread?" : "Delete this reply?",
+      description: thread
+        ? "Its replies go with it. This can't be undone."
+        : "This can't be undone.",
+      confirm: "Delete",
+      danger: true,
+    });
+
+    if (!yes) {
+      return;
+    }
+
+    setProblem(undefined);
+
+    try {
+      await api.delete(`artifacts/${artifact.id}/comments/${comment.id}`);
+      onSaid(thread ? "Thread deleted" : "Reply deleted");
+      onChanged();
+    } catch (error) {
+      setProblem(error instanceof Error ? error.message : String(error));
+    }
+  };
 
   const react = (emoji: Reaction["emoji"], on: boolean): void => {
     if (busy) {
@@ -397,24 +428,46 @@ function Message({
             ago(new Date(comment.createdAt).toISOString(), now),
           ].join(" · ")}
           {children}
-          {canReact && (
-            <span className="ml-auto focus-within:opacity-100 group-hover:opacity-100 has-aria-expanded:opacity-100 pointer-fine:opacity-0">
-              <Menu
-                label="Add a reaction"
-                align="end"
-                size="sm"
-                variant="ghost"
-                icon="smile-plus"
-                items={reactionEmoji.map((emoji) => ({
-                  label: mine(emoji)
-                    ? `Take back ${reactionNames[emoji].toLowerCase()}`
-                    : reactionNames[emoji],
-                  mark: <span aria-hidden="true">{emoji}</span>,
-                  run: () => {
-                    react(emoji, !mine(emoji));
-                  },
-                }))}
-              />
+          {(canReact || comment.deletable) && (
+            <span className="ml-auto flex focus-within:opacity-100 group-hover:opacity-100 has-aria-expanded:opacity-100 pointer-fine:opacity-0">
+              {canReact && (
+                <Menu
+                  label="Add a reaction"
+                  align="end"
+                  size="sm"
+                  variant="ghost"
+                  icon="smile-plus"
+                  items={reactionEmoji.map((emoji) => ({
+                    label: mine(emoji)
+                      ? `Take back ${reactionNames[emoji].toLowerCase()}`
+                      : reactionNames[emoji],
+                    mark: <span aria-hidden="true">{emoji}</span>,
+                    run: () => {
+                      react(emoji, !mine(emoji));
+                    },
+                  }))}
+                />
+              )}
+              {comment.deletable && (
+                <Menu
+                  label={
+                    thread ? "More for this thread" : "More for this reply"
+                  }
+                  align="end"
+                  size="sm"
+                  variant="ghost"
+                  items={[
+                    {
+                      label: thread ? "Delete thread" : "Delete reply",
+                      icon: "trash",
+                      danger: true,
+                      run: () => {
+                        void remove();
+                      },
+                    },
+                  ]}
+                />
+              )}
             </span>
           )}
         </span>
@@ -459,6 +512,7 @@ function Message({
         )}
         <ErrorText size="caption">{problem}</ErrorText>
       </div>
+      {asking}
     </li>
   );
 }
@@ -686,6 +740,12 @@ function Composer({
 }
 
 function hint(artifact: ArtifactView, thread: Comment): string {
+  if (thread.sentBy === null && thread.byPi) {
+    return artifact.askable
+      ? "Pi started this thread: replies wake it until it's resolved."
+      : "Pi started this thread: replies from people who can act in its Session reach it.";
+  }
+
   if (thread.sentBy !== null) {
     return artifact.askable
       ? "This thread is sent to Pi: replies wake it until it's resolved."

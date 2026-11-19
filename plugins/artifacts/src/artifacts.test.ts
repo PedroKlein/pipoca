@@ -1207,7 +1207,7 @@ test("threads asked in a turn that is cut short still reach Pi, once", async () 
   expect(host.delivered()).toHaveLength(1);
 });
 
-test("Pi answers and resolves only threads sent to it, once per person's word", async () => {
+test("Pi answers and resolves threads, once per person's word", async () => {
   const setup = await setUp();
   const { host, part } = setup;
   const { comment, status, listed } = await shared(setup);
@@ -1258,14 +1258,144 @@ test("Pi answers and resolves only threads sent to it, once per person's word", 
   expect(await status("comments/send", "ana", { threads: [sent.id] })).toBe(
     400,
   );
+});
 
-  const unsent = await comment("bo", "Not for Pi");
+test("Pi answers and resolves any thread on an artifact it reaches, via whoever started its Session, not ones it can only view", async () => {
+  const setup = await setUp();
+  const { t, part } = setup;
+  const { id, comment, listed } = await shared(setup);
+  const unsent = await comment("bo", "Not sent to Pi");
 
-  expect(await answer(unsent.id)).toMatchObject({ isError: true });
+  expect(
+    await part.tool("reply_artifact_comment", {
+      thread: unsent.id,
+      text: "Seen it.",
+    }),
+  ).toMatchObject({ isError: false });
 
   expect(
     await part.tool("resolve_artifact_comment", { thread: unsent.id }),
+  ).toMatchObject({ isError: false });
+
+  expect(await listed("bo")).toMatchObject([
+    { id: unsent.id, sentBy: null, resolved: true, resolvedByPi: true },
+    { parent: unsent.id, author: "Ana", byPi: true, body: "Seen it." },
+  ]);
+
+  const told = await t
+    .as("bo")
+    .get<{ items: ActivityItem[] }>("activity?view=mine");
+
+  expect(told.items).toMatchObject([{ kind: "reply", by: "Pi", byPi: true }]);
+
+  const cys = await t.session({ owner: person("cy") });
+  const cwd = await mkdtemp(join(tmpdir(), "artifacts-"));
+
+  folders.push(cwd);
+
+  const viewer = await testSession(session, {
+    request: cys.api.raw,
+    cwd,
+    folder: join(cwd, ".artifacts"),
+  });
+
+  expect(
+    await viewer.tool("reply_artifact_comment", {
+      thread: unsent.id,
+      text: "Me too.",
+    }),
   ).toMatchObject({ isError: true });
+
+  expect(
+    await viewer.tool("add_artifact_comment", { id, text: "Me too." }),
+  ).toMatchObject({ isError: true });
+});
+
+test("Pi starts a thread on a passage of an artifact, and replies from people who steer it reach Pi", async () => {
+  const setup = await setUp();
+  const { host, part } = setup;
+  const { id, comment, listed } = await shared(setup);
+
+  expect(
+    await part.tool("add_artifact_comment", {
+      id,
+      text: "Is Friday firm?",
+      quote: "Ship Friday.",
+      kind: "question",
+    }),
+  ).toMatchObject({ isError: false });
+
+  expect(
+    await part.tool("add_artifact_comment", {
+      id,
+      text: "And Monday?",
+      quote: "Ship Monday.",
+    }),
+  ).toMatchObject({ isError: true });
+
+  const [mine] = await listed("bo");
+
+  expect(mine).toMatchObject({
+    author: "Ana",
+    byPi: true,
+    kind: "question",
+    quote: "Ship Friday.",
+    sentBy: null,
+  });
+
+  await comment("bo", "Looks firm to me", { parent: mine?.id ?? "" });
+  await comment("ana", "Yes, it is", { parent: mine?.id ?? "" });
+  await until(() => host.delivered().length === 1);
+
+  expect(host.delivered()[0]?.text).toContain(`thread ${mine?.id ?? ""}`);
+});
+
+test("authors delete their own comments, people who steer delete any, and a thread goes with its replies", async () => {
+  const setup = await setUp();
+  const { t, part } = setup;
+  const { id, comment, listed } = await shared(setup);
+  const bos = await comment("bo", "Friday is too soon");
+  const again = await comment("bo", "Or is it?", { parent: bos.id });
+  const anas = await comment("ana", "Add the owner");
+
+  await part.tool("reply_artifact_comment", { thread: anas.id, text: "Done." });
+
+  const remove = async (who: string, target: string): Promise<number> =>
+    (
+      await t
+        .as(who)
+        .raw(`artifacts/${id}/comments/${target}`, { method: "DELETE" })
+    ).status;
+
+  expect(
+    (await listed("bo")).map(({ body, deletable }) => [body, deletable]),
+  ).toEqual([
+    ["Friday is too soon", true],
+    ["Or is it?", true],
+    ["Add the owner", false],
+    ["Done.", false],
+  ]);
+
+  expect((await listed("ana")).every(({ deletable }) => deletable)).toBe(true);
+  expect((await listed("cy")).some(({ deletable }) => deletable)).toBe(false);
+
+  expect(await remove("cy", bos.id)).toBe(403);
+  expect(await remove("bo", anas.id)).toBe(403);
+  expect(await remove("bo", again.id)).toBe(200);
+  expect(await remove("bo", "nope")).toBe(404);
+
+  expect((await listed()).map(({ body }) => body)).toEqual([
+    "Friday is too soon",
+    "Add the owner",
+    "Done.",
+  ]);
+
+  const done = (await listed()).find(({ body }) => body === "Done.");
+
+  expect(await remove("ana", done?.id ?? "")).toBe(200);
+  await comment("bo", "Still too soon", { parent: bos.id });
+  expect(await remove("ana", bos.id)).toBe(200);
+  expect((await listed()).map(({ body }) => body)).toEqual(["Add the owner"]);
 });
 
 test("comment text reaches Pi as data it can't break out of", async () => {
