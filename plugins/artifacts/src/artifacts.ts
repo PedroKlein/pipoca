@@ -230,6 +230,8 @@ export interface Comment {
   readonly reactions: readonly Reaction[];
   // On a reply of Pi's, the edit it suggests.
   readonly suggestion: Suggestion | null;
+  // The reader wrote it or steers the artifact.
+  readonly deletable: boolean;
 }
 
 // Replacing find, once in the version Pi read, with replace.

@@ -258,16 +258,17 @@ export const session = defineSession(artifacts, (s) => {
     name: "reply_artifact_comment",
     label: "Reply to artifact comment",
     description:
-      "Answers a comment thread that was sent to you, in the thread, where people asked. Shown as Pi, via the person who sent it. Refused when your last reply is still the newest.",
+      "Answers a comment thread on an artifact you can comment on, in the thread, where people asked. Shown as Pi, via the person who sent it or who started this Session. Refused when your last reply is still the newest.",
     params: Type.Object({
       thread: Type.String({ description: "The thread's id" }),
       text: Type.String({ description: "Your reply, in Markdown" }),
     }),
     annotations: { destructive: false },
     prompt: {
-      snippet: "Answer a comment thread sent to you",
+      snippet: "Answer a comment thread on an artifact",
       guidelines: [
         "When people send you comment threads on an artifact, answer each one with reply_artifact_comment, not in the chat, and resolve the ones you finished with resolve_artifact_comment.",
+        "When you act on feedback about an artifact, from comments or the chat, answer in the comment threads it came from and resolve the ones you finished, so people see it on the artifact.",
       ],
     },
     run: async ({ thread, text }) => {
@@ -283,7 +284,7 @@ export const session = defineSession(artifacts, (s) => {
     name: "suggest_artifact_edit",
     label: "Suggest artifact edit",
     description:
-      "Answers a comment thread sent to you on a Markdown artifact with an edit people accept or reject: find is text that's in the latest version exactly once, replace is what goes there. Accepting saves a new version. Refused like a reply when your last answer is still the newest.",
+      "Answers a comment thread on a Markdown artifact with an edit people accept or reject: find is text that's in the latest version exactly once, replace is what goes there. Accepting saves a new version. Refused like a reply when your last answer is still the newest.",
     params: Type.Object({
       thread: Type.String({ description: "The thread's id" }),
       find: Type.String({
@@ -316,7 +317,7 @@ export const session = defineSession(artifacts, (s) => {
     name: "resolve_artifact_comment",
     label: "Resolve artifact comment",
     description:
-      "Resolves a comment thread that was sent to you, once you've done what it asked. A person can reopen it.",
+      "Resolves a comment thread on an artifact you can comment on, once you've done what it asked. A person can reopen it.",
     params: Type.Object({
       thread: Type.String({ description: "The thread's id" }),
     }),
@@ -330,6 +331,52 @@ export const session = defineSession(artifacts, (s) => {
       return `Resolved thread ${thread}.`;
     },
   });
+
+  s.tools.define({
+    name: "add_artifact_comment",
+    label: "Comment on artifact",
+    description:
+      "Starts a comment thread on the latest version of an artifact you can comment on, on a passage you quote or on the whole page. Shown as Pi, via the person who started this Session. Replies from people who can act in the Session that published it reach you as threads sent to you.",
+    params: Type.Object({
+      id: Type.String({ description: "The artifact's id" }),
+      text: Type.String({ description: "Your comment, in Markdown" }),
+      quote: Type.Optional(
+        Type.String({
+          description:
+            "The passage it's on, copied exactly from the latest version. Leave it out for the whole page",
+        }),
+      ),
+      kind: Type.Optional(
+        Type.Union(
+          [
+            Type.Literal("comment"),
+            Type.Literal("question"),
+            Type.Literal("suggestion"),
+          ],
+          { description: "comment unless it asks or suggests" },
+        ),
+      ),
+    }),
+    annotations: { destructive: false },
+    prompt: {
+      snippet: "Start a comment thread on an artifact",
+      guidelines: [
+        "To ask people about or flag a passage of an artifact, start a thread on it with add_artifact_comment rather than asking in the chat.",
+      ],
+    },
+    run: async ({ id, text, quote, kind }) => {
+      const { id: thread } = await s.api.post<{ id: string }>(
+        `session/artifacts/${encodeURIComponent(id)}/comments`,
+        {
+          text,
+          ...(quote !== undefined && { quote }),
+          ...(kind !== undefined && { kind }),
+        },
+      );
+
+      return `Started thread ${thread}.`;
+    },
+  });
 });
 
 function threadLines(comments: readonly Comment[]): string[] {
@@ -337,7 +384,7 @@ function threadLines(comments: readonly Comment[]): string[] {
     .filter((each) => each.parent === null)
     .flatMap((thread) => [
       [
-        `${thread.author}${said[thread.kind]} on version ${String(thread.version)}, thread ${thread.id}`,
+        `${thread.byPi ? `You${saidByYou[thread.kind]}` : `${thread.author}${said[thread.kind]}`} on version ${String(thread.version)}, thread ${thread.id}`,
         thread.quote === ""
           ? ""
           : `, about ${thread.element === "" ? "" : "the element "}“${fence(thread.quote)}”`,
@@ -381,6 +428,13 @@ const said: Readonly<Record<CommentKind, string>> = {
   question: " asks",
   decision: " records a decision",
   suggestion: " suggests",
+};
+
+const saidByYou: Readonly<Record<CommentKind, string>> = {
+  comment: " wrote",
+  question: " asked",
+  decision: " recorded a decision",
+  suggestion: " suggested",
 };
 
 // Comment text is what people wrote, so Pi reads it as data.

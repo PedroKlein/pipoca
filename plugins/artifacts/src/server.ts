@@ -1097,6 +1097,7 @@ export const server = defineServer(
       reader: string | null,
       reactions: ReadonlyMap<string, readonly Reaction[]> = new Map(),
       suggestions: ReadonlyMap<string, Suggestion> = new Map(),
+      steering = false,
     ): Comment => ({
       id: each.id,
       kind: each.kind,
@@ -1114,6 +1115,8 @@ export const server = defineServer(
       createdAt: each.created_at,
       reactions: reactions.get(each.id) ?? [],
       suggestion: suggestions.get(each.id) ?? null,
+      deletable:
+        steering || (each.by_pi === 0 && each.author_user_id === reader),
     });
 
     const comments = (
@@ -1122,13 +1125,19 @@ export const server = defineServer(
     ): readonly Comment[] => {
       const reactions = reactionsOf(id, reader);
       const suggestions = suggestionsOf(id, reader);
+      const artifact = row(id);
+
+      const steering =
+        reader !== null && artifact !== undefined && steers(artifact, reader);
 
       return store
         .all<CommentRow>(
           "select * from artifacts_comments where artifact_id = ? order by created_at, id",
           id,
         )
-        .map((each) => toComment(each, reader, reactions, suggestions));
+        .map((each) =>
+          toComment(each, reader, reactions, suggestions, steering),
+        );
     };
 
     const thread = (artifact: Row, id: string): CommentRow => {
@@ -1404,7 +1413,10 @@ export const server = defineServer(
         }
 
         const open = parent === undefined || parent.resolved_at === null;
-        const follows = parent?.sent_to_pi === 1 && open;
+
+        // Pi hears replies to its own threads as to ones sent to it.
+        const follows =
+          (parent?.sent_to_pi === 1 || parent?.by_pi === 1) && open;
 
         const listens = listening(artifact, caller.person.id);
 
@@ -1464,6 +1476,38 @@ export const server = defineServer(
         });
 
         return { id, sentToPi: toSession !== undefined };
+      },
+    );
+
+    // A thread goes with its replies.
+    routes.delete(
+      "artifacts/:id/comments/:comment",
+      { auth: "person", changes: ["artifacts"] },
+      ({ caller, params }) => {
+        const artifact = commenter(params.id, caller);
+
+        const found = store.get<CommentRow>(
+          "select * from artifacts_comments where id = ? and artifact_id = ?",
+          params.comment,
+          artifact.id,
+        );
+
+        if (found === undefined) {
+          throw new NotFound(`no comment ${params.comment}`);
+        }
+
+        const own =
+          found.by_pi === 0 && found.author_user_id === caller.person.id;
+
+        if (!own && !steers(artifact, caller.person.id)) {
+          throw new Forbidden(
+            "Only its author and people who can act in its Session delete a comment.",
+          );
+        }
+
+        store.run("delete from artifacts_comments where id = ?", found.id);
+
+        return { deleted: found.id };
       },
     );
 
@@ -2204,6 +2248,79 @@ export const server = defineServer(
       }),
     );
 
+    // Pi's own thread, on the latest version: on a passage of a Markdown
+    // doc only when it's there, so it's pinned where Pi meant.
+    routes.post(
+      "session/artifacts/:id/comments",
+      {
+        auth: "session",
+        body: Type.Object({
+          text: Type.String({ minLength: 1, maxLength: 10_000 }),
+          quote: Type.Optional(Type.String({ minLength: 1, maxLength: 2000 })),
+          kind: Type.Optional(
+            Type.Union([
+              Type.Literal("comment"),
+              Type.Literal("question"),
+              Type.Literal("suggestion"),
+            ]),
+          ),
+        }),
+        changes: ["artifacts"],
+      },
+      async ({ caller, params, body }) => {
+        const artifact = sessionArtifact(caller, params.id);
+
+        piWrites(caller, artifact);
+
+        const latest = versionOf(artifact);
+
+        if (
+          body.quote !== undefined &&
+          kindOf(latest.name) === "markdown" &&
+          !new TextDecoder().decode(await content(latest)).includes(body.quote)
+        ) {
+          throw new BadRequest(
+            `quote isn't in version ${String(latest.number)}: read it with read_artifact and quote it exactly.`,
+          );
+        }
+
+        const id = Bun.randomUUIDv7();
+        const author = caller.session.startedBy;
+
+        store.run(
+          "insert into artifacts_comments (id, artifact_id, version, author_user_id, by_pi, kind, quote, body, created_at) values (?, ?, ?, ?, 1, ?, ?, ?, ?)",
+          id,
+          artifact.id,
+          latest.number,
+          author,
+          body.kind ?? "comment",
+          body.quote ?? "",
+          body.text,
+          clock.now(),
+        );
+
+        if (author !== null) {
+          const to = new Map<string, ActivityKind>();
+
+          if (artifact.owner_user_id !== null) {
+            to.set(artifact.owner_user_id, "comment");
+          }
+
+          for (const each of mentioned(body.text)) {
+            to.set(each, "mention");
+          }
+
+          activity.tell(artifact.id, to, {
+            comment: id,
+            actor: author,
+            byPi: true,
+          });
+        }
+
+        return { id };
+      },
+    );
+
     // The threads people asked Pi in since it last read them, oldest first,
     // with their replies. Only the ones returned count as read.
     routes.post(
@@ -2252,26 +2369,50 @@ export const server = defineServer(
       },
     );
 
-    // Pi answers only in threads sent to its own Session.
-    const sentThread = (caller: SessionCaller, id: string): CommentRow => {
+    // Pi writes on an artifact its Session reaches as whoever started it,
+    // so only where they may comment.
+    const piWrites = (caller: SessionCaller, artifact: Row): void => {
+      const { startedBy } = caller.session;
+
+      if (
+        artifact.session_id !== caller.session.id &&
+        (startedBy === null || access(artifact, startedBy) === "view")
+      ) {
+        throw new Forbidden(
+          `You can read “${artifact.title}” but not comment on it.`,
+        );
+      }
+    };
+
+    const piThread = (caller: SessionCaller, id: string): CommentRow => {
       const found = store.get<CommentRow>(
-        `select c.* from artifacts_comments c
-         join artifacts_artifacts a on a.id = c.artifact_id
-         where c.id = ? and c.parent_id is null and c.sent_to_pi = 1 and a.session_id = ?`,
+        "select * from artifacts_comments where id = ? and parent_id is null",
         id,
-        caller.session.id,
       );
 
-      if (found === undefined) {
-        throw new NotFound(`no comment thread ${id} sent to this Session`);
+      const artifact = found === undefined ? undefined : row(found.artifact_id);
+
+      if (
+        found === undefined ||
+        artifact === undefined ||
+        !reaches(caller.session, artifact)
+      ) {
+        throw new NotFound(`no comment thread ${id}`);
       }
+
+      piWrites(caller, artifact);
 
       return found;
     };
 
+    // Pi's word in a thread is via whoever sent it, or else whoever
+    // started the Session.
+    const via = (caller: SessionCaller, top: CommentRow): string | null =>
+      top.sent_by_user_id ?? caller.session.startedBy;
+
     // Pi answers once per person's word, in a thread that's still open.
     const answerable = (caller: SessionCaller, id: string): CommentRow => {
-      const top = sentThread(caller, id);
+      const top = piThread(caller, id);
 
       if (top.resolved_at !== null) {
         throw new HttpError(
@@ -2298,7 +2439,12 @@ export const server = defineServer(
       return top;
     };
 
-    const answer = (top: CommentRow, text: string, on?: number): string => {
+    const answer = (
+      caller: SessionCaller,
+      top: CommentRow,
+      text: string,
+      on?: number,
+    ): string => {
       const id = Bun.randomUUIDv7();
 
       store.run(
@@ -2307,7 +2453,7 @@ export const server = defineServer(
         top.artifact_id,
         on ?? versions(top.artifact_id).at(-1)?.number ?? top.version,
         top.id,
-        top.sent_by_user_id,
+        via(caller, top),
         text,
         clock.now(),
       );
@@ -2315,12 +2461,18 @@ export const server = defineServer(
       return id;
     };
 
-    const toldOfAnswer = (top: CommentRow, id: string): void => {
-      if (top.sent_by_user_id !== null) {
+    const toldOfAnswer = (
+      caller: SessionCaller,
+      top: CommentRow,
+      id: string,
+    ): void => {
+      const actor = via(caller, top);
+
+      if (actor !== null) {
         activity.tell(
           top.artifact_id,
           new Map(threadPeople(top.id).map((each) => [each, "reply"])),
-          { comment: id, actor: top.sent_by_user_id, byPi: true },
+          { comment: id, actor, byPi: true },
         );
       }
     };
@@ -2336,9 +2488,9 @@ export const server = defineServer(
       },
       ({ caller, params, body }) => {
         const top = answerable(caller, params.thread);
-        const id = answer(top, body.text);
+        const id = answer(caller, top, body.text);
 
-        toldOfAnswer(top, id);
+        toldOfAnswer(caller, top, id);
 
         return { id };
       },
@@ -2362,9 +2514,7 @@ export const server = defineServer(
         const artifact = row(top.artifact_id);
 
         if (artifact === undefined) {
-          throw new NotFound(
-            `no comment thread ${top.id} sent to this Session`,
-          );
+          throw new NotFound(`no comment thread ${top.id}`);
         }
 
         const latest = versionOf(artifact);
@@ -2392,7 +2542,7 @@ export const server = defineServer(
         const still = answerable(caller, params.thread);
 
         const id = store.transaction(() => {
-          const made = answer(still, body.text ?? "", latest.number);
+          const made = answer(caller, still, body.text ?? "", latest.number);
 
           store.run(
             "insert into artifacts_suggestions (comment_id, version, find, replace) values (?, ?, ?, ?)",
@@ -2405,7 +2555,7 @@ export const server = defineServer(
           return made;
         });
 
-        toldOfAnswer(still, id);
+        toldOfAnswer(caller, still, id);
 
         return { id };
       },
@@ -2415,7 +2565,7 @@ export const server = defineServer(
       "session/comments/:thread/resolve",
       { auth: "session", changes: ["artifacts"] },
       ({ caller, params }) => {
-        const top = sentThread(caller, params.thread);
+        const top = piThread(caller, params.thread);
 
         store.run(
           "update artifacts_comments set resolved_at = ?, resolved_by_pi = 1 where id = ? and resolved_at is null",

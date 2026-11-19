@@ -36,7 +36,7 @@ Claude Code was read again on 2026-11-18 ([research](../research.md#artifacts-an
 ### Pi answers in the thread
 
 - New tools: `reply_artifact_comment(thread, text)`, `resolve_artifact_comment(thread)` and, for Markdown, `suggest_artifact_edit(thread, find, replace)`.
-- Pi replies and resolves only in threads sent to it. A reply shows as "Pi, via" the person who sent the thread. A second reply with nothing new after the last request is refused.
+- Pi replies and resolves only in threads sent to it ([ADR 0083](0083-pi-in-comment-threads.md) lets it answer any thread it can comment on). A reply shows as "Pi, via" the person who sent the thread. A second reply with nothing new after the last request is refused.
 - A suggested edit shows in the thread as a change with Accept and Reject. Accept saves a new version under the person who accepted.
 - `publish_artifact(path, id?, label?, base?)` takes a short label for the version, and refuses when `base` is older than the latest version, returning the newer one for Pi to merge.
 - A person's own new version (an edit or an accepted suggestion) reaches the Session as a notice without a turn.

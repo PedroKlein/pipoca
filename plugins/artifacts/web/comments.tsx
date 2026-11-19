@@ -408,7 +408,7 @@ export function CommentList({
   }, [margin, order]);
 
   const drafts = artifact.askable
-    ? open.filter(({ top }) => top.sentBy === null)
+    ? open.filter(({ top }) => top.sentBy === null && !top.byPi)
     : [];
 
   const chosen = drafts.filter(({ top }) => !leftOut.has(top.id));
@@ -729,7 +729,9 @@ function ThreadCard({
           />
         )}
         <PinMark n={n} pinned={pinned} />
-        <b className="text-label font-medium text-fg-strong">{top.author}</b>
+        <b className="text-label font-medium text-fg-strong">
+          {top.byPi ? "Pi" : top.author}
+        </b>
         <span className="min-w-0 flex-1 truncate">
           {element
             ? `on “${top.quote}”`
@@ -752,7 +754,7 @@ function ThreadCard({
         ].join(" ")}
         autoFocus={focused}
         onFocus={focused ? onFocused : undefined}
-        aria-label={`Comment ${String(n)} by ${top.author}`}
+        aria-label={`Comment ${String(n)} by ${top.byPi ? "Pi" : top.author}`}
         onClick={onOpen}
         className="flex cursor-pointer flex-col gap-1.5 rounded-md text-left focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
       >

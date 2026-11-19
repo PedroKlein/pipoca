@@ -2943,6 +2943,7 @@ function thread(o: Partial<Comment> & { readonly id: string }): Comment {
     createdAt: Date.now(),
     reactions: [],
     suggestion: null,
+    deletable: false,
     ...o,
   };
 }
@@ -3880,6 +3881,102 @@ test("people who only view read a thread but don't react or reply", async () => 
   expect(named(page, "Add a reaction")).toBeUndefined();
   expect(named(page, "Resolve")).toBeUndefined();
   expect(page.querySelector("form[aria-label=Reply]")).toBeNull();
+});
+
+test("people delete what they may after saying yes, and a thread Pi started shows as Pi's", async () => {
+  const asked: Served[] = [];
+
+  let comments = [
+    thread({ id: "t1", author: "Ana", byPi: true, body: "Is Friday firm?" }),
+    thread({
+      id: "t2",
+      parent: "t1",
+      author: "You",
+      body: "Yes",
+      deletable: true,
+    }),
+    thread({ id: "t3", parent: "t1", author: "Bo", body: "No" }),
+  ];
+
+  const page = renderPart(
+    web,
+    "overlay",
+    {},
+    {
+      hash: "#session-1?artifact=a1&comments=1",
+      fetch: async (url, init) => {
+        if (init?.method === "DELETE") {
+          comments = comments.filter(({ id }) => !url.endsWith(`/${id}`));
+        }
+
+        return serving(
+          { ...artifact({ versions: 2 }), ...viewed(2), askable: true },
+          asked,
+          { comments: () => comments },
+        )(url, init);
+      },
+    },
+  );
+
+  await opened(asked);
+  await drawn(() => named(page, "Comment 1 by Pi") !== undefined);
+
+  expect(named(page, "Send to Pi")).toBeUndefined();
+
+  act(() => {
+    named(page, "Comment 1 by Pi")?.click();
+  });
+
+  expect(page.textContent).toContain(
+    "Pi started this thread: replies wake it until it's resolved.",
+  );
+
+  expect(
+    buttons(page)
+      .map((each) => each.getAttribute("aria-label"))
+      .filter((label) => label?.startsWith("More for") === true),
+  ).toEqual(["More for this reply"]);
+
+  act(() => {
+    named(page, "More for this reply")?.click();
+  });
+
+  act(() => {
+    item(page, "Delete reply")?.click();
+  });
+
+  await drawn(() => page.querySelector("dialog[open]") !== null);
+
+  act(() => {
+    asking(page, "Delete this reply?", "Cancel");
+  });
+
+  await act(async () => Promise.resolve());
+  expect(asked.some(({ method }) => method === "DELETE")).toBe(false);
+
+  act(() => {
+    named(page, "More for this reply")?.click();
+  });
+
+  act(() => {
+    item(page, "Delete reply")?.click();
+  });
+
+  await drawn(() => page.querySelector("dialog[open]") !== null);
+
+  act(() => {
+    asking(page, "Delete this reply?", "Delete");
+  });
+
+  await drawn(() => !page.textContent.includes("Yes"));
+
+  expect(asked.filter(({ method }) => method === "DELETE")).toEqual([
+    { url: "/api/ext/artifacts/artifacts/a1/comments/t2", method: "DELETE" },
+  ]);
+
+  expect(page.querySelector("[role=status]")?.textContent).toBe(
+    "Reply deleted",
+  );
 });
 
 test("Pi's suggested edit shows what goes and what comes, and someone who steers accepts it as the next version or rejects it", async () => {
