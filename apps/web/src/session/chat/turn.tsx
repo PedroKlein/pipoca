@@ -35,7 +35,7 @@ function partItems(
           <li
             key={key}
             data-role="assistant"
-            className="[content-visibility:auto]"
+            className="[contain-intrinsic-size:auto_3rem] [content-visibility:auto]"
           >
             <Answer text={part.text} />
           </li>,
@@ -126,7 +126,7 @@ export function turnItems({
       <li
         key={`${String(turn.key)}-user`}
         data-role="user"
-        className="max-w-[85%] self-end rounded-xl rounded-br-sm bg-elevated px-4 py-2.5 text-prose whitespace-pre-wrap text-fg-strong shadow-card [content-visibility:auto]"
+        className="max-w-[85%] self-end rounded-xl rounded-br-sm bg-elevated px-4 py-2.5 text-prose whitespace-pre-wrap text-fg-strong shadow-card [contain-intrinsic-size:auto_3rem] [content-visibility:auto]"
       >
         {turn.images && (
           <span className="mb-2 flex flex-wrap justify-end gap-2">
@@ -180,7 +180,7 @@ export function turnItems({
       <li
         key={`${String(turn.key)}-answer-${String(at)}`}
         data-role="assistant"
-        className="[content-visibility:auto]"
+        className="[contain-intrinsic-size:auto_3rem] [content-visibility:auto]"
       >
         <Answer text={text} />
       </li>

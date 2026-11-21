@@ -676,6 +676,53 @@ test("chats with a session, replays it after a reload and opens its terminal", a
   await rows.filter({ hasText: "survived=yes" }).waitFor();
 }, 30_000);
 
+test("opens a long chat at its latest turns and draws older ones on scrolling up", async () => {
+  const count = 33;
+
+  faux.setResponses(
+    Array.from({ length: count }, (_, at) =>
+      fauxAssistantMessage([fauxText(`reply ${String(at + 1)}`)]),
+    ),
+  );
+
+  await page.goto(server.url.href);
+  await page.getByRole("button", { name: "New session" }).click();
+  const form = page.locator("form#create");
+
+  await pickWorkspace(form, root);
+  await form.getByRole("button", { name: "Start session" }).click();
+  await page.locator("#status", { hasText: "idle" }).waitFor();
+
+  const said = page.locator('#chat li[data-role="assistant"]');
+
+  for (let at = 1; at <= count; at++) {
+    await page.locator("#prompt-text").fill(`message ${String(at)}`);
+    await page.locator("#prompt-text").press("Enter");
+    await said.filter({ hasText: `reply ${String(at)}` }).waitFor();
+  }
+
+  await page.reload();
+  await said.filter({ hasText: `reply ${String(count)}` }).waitFor();
+  const users = page.locator('#chat li[data-role="user"]');
+
+  expect(await users.count()).toBe(30);
+  expect(await users.first().textContent()).toBe("message 4");
+
+  await page.evaluate(
+    "document.querySelector('#chat').parentElement.scrollTo({ top: 0 })",
+  );
+
+  await users.filter({ hasText: /^message 1$/ }).waitFor();
+
+  expect(
+    await page.evaluate<number>(
+      "document.querySelector('#chat').parentElement.scrollTop",
+    ),
+  ).toBeGreaterThan(0);
+
+  expect(await page.getByText("Show earlier messages").count()).toBe(0);
+}, 60_000);
+
 test("folds what Pi said between steps into the turn's one line, in order", async () => {
   faux.setResponses([
     fauxAssistantMessage(
