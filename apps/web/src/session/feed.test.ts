@@ -133,6 +133,28 @@ test("a reconnect drops text streamed before the stream went down", () => {
   expect(stream.feeds.at(-1)?.streaming).toBe(" more");
 });
 
+test("shows what Pi thinks until it starts saying or doing something", () => {
+  const stream = connect();
+  stream.live({ type: "thinking", delta: "Weighing " });
+  stream.live({ type: "thinking", delta: "it" });
+
+  expect(stream.feeds.at(-1)?.thinking).toBe("Weighing it");
+
+  stream.live({ type: "text", delta: "Hi" });
+
+  expect(stream.feeds.at(-1)?.thinking).toBeUndefined();
+
+  stream.live({ type: "thinking", delta: "Again" });
+  stream.live({ type: "tool_start", toolCallId: "t1", toolName: "bash" });
+
+  expect(stream.feeds.at(-1)?.thinking).toBeUndefined();
+
+  stream.live({ type: "thinking", delta: "Once more" });
+  stream.entry({ role: "assistant", content: [{ type: "text", text: "Hi" }] });
+
+  expect(stream.feeds.at(-1)?.thinking).toBeUndefined();
+});
+
 test("a transcript entry keeps a tool running until it holds the tool's result", () => {
   const stream = connect();
   stream.live({ type: "tool_start", toolCallId: "t1", toolName: "bash" });

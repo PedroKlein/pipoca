@@ -40,6 +40,7 @@ export interface Feed {
   // Who sent a team Session's messages and who stopped it, oldest first.
   readonly voices: readonly Voice[];
   readonly streaming: string | undefined;
+  readonly thinking: string | undefined;
   readonly tools: readonly { readonly id: string; readonly name: string }[];
   readonly prompts: readonly OpenPrompt[];
   readonly statuses: readonly string[];
@@ -75,6 +76,7 @@ export const emptyFeed: Feed = {
   items: [],
   voices: [],
   streaming: undefined,
+  thinking: undefined,
   tools: [],
   prompts: [],
   statuses: [],
@@ -181,6 +183,7 @@ export function feedReader({
 
           update({
             ...(!behind && { streaming: undefined }),
+            thinking: undefined,
             tools: [],
           });
         }
@@ -194,13 +197,22 @@ export function feedReader({
         }
 
         echo = "";
-        update({ streaming: (feed.streaming ?? "") + event.delta });
+
+        update({
+          streaming: (feed.streaming ?? "") + event.delta,
+          thinking: undefined,
+        });
+
+        return;
+      case "thinking":
+        update({ thinking: (feed.thinking ?? "") + event.delta });
 
         return;
       case "tool_start":
         echo = "";
 
         update({
+          thinking: undefined,
           tools: [
             ...feed.tools,
             { id: event.toolCallId, name: event.toolName },
@@ -357,6 +369,7 @@ export function feedReader({
     return {
       ...surfaces(),
       streaming: undefined,
+      thinking: undefined,
       tools: [],
       queue: emptyFeed.queue,
       terminals: [],
@@ -413,6 +426,7 @@ export function feedReader({
 
         update({
           streaming: undefined,
+          thinking: undefined,
           tools: feed.tools.filter(
             ({ id }) =>
               !items.some((item) => item.role === "result" && item.id === id),

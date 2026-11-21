@@ -16,6 +16,7 @@ import {
   type FauxResponseFactory,
   fauxProvider,
   fauxText,
+  fauxThinking,
   fauxToolCall,
 } from "@earendil-works/pi-ai";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
@@ -774,6 +775,43 @@ test("folds what Pi said between steps into the turn's one line, in order", asyn
   expect(await work.textContent()).toMatch(
     /^Worked for \d+s.*Looking at the folder first\..*pwd.*Now checking the date\..*date/s,
   );
+}, 30_000);
+
+test("folds what Pi thought into a line above its answer", async () => {
+  faux.setResponses([
+    fauxAssistantMessage([
+      fauxThinking("Weighing the two options."),
+      fauxText("Pick the first one."),
+    ]),
+  ]);
+
+  await page.goto(server.url.href);
+  await page.getByRole("button", { name: "New session" }).click();
+  const form = page.locator("form#create");
+
+  await pickWorkspace(form, root);
+  await form.getByRole("button", { name: "Start session" }).click();
+  await page.locator("#status", { hasText: "idle" }).waitFor();
+
+  await page.locator("#prompt-text").fill("which one?");
+  await page.locator("#prompt-text").press("Enter");
+
+  const work = page.locator('#chat li[data-role="work"]');
+
+  await work
+    .locator("summary")
+    .first()
+    .getByText(/^Thought for/)
+    .waitFor();
+
+  expect(
+    (
+      await page.locator('#chat li[data-role="assistant"]').allTextContents()
+    ).map((text) => text.trim()),
+  ).toEqual(["Pick the first one."]);
+
+  await work.locator("summary").first().click();
+  await work.getByText("Weighing the two options.").waitFor();
 }, 30_000);
 
 test("draws the agent's Mermaid diagrams in chat and shows broken ones as code", async () => {

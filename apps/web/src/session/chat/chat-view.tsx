@@ -90,6 +90,7 @@ export function ChatView({
   const live =
     feed.session?.status === "running" ||
     feed.streaming !== undefined ||
+    feed.thinking !== undefined ||
     feed.tools.length > 0;
 
   const now = useNow();
@@ -100,7 +101,14 @@ export function ChatView({
       // A hidden box loses its scroll position, so it is put back on showing.
       box.scrollTop = atBottom.current ? box.scrollHeight : top.current;
     }
-  }, [feed.items, feed.streaming, feed.tools, feed.prompts, hidden]);
+  }, [
+    feed.items,
+    feed.streaming,
+    feed.thinking,
+    feed.tools,
+    feed.prompts,
+    hidden,
+  ]);
 
   // Widgets drawn around the composer shrink the chat after it has scrolled,
   // and turns grow after it, as off-screen ones get drawn and diagrams,
@@ -179,6 +187,16 @@ export function ChatView({
             onReply,
           }),
         )}
+        {feed.thinking !== undefined && (
+          <li
+            data-role="thinking"
+            className="flex min-w-0 items-center gap-2 px-1 text-label text-fg-dim"
+          >
+            <span className="size-1.5 shrink-0 animate-pulse rounded-full bg-working" />
+            <span className="shrink-0 font-medium text-working">Thinking</span>
+            <span className="truncate">{lastLine(feed.thinking)}</span>
+          </li>
+        )}
         {feed.streaming !== undefined && (
           <li data-role="assistant">
             <Answer text={feed.streaming} />
@@ -186,6 +204,15 @@ export function ChatView({
         )}
       </ol>
     </div>
+  );
+}
+
+function lastLine(text: string): string {
+  return (
+    text
+      .split("\n")
+      .map((line) => line.trim())
+      .findLast((line) => line !== "") ?? ""
   );
 }
 

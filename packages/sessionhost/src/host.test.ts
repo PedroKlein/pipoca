@@ -9,6 +9,7 @@ import {
   fauxAssistantMessage,
   type FauxResponseFactory,
   fauxText,
+  fauxThinking,
   fauxToolCall,
 } from "@earendil-works/pi-ai";
 import {
@@ -181,6 +182,35 @@ function roles(lines: readonly string[]): string[] {
     return entry.message?.role ?? [];
   });
 }
+
+test("streams what Pi thinks as live events apart from what it says", async () => {
+  const { faux, models } = await fauxModels(root);
+
+  faux.setResponses([
+    fauxAssistantMessage([fauxThinking("weighing it"), fauxText("hello back")]),
+  ]);
+
+  const fake = fakeStream();
+
+  const hosted = await hostSession(
+    sessionOptions(root, { models }),
+    fake.stream,
+    () => undefined,
+    noTerminal,
+  );
+
+  fake.send({ actor: "user:local", type: "message", text: "hello" });
+  await fake.waitFor(() => roles(fake.lines).includes("assistant"));
+  await hosted.stop();
+
+  const deltas = (type: string): string =>
+    fake.events
+      .flatMap((e) => (e.type === type && "delta" in e ? e.delta : []))
+      .join("");
+
+  expect(deltas("thinking")).toBe("weighing it");
+  expect(deltas("text")).toBe("hello back");
+});
 
 test("streams a turn as live events and transcript lines", async () => {
   const { faux, models } = await fauxModels(root);

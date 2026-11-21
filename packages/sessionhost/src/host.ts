@@ -942,6 +942,13 @@ function toLiveEvent(
     return { type: "text", delta: event.assistantMessageEvent.delta };
   }
 
+  if (
+    event.type === "message_update" &&
+    event.assistantMessageEvent.type === "thinking_delta"
+  ) {
+    return { type: "thinking", delta: event.assistantMessageEvent.delta };
+  }
+
   if (event.type === "queue_update") {
     return {
       type: "queue",

@@ -34,7 +34,7 @@ export type ChatItem = (
       readonly model?: string;
     }
   | {
-      readonly role: "error" | "note";
+      readonly role: "thinking" | "error" | "note";
       readonly text: string;
     }
   | {
@@ -61,6 +61,7 @@ export type ChatItem = (
 interface Part {
   readonly type: string;
   readonly text?: string;
+  readonly thinking?: string;
   readonly mimeType?: string;
   readonly data?: string;
   readonly id?: string;
@@ -167,6 +168,12 @@ function entryItems(entry: Entry): readonly ChatItem[] {
 
     case "assistant":
       return [
+        ...parts.flatMap((part): ChatItem[] => {
+          const thought =
+            part.type === "thinking" ? (part.thinking ?? "").trim() : "";
+
+          return thought === "" ? [] : [{ role: "thinking", text: thought }];
+        }),
         ...(text === ""
           ? []
           : [
@@ -294,7 +301,10 @@ export interface Step {
 
 export type Work =
   | { readonly kind: "step"; readonly step: Step }
-  | { readonly kind: "said" | "error" | "note"; readonly text: string };
+  | {
+      readonly kind: "said" | "thinking" | "error" | "note";
+      readonly text: string;
+    };
 
 // A turn's parts in the order Pi made them. Tool calls a plugin draws show as
 // cards, with what Pi said just before them. Everything else Pi did before
@@ -475,6 +485,7 @@ export function turns(
             }
 
             break;
+          case "thinking":
           case "error":
           case "note":
             addWork(parts, { kind: item.role, text: item.text });
@@ -488,7 +499,11 @@ export function turns(
       }
 
       for (const item of inTurn.slice(lastTool + 1)) {
-        if (item.role === "error" || item.role === "note") {
+        if (
+          item.role === "thinking" ||
+          item.role === "error" ||
+          item.role === "note"
+        ) {
           addWork(parts, { kind: item.role, text: item.text });
         }
       }
@@ -577,8 +592,9 @@ export function linkParts(
     .filter((part) => part.text !== "");
 }
 
+// Whether the work holds something to fold: a tool call or Pi's thinking.
 export function hasSteps(work: readonly Work[]): boolean {
-  return work.some((item) => item.kind === "step");
+  return work.some((item) => item.kind === "step" || item.kind === "thinking");
 }
 
 export function stepStatus(
