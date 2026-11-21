@@ -24,10 +24,7 @@ test("shows user and assistant text, with the entry a fork starts from", () => {
     chatItems(
       line({
         role: "assistant",
-        content: [
-          { type: "thinking", thinking: "hmm" },
-          { type: "text", text: "hello" },
-        ],
+        content: [{ type: "text", text: "hello" }],
       }),
     ),
   ).toEqual([{ role: "assistant", text: "hello" }]);
@@ -299,6 +296,59 @@ test("folds what Pi said between tool calls into the turn's one work block", () 
   ).toEqual([["said", "read", "said", "bash"]]);
 
   expect(turn?.answer).toEqual(["Fixed."]);
+});
+
+test("reads what Pi thought before what it said, leaving out empty thinking", () => {
+  expect(
+    chatItems(
+      line({
+        role: "assistant",
+        content: [
+          { type: "thinking", thinking: "  " },
+          { type: "thinking", thinking: "The test races timers." },
+          { type: "text", text: "Fixed." },
+        ],
+      }),
+    ),
+  ).toEqual([
+    { role: "thinking", text: "The test races timers." },
+    { role: "assistant", text: "Fixed." },
+  ]);
+});
+
+test("folds what Pi thought into the turn's work, even with no tool calls", () => {
+  const keyed = [
+    { role: "user", text: "fix it" },
+    { role: "thinking", text: "Read the code first." },
+    { role: "tool", id: "a", name: "read", args: { path: "x.ts" } },
+    { role: "result", id: "a", name: "read", text: "code", failed: false },
+    { role: "thinking", text: "It races timers." },
+    { role: "assistant", text: "Fixed." },
+    { role: "user", text: "why?" },
+    { role: "thinking", text: "Explain briefly." },
+    { role: "assistant", text: "Real timers." },
+  ].map(
+    (item, key) => ({ ...item, key }) as Parameters<typeof turns>[0][number],
+  );
+
+  expect(
+    turns(keyed).map(({ parts, answer }) => ({
+      work: parts.flatMap((part) =>
+        part.kind === "work"
+          ? part.work.map((item) =>
+              item.kind === "step" ? item.step.name : item.text,
+            )
+          : [],
+      ),
+      answer,
+    })),
+  ).toEqual([
+    {
+      work: ["Read the code first.", "read", "It races timers."],
+      answer: ["Fixed."],
+    },
+    { work: ["Explain briefly."], answer: ["Real timers."] },
+  ]);
 });
 
 test("keeps what Pi said before a card in front, with the card", () => {

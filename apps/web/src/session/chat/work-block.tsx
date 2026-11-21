@@ -45,7 +45,10 @@ export function WorkBlock({
       : describeTool(now.name, "args" in now ? now.args : undefined);
 
   const lastSaid = work.findLast(({ kind }) => kind === "said");
-  const settled = took === undefined ? did : [`worked for ${took}`, ...did];
+  const busy = steps.length + extra.length > 0;
+
+  const verb = busy ? "worked" : "thought";
+  const settled = took === undefined ? did : [`${verb} for ${took}`, ...did];
 
   return (
     <>
@@ -70,7 +73,7 @@ export function WorkBlock({
             </span>
           ) : (
             <span className="font-medium text-fg">
-              {sentence(settled[0] ?? "")}
+              {sentence(settled[0] ?? verb)}
             </span>
           )}
           {(live ? did : settled.slice(1)).map((part) => (
@@ -134,6 +137,14 @@ function WorkItem({
       );
     case "said":
       return <SaidRow text={item.text} open={verbosity === "verbose"} />;
+    case "thinking":
+      return (
+        <SaidRow
+          label="Thought"
+          text={item.text}
+          open={verbosity === "verbose"}
+        />
+      );
     case "error":
     case "note":
       return <WorkNote kind={item.kind} text={item.text} />;
@@ -182,11 +193,14 @@ export function WorkNote({
   );
 }
 
-// What Pi said between tool calls, as one line that opens to all of it.
+// What Pi said or thought between tool calls, as one line that opens to all
+// of it.
 function SaidRow({
+  label,
   text,
   open,
 }: {
+  readonly label?: string;
   readonly text: string;
   readonly open: boolean;
 }): ReactElement {
@@ -199,7 +213,15 @@ function SaidRow({
         setShown(event.currentTarget.open);
       }}
     >
-      <summary className="flex min-w-0 cursor-pointer list-none rounded-md px-2 py-1 text-label text-fg hover:bg-hover [&::-webkit-details-marker]:hidden">
+      <summary
+        className={cn(
+          "flex min-w-0 cursor-pointer list-none gap-2 rounded-md px-2 py-1 text-label hover:bg-hover [&::-webkit-details-marker]:hidden",
+          label === undefined ? "text-fg" : "text-fg-dim",
+        )}
+      >
+        {label !== undefined && (
+          <span className="shrink-0 font-medium text-fg">{label}</span>
+        )}
         {shown ? (
           <div className="min-w-0">
             <Answer text={text} />

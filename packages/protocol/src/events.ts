@@ -300,6 +300,7 @@ const liveEvent = Type.Union([
     error: nullable(Type.String()),
   }),
   Type.Object({ type: Type.Literal("text"), delta: Type.String() }),
+  Type.Object({ type: Type.Literal("thinking"), delta: Type.String() }),
   Type.Object({
     type: Type.Literal("tool_start"),
     toolCallId: Type.String(),
@@ -378,6 +379,7 @@ export function liveSurface(
     case "ui_action":
     case "explanation":
     case "text":
+    case "thinking":
     case "tool_start":
     case "tool_end":
       return undefined;
