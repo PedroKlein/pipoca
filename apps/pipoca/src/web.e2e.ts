@@ -723,6 +723,59 @@ test("opens a long chat at its latest turns and draws older ones on scrolling up
   expect(await page.getByText("Show earlier messages").count()).toBe(0);
 }, 60_000);
 
+test("folds what Pi said between steps into the turn's one line, in order", async () => {
+  faux.setResponses([
+    fauxAssistantMessage(
+      [
+        fauxText("Looking at the folder first."),
+        fauxToolCall("bash", { command: "pwd" }),
+      ],
+      { stopReason: "toolUse" },
+    ),
+    fauxAssistantMessage(
+      [
+        fauxText("Now checking the date."),
+        fauxToolCall("bash", { command: "date" }),
+      ],
+      { stopReason: "toolUse" },
+    ),
+    fauxAssistantMessage([fauxText("All checked, nothing to fix.")]),
+  ]);
+
+  await page.goto(server.url.href);
+  await page.getByRole("button", { name: "New session" }).click();
+  const form = page.locator("form#create");
+
+  await pickWorkspace(form, root);
+  await form.getByRole("button", { name: "Start session" }).click();
+  await page.locator("#status", { hasText: "idle" }).waitFor();
+
+  await page.locator("#prompt-text").fill("check it");
+  await page.locator("#prompt-text").press("Enter");
+
+  const said = page.locator('#chat li[data-role="assistant"]');
+  await said.filter({ hasText: "All checked" }).waitFor();
+  const work = page.locator('#chat li[data-role="work"]');
+
+  expect(await work.count()).toBe(1);
+
+  expect((await said.allTextContents()).map((text) => text.trim())).toEqual([
+    "All checked, nothing to fix.",
+  ]);
+
+  expect(await work.getByText("Now checking the date.").isVisible()).toBe(
+    false,
+  );
+
+  await work.locator("summary").first().click();
+
+  await work.getByText("Now checking the date.").waitFor();
+
+  expect(await work.textContent()).toMatch(
+    /^Worked for \d+s.*Looking at the folder first\..*pwd.*Now checking the date\..*date/s,
+  );
+}, 30_000);
+
 test("draws the agent's Mermaid diagrams in chat and shows broken ones as code", async () => {
   let told = false;
 
@@ -4429,65 +4482,15 @@ test("shows a turn as working between steps until Pi finishes it", async () => {
 
   answer(undefined);
 
-  await page
-    .locator('#chat li[data-role="answer-meta"]')
+  await work
+    .locator("summary")
+    .first()
     .getByText(/^Worked for/)
     .waitFor();
 
   expect(await work.locator("summary").first().textContent()).toContain(
-    "Ran 1 command",
+    "ran 1 command",
   );
-}, 30_000);
-
-test("keeps what Pi says between steps in the chat, in the order it said it", async () => {
-  faux.setResponses([
-    fauxAssistantMessage(
-      [
-        fauxText("Looking at the folder first."),
-        fauxToolCall("bash", { command: "ls" }),
-      ],
-      { stopReason: "toolUse" },
-    ),
-    fauxAssistantMessage(
-      [
-        fauxText("Found it, now the tests."),
-        fauxToolCall("bash", { command: "true" }),
-      ],
-      { stopReason: "toolUse" },
-    ),
-    fauxAssistantMessage([fauxText("All good.")]),
-  ]);
-
-  await page.goto(server.url.href);
-
-  await page.getByRole("button", { name: "New session" }).click();
-  const form = page.locator("form#create");
-
-  await pickWorkspace(form, root);
-  await form.getByRole("button", { name: "Start session" }).click();
-  await page.locator("#status", { hasText: "idle" }).waitFor();
-
-  await page.locator("#prompt-text").fill("check");
-  await page.locator("#prompt-text").press("Enter");
-
-  await page
-    .locator('#chat li[data-role="answer-meta"]')
-    .getByText(/^Worked for/)
-    .waitFor();
-
-  expect(
-    await page
-      .locator(
-        '#chat li[data-role="assistant"], #chat li[data-role="work"] > details > summary',
-      )
-      .allInnerTexts(),
-  ).toEqual([
-    "Looking at the folder first.",
-    "Ran 1 command",
-    "Found it, now the tests.",
-    "Ran 1 command",
-    "All good.",
-  ]);
 }, 30_000);
 
 test("folds a working turn to one line, and opens every step when the chat is set to Verbose", async () => {
@@ -4526,13 +4529,14 @@ test("folds a working turn to one line, and opens every step when the chat is se
 
   answer(undefined);
 
-  await page
-    .locator('#chat li[data-role="answer-meta"]')
+  await work
+    .locator("summary")
+    .first()
     .getByText(/^Worked for/)
     .waitFor();
 
   expect(await work.locator("summary").first().textContent()).toContain(
-    "Ran 1 command",
+    "ran 1 command",
   );
 
   await openSettings("General");

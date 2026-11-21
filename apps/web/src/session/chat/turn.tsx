@@ -16,6 +16,7 @@ function partItems(
   turn: Turn,
   running: Feed["tools"],
   live: boolean,
+  took: string | undefined,
   session: MountedSession,
 ): ReactNode[] {
   const parts =
@@ -50,11 +51,11 @@ function partItems(
 
         if (!hasSteps(part.work) && here.length === 0) {
           return part.work.map((item, index) =>
-            item.kind === "step" ? null : (
+            item.kind === "error" || item.kind === "note" ? (
               <li key={`${key}-${String(index)}`} data-role={item.kind}>
                 <WorkNote kind={item.kind} text={item.text} />
               </li>
-            ),
+            ) : null,
           );
         }
 
@@ -64,6 +65,7 @@ function partItems(
               work={part.work}
               running={here}
               live={live && at === parts.length - 1}
+              took={took}
             />
           </li>,
         ];
@@ -93,6 +95,15 @@ export function turnItems({
   readonly onReply: ((quote: Quote) => void) | undefined;
 }): ReactNode[] {
   const running = last ? tools.filter(({ name }) => !claimed(name)) : [];
+
+  const folds = turn.parts.filter(
+    (part) => part.kind === "work" && hasSteps(part.work),
+  ).length;
+
+  const took =
+    turn.started !== undefined && turn.ended !== undefined && !(last && live)
+      ? duration(turn.started, turn.ended)
+      : undefined;
 
   return [
     !first && turn.user !== undefined && (
@@ -158,7 +169,13 @@ export function turnItems({
         <Notice notice={turn.notice} session={session} />
       </li>
     ),
-    ...partItems(turn, running, last && live, session),
+    ...partItems(
+      turn,
+      running,
+      last && live,
+      folds === 1 ? took : undefined,
+      session,
+    ),
     ...turn.answer.map((text, at) => (
       <li
         key={`${String(turn.key)}-answer-${String(at)}`}
@@ -173,6 +190,7 @@ export function turnItems({
         key={`${String(turn.key)}-meta`}
         turn={turn}
         now={now}
+        took={folds > 1 ? took : undefined}
         {...(onReply && {
           onReply: () => {
             onReply({ from: "pi", text: turn.answer.join("\n\n") });
@@ -186,10 +204,12 @@ export function turnItems({
 function AnswerMeta({
   turn,
   now,
+  took,
   onReply,
 }: {
   readonly turn: Turn;
   readonly now: number;
+  readonly took: string | undefined;
   readonly onReply?: () => void;
 }): ReactElement | null {
   if (
@@ -205,11 +225,7 @@ function AnswerMeta({
       data-role="answer-meta"
       className="-mt-2 flex gap-3 text-caption text-fg-dim"
     >
-      {turn.started !== undefined &&
-        turn.ended !== undefined &&
-        hasSteps(
-          turn.parts.flatMap((part) => (part.kind === "work" ? part.work : [])),
-        ) && <span>Worked for {duration(turn.started, turn.ended)}</span>}
+      {took !== undefined && <span>Worked for {took}</span>}
       {turn.ended !== undefined && (
         <time
           dateTime={turn.ended}
