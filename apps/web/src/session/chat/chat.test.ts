@@ -241,10 +241,10 @@ test("groups a turn into its work and its answer", () => {
       key: 0,
       user: "fix it",
       parts: [
-        { kind: "said", text: "Looking." },
         {
           kind: "work",
           work: [
+            { kind: "said", text: "Looking." },
             {
               kind: "step",
               step: {
@@ -272,7 +272,36 @@ test("groups a turn into its work and its answer", () => {
   ]);
 });
 
-test("keeps what Pi said, its cards and its tool calls in the order it made them", () => {
+test("folds what Pi said between tool calls into the turn's one work block", () => {
+  const keyed = [
+    { role: "user", text: "fix it" },
+    { role: "assistant", text: "Reading the code." },
+    { role: "tool", id: "a", name: "read", args: { path: "x.ts" } },
+    { role: "result", id: "a", name: "read", text: "code", failed: false },
+    { role: "assistant", text: "Now the tests." },
+    { role: "tool", id: "b", name: "bash", args: { command: "bun test" } },
+    { role: "result", id: "b", name: "bash", text: "ok", failed: false },
+    { role: "assistant", text: "Fixed." },
+  ].map(
+    (item, key) => ({ ...item, key }) as Parameters<typeof turns>[0][number],
+  );
+
+  const [turn] = turns(keyed);
+
+  expect(
+    turn?.parts.map(
+      (part) =>
+        part.kind === "work" &&
+        part.work.map((item) =>
+          item.kind === "step" ? item.step.name : item.kind,
+        ),
+    ),
+  ).toEqual([["said", "read", "said", "bash"]]);
+
+  expect(turn?.answer).toEqual(["Fixed."]);
+});
+
+test("keeps what Pi said before a card in front, with the card", () => {
   const keyed = [
     { role: "user", text: "set it up" },
     { role: "assistant", text: "Looking." },
@@ -288,12 +317,7 @@ test("keeps what Pi said, its cards and its tool calls in the order it made them
 
   const [turn] = turns(keyed, (tool) => tool === "ask_user");
 
-  expect(turn?.parts.map(({ kind }) => kind)).toEqual([
-    "said",
-    "work",
-    "said",
-    "card",
-  ]);
+  expect(turn?.parts.map(({ kind }) => kind)).toEqual(["work", "said", "card"]);
 
   expect(turn?.answer).toEqual(["Done."]);
 });

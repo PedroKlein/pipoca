@@ -1,21 +1,24 @@
 import type { MountedSession } from "@pipoca/plugins/web";
 import { cn, Icon } from "@pipoca/ui";
-import type { ReactElement, ReactNode } from "react";
+import { type ReactElement, type ReactNode, useState } from "react";
 import { PluginBoundary } from "../../plugin-boundary";
 import { fillsOf } from "../../plugins";
 import { describeTool, linkParts, tally, type Turn, type Work } from "./chat";
+import { Answer } from "./markdown";
 import { StepRow } from "./step-row";
 import { useVerbosity } from "./verbosity";
 
-// Tool calls Pi made in a row, folded to what they did.
+// What Pi did before its answer, folded to a line that says what it did.
 export function WorkBlock({
   work,
   running,
   live,
+  took,
 }: {
   readonly work: readonly Work[];
   readonly running: readonly { readonly id: string; readonly name: string }[];
   readonly live: boolean;
+  readonly took: string | undefined;
 }): ReactElement {
   const steps = work.flatMap((item) =>
     item.kind === "step" ? [item.step] : [],
@@ -41,57 +44,73 @@ export function WorkBlock({
       ? undefined
       : describeTool(now.name, "args" in now ? now.args : undefined);
 
+  const lastSaid = work.findLast(({ kind }) => kind === "said");
+  const settled = took === undefined ? did : [`worked for ${took}`, ...did];
+
   return (
-    <details
-      open={verbosity === "verbose" || (verbosity === "normal" && live)}
-      className="group/work"
-    >
-      <summary className="flex w-fit cursor-pointer list-none items-center gap-1.5 rounded-md px-1 py-1 text-label text-fg-dim select-none hover:text-fg [&::-webkit-details-marker]:hidden">
-        <Icon
-          name="chevron-right"
-          className="mr-0.5 size-3.5 transition-transform group-open/work:rotate-90"
-        />
-        {live ? (
-          <span className="flex items-center gap-2 text-working">
-            <span className="size-1.5 animate-pulse rounded-full bg-working" />
-            Working
-            {verbosity === "quiet" && current !== undefined && (
-              <span className="truncate text-fg-dim">
-                · {current.verb} {current.object}
-              </span>
-            )}
-          </span>
-        ) : (
-          <span className="font-medium text-fg">{sentence(did[0] ?? "")}</span>
-        )}
-        {(live ? did : did.slice(1)).map((part) => (
-          <span key={part}>· {part}</span>
-        ))}
-        {failed > 0 && <span className="text-failed">· {failed} failed</span>}
-      </summary>
-      <ol className="flex flex-col gap-px pt-1 pl-5">
-        {work.map((item, index) => (
-          <li
-            key={
-              item.kind === "step"
-                ? item.step.id
-                : `${item.kind}-${String(index)}`
-            }
-          >
-            <WorkItem item={item} running={runningIds} verbosity={verbosity} />
-          </li>
-        ))}
-        {extra.map(({ id, name }) => (
-          <li key={id}>
-            <StepRow
-              step={{ id, name, args: undefined }}
-              running
-              open={verbosity === "verbose"}
-            />
-          </li>
-        ))}
-      </ol>
-    </details>
+    <>
+      <details
+        open={verbosity === "verbose" || (verbosity === "normal" && live)}
+        className="group/work"
+      >
+        <summary className="flex w-fit cursor-pointer list-none items-center gap-1.5 rounded-md px-1 py-1 text-label text-fg-dim select-none hover:text-fg [&::-webkit-details-marker]:hidden">
+          <Icon
+            name="chevron-right"
+            className="mr-0.5 size-3.5 transition-transform group-open/work:rotate-90"
+          />
+          {live ? (
+            <span className="flex items-center gap-2 text-working">
+              <span className="size-1.5 animate-pulse rounded-full bg-working" />
+              Working
+              {verbosity === "quiet" && current !== undefined && (
+                <span className="truncate text-fg-dim">
+                  · {current.verb} {current.object}
+                </span>
+              )}
+            </span>
+          ) : (
+            <span className="font-medium text-fg">
+              {sentence(settled[0] ?? "")}
+            </span>
+          )}
+          {(live ? did : settled.slice(1)).map((part) => (
+            <span key={part}>· {part}</span>
+          ))}
+          {failed > 0 && <span className="text-failed">· {failed} failed</span>}
+        </summary>
+        <ol className="flex flex-col gap-px pt-1 pl-5">
+          {work.map((item, index) => (
+            <li
+              key={
+                item.kind === "step"
+                  ? item.step.id
+                  : `${item.kind}-${String(index)}`
+              }
+            >
+              <WorkItem
+                item={item}
+                running={runningIds}
+                verbosity={verbosity}
+              />
+            </li>
+          ))}
+          {extra.map(({ id, name }) => (
+            <li key={id}>
+              <StepRow
+                step={{ id, name, args: undefined }}
+                running
+                open={verbosity === "verbose"}
+              />
+            </li>
+          ))}
+        </ol>
+      </details>
+      {live && verbosity === "quiet" && lastSaid?.kind === "said" && (
+        <p className="truncate pl-6 text-label text-fg-dim">
+          {oneLine(lastSaid.text)}
+        </p>
+      )}
+    </>
   );
 }
 
@@ -113,6 +132,8 @@ function WorkItem({
           open={verbosity === "verbose"}
         />
       );
+    case "said":
+      return <SaidRow text={item.text} open={verbosity === "verbose"} />;
     case "error":
     case "note":
       return <WorkNote kind={item.kind} text={item.text} />;
@@ -158,6 +179,45 @@ export function WorkNote({
       )}
       <span className="min-w-0 break-words">{linked(text)}</span>
     </p>
+  );
+}
+
+// What Pi said between tool calls, as one line that opens to all of it.
+function SaidRow({
+  text,
+  open,
+}: {
+  readonly text: string;
+  readonly open: boolean;
+}): ReactElement {
+  const [shown, setShown] = useState(open);
+
+  return (
+    <details
+      open={open}
+      onToggle={(event) => {
+        setShown(event.currentTarget.open);
+      }}
+    >
+      <summary className="flex min-w-0 cursor-pointer list-none rounded-md px-2 py-1 text-label text-fg hover:bg-hover [&::-webkit-details-marker]:hidden">
+        {shown ? (
+          <div className="min-w-0">
+            <Answer text={text} />
+          </div>
+        ) : (
+          <span className="truncate">{oneLine(text)}</span>
+        )}
+      </summary>
+    </details>
+  );
+}
+
+function oneLine(text: string): string {
+  return (
+    text
+      .split("\n")
+      .map((line) => line.replace(/[#>*_`|]/g, "").trim())
+      .find((line) => line !== "") ?? ""
   );
 }
 
