@@ -294,11 +294,12 @@ export interface Step {
 
 export type Work =
   | { readonly kind: "step"; readonly step: Step }
-  | { readonly kind: "error" | "note"; readonly text: string };
+  | { readonly kind: "said" | "error" | "note"; readonly text: string };
 
-// A turn's parts in the order Pi made them: what it said shows in the chat,
-// tool calls a plugin draws show as cards, and the other tool calls in a row
-// fold into one work block, as in Claude Code.
+// A turn's parts in the order Pi made them. Tool calls a plugin draws show as
+// cards, with what Pi said just before them. Everything else Pi did before
+// its answer, what it said between tool calls included, folds into one work
+// block, so the answer stays in front.
 export type TurnPart =
   | { readonly kind: "said"; readonly text: string }
   | { readonly kind: "card"; readonly step: Step }
@@ -436,7 +437,14 @@ export function turns(
 
       const parts: TurnPart[] = [];
 
-      for (const item of inTurn.slice(0, lastTool + 1)) {
+      const isCard = (item: ChatItem | undefined): boolean =>
+        item?.role === "tool" &&
+        (claimed(item.name) ||
+          openedOf(results.get(item.id)?.details) !== undefined);
+
+      const work = inTurn.slice(0, lastTool + 1);
+
+      for (const [at, item] of work.entries()) {
         switch (item.role) {
           case "tool": {
             const found = results.get(item.id);
@@ -448,7 +456,7 @@ export function turns(
               ...(found && { result: found }),
             };
 
-            if (claimed(item.name) || openedOf(found?.details) !== undefined) {
+            if (isCard(item)) {
               parts.push({ kind: "card", step });
             } else {
               addWork(parts, { kind: "step", step });
@@ -458,7 +466,14 @@ export function turns(
           }
 
           case "assistant":
-            parts.push({ kind: "said", text: item.text });
+            if (
+              isCard(work.slice(at + 1).find(({ role }) => role === "tool"))
+            ) {
+              parts.push({ kind: "said", text: item.text });
+            } else {
+              addWork(parts, { kind: "said", text: item.text });
+            }
+
             break;
           case "error":
           case "note":
