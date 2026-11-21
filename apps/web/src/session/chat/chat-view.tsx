@@ -8,6 +8,7 @@ import {
   useLayoutEffect,
   useMemo,
   useRef,
+  useState,
 } from "react";
 import { usePersonName } from "../../data/hooks";
 import { usePrimaryId } from "../../primary";
@@ -18,6 +19,10 @@ import { Answer } from "./markdown";
 import { claimed } from "./tool-card";
 import { turnItems } from "./turn";
 import { voiced } from "./voices";
+
+// A long chat opens on its latest turns and draws older ones as you scroll
+// up, as in Claude Code, so a big Session opens at once and at its end.
+const turnsPerPage = 30;
 
 export function ChatView({
   feed,
@@ -51,6 +56,34 @@ export function ChatView({
       ),
     [feed.items, feed.voices, nameOf],
   );
+
+  const [limit, setLimit] = useState(turnsPerPage);
+  const start = Math.max(0, shown.length - limit);
+
+  // Where the list ended before older turns were drawn above, to keep the
+  // same turns in view.
+  const before = useRef<number | undefined>(undefined);
+
+  const showOlder = (): void => {
+    const box = scroller.current;
+
+    if (start === 0 || !box || before.current !== undefined) {
+      return;
+    }
+
+    before.current = box.scrollHeight - box.scrollTop;
+    setLimit((count) => count + turnsPerPage);
+  };
+
+  useLayoutEffect(() => {
+    const box = scroller.current;
+
+    if (box && before.current !== undefined) {
+      box.scrollTop = box.scrollHeight - before.current;
+      top.current = box.scrollTop;
+      before.current = undefined;
+    }
+  }, [limit]);
 
   const chatId = usePrimaryId("chat");
 
@@ -103,6 +136,10 @@ export function ChatView({
           box.scrollHeight - box.scrollTop - box.clientHeight < 40;
 
         top.current = box.scrollTop;
+
+        if (box.scrollTop < 200) {
+          showOlder();
+        }
       }}
       className="min-h-0 flex-1 overflow-y-auto"
     >
@@ -119,12 +156,23 @@ export function ChatView({
         id={chatId}
         className="mx-auto flex max-w-chat flex-col gap-5 px-4 pt-8 pb-10"
       >
-        {shown.map((turn, index) =>
+        {start > 0 && (
+          <li className="self-center">
+            <button
+              type="button"
+              onClick={showOlder}
+              className="cursor-pointer text-label text-fg-dim hover:text-fg"
+            >
+              Show earlier messages
+            </button>
+          </li>
+        )}
+        {shown.slice(start).map((turn, index) =>
           turnItems({
             turn,
             tools: feed.tools,
-            last: index === shown.length - 1,
-            first: index === 0,
+            last: start + index === shown.length - 1,
+            first: start + index === 0,
             live,
             now,
             session,
