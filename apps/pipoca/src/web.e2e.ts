@@ -750,6 +750,7 @@ test("folds what Pi thought into a line above its answer", async () => {
   await page.locator("#prompt-text").press("Enter");
 
   const work = page.locator('#chat li[data-role="work"]');
+
   await work
     .locator("summary")
     .first()
