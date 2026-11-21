@@ -6143,7 +6143,7 @@ test("draws a subagent run as a card in the chat, with its fleet in the header",
     }
 
     if (!context.messages.some((m) => m.role === "toolResult")) {
-      return fauxAssistantMessage([fauxToolCall("bash", { command: "pwd" })], {
+      return fauxAssistantMessage([fauxToolCall("ls", { path: "." })], {
         stopReason: "toolUse",
       });
     }
