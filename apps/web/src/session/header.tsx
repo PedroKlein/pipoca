@@ -1,5 +1,5 @@
 import type { Environment, Session } from "@pipoca/protocol";
-import { FilesMenu } from "@pipoca/plugins/web";
+import { SessionPanelButton, SessionSection } from "@pipoca/plugins/web";
 import { Badge, Button, cn, Icon } from "@pipoca/ui";
 import type { ReactElement, ReactNode } from "react";
 import { describe, sessionBadge, workspaceName } from "../names";
@@ -13,8 +13,6 @@ export function Header({
   feed,
   title,
   crumb,
-  environments,
-  pluginHeaders,
   archived,
   view,
   onView,
@@ -27,8 +25,6 @@ export function Header({
   readonly feed: Feed;
   readonly title: string;
   readonly crumb: ReactNode;
-  readonly environments: readonly Environment[];
-  readonly pluginHeaders: ReactNode;
   readonly archived: boolean;
   readonly view: View;
   readonly onView: (view: View) => void;
@@ -41,7 +37,7 @@ export function Header({
   return (
     <header
       className={cn(
-        "flex min-h-14 flex-wrap items-center gap-x-3 gap-y-2 border-b border-line px-4 py-2",
+        "flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1 border-b border-line px-4 py-1.5",
         shown !== "chat" && "bg-term-bg",
       )}
     >
@@ -57,40 +53,23 @@ export function Header({
           </Button>
         </span>
       )}
-      <div
+      <h1
         className={cn(
-          "flex min-w-0 flex-col",
+          "flex min-w-0 items-center gap-1.5 text-title font-semibold text-fg-strong",
           primary ? "flex-[1_1_240px]" : "flex-[1_1_160px]",
         )}
       >
-        <h1 className="flex min-w-0 items-center gap-1.5 text-title font-semibold text-fg-strong">
-          {crumb}
-          <span className="truncate">{title}</span>
-        </h1>
-        <p className="flex min-w-0 items-center gap-2 text-caption text-fg-dim">
-          <span className="truncate font-mono">
-            {session ? sessionCrumb(session, environments) : ""}
-          </span>
-          <span aria-hidden="true">·</span>
-          <span id={primary ? "status" : undefined} className="shrink-0">
-            {statusText(feed)}
-          </span>
-        </p>
-      </div>
-      {session && <StateBadge session={session} />}
-      {session && session.access.kind !== "team" && (
-        <span className="inline-flex shrink-0 items-center gap-1 text-caption text-fg-dim">
-          <Icon name="lock" className="size-3.5" />
-          {accessLabels[session.access.kind]}
+        {crumb}
+        <span className="truncate">{title}</span>
+        <span
+          id={primary ? "status" : undefined}
+          className="shrink-0 text-caption font-normal text-fg-dim"
+        >
+          {statusText(feed)}
         </span>
-      )}
-      <span
-        id={primary ? "plugin-header" : undefined}
-        className="flex items-center gap-2 text-caption text-fg-dim"
-      >
-        <FilesMenu />
-        {pluginHeaders}
-      </span>
+      </h1>
+      {session && <StateBadge session={session} />}
+      <SessionPanelButton />
       {!archived && <ViewSwitch view={view} onChange={onView} />}
       {actions}
       {menu}
@@ -104,6 +83,39 @@ function statusText({ missing, session }: Feed): string {
   }
 
   return session ? describe(session) : "";
+}
+
+// Where the Session runs and who opens it, as the panel's last section.
+export function AboutSection({
+  feed: { session },
+  environments,
+}: {
+  readonly feed: Feed;
+  readonly environments: readonly Environment[];
+}): ReactElement | null {
+  if (session === undefined) {
+    return null;
+  }
+
+  return (
+    <SessionSection
+      name="about"
+      order={90}
+      label="About"
+      icon="info"
+      button="About this Session"
+    >
+      <p className="truncate font-mono text-caption">
+        {sessionCrumb(session, environments)}
+      </p>
+      <p className="flex items-center gap-1.5 text-caption text-fg-dim">
+        {session.access.kind !== "team" && (
+          <Icon name="lock" className="size-3.5" />
+        )}
+        {`${describe(session)} · ${accessLabels[session.access.kind]}`}
+      </p>
+    </SessionSection>
+  );
 }
 
 function sessionCrumb(

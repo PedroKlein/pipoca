@@ -25,8 +25,8 @@ function Field(): ReturnType<typeof RepositoryField> {
 
 test("lists what the git hosts find with when each was pushed, and the recent ones with their host or path", async () => {
   const page = renderPart(
-    defineWeb(picks, { slots: { "session.header": Field } }),
-    "session.header",
+    defineWeb(picks, { slots: { "session.panel": Field } }),
+    "session.panel",
     {},
     {
       repositories: [

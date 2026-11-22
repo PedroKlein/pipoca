@@ -50,7 +50,7 @@ export const web = defineWeb(plugin, {
   slots: {
     overlay: ArtifactOverlay,
     dock: ArtifactDock,
-    "session.header": SessionArtifacts,
+    "session.panel": SessionArtifacts,
     "session.composer": Waiting,
     "file.actions": PublishFile,
     "session.attach": AttachArtifact,

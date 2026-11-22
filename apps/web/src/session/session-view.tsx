@@ -2,6 +2,7 @@ import { piTerminal } from "@pipoca/protocol";
 import {
   type EmbeddedSessionProps,
   hashParts,
+  FilesMenu,
   FilesMenuHost,
   SessionPanel,
 } from "@pipoca/plugins/web";
@@ -22,9 +23,9 @@ import { ChatView } from "./chat/chat-view";
 import { Composer, type Replying } from "./composer/composer";
 import { prefillComposer } from "./composer/prefill";
 import { emptyFeed, type Feed, feedReader, followEvents } from "./feed";
-import { Header } from "./header";
+import { AboutSection, Header } from "./header";
 import { MoveDialog } from "./move-team";
-import { usePluginHeaders } from "./plugin-parts";
+import { usePluginSections } from "./plugin-parts";
 import { PresenceLine, usePresence, useTyping } from "./presence";
 import { SessionActions } from "./session-actions";
 import { sessionChannel } from "./session-channel";
@@ -141,7 +142,7 @@ export function SessionView({
     };
   }, [pageTitle, primary]);
 
-  const pluginHeaders = usePluginHeaders(team, channel.session);
+  const pluginSections = usePluginSections(team, channel.session);
 
   // The fork starts from this Session's branch, so it gets what was pushed
   // or, on the same machine, committed. From a message, that message comes
@@ -183,14 +184,15 @@ export function SessionView({
               aria-label={title}
               className="flex min-h-0 min-w-0 flex-1 flex-col"
             >
+              <FilesMenu />
+              {pluginSections}
+              <AboutSection feed={feed} environments={environments} />
               <Header
                 primary={primary}
                 shown={shown}
                 feed={feed}
                 title={title}
                 crumb={crumb}
-                environments={environments}
-                pluginHeaders={pluginHeaders}
                 archived={archived}
                 view={view}
                 onView={setView}

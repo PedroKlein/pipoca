@@ -39,10 +39,10 @@ async function settle(done: () => boolean): Promise<void> {
   }
 }
 
-test("a Session's Files menu lists what it wrote in the Project folder, which opens over the page, and the way to the whole folder", async () => {
+test("a Session's panel has a Project folder section with what it wrote there, which opens over the page, and the way to the whole folder", async () => {
   renderPart(
     web,
-    "session.header",
+    "session.panel",
     { session: sessionWith({}) },
     {
       hash: "#session-1",
@@ -54,85 +54,33 @@ test("a Session's Files menu lists what it wrote in the Project folder, which op
     },
   );
 
-  await settle(
-    () => document.querySelector("[aria-label='Files, 2']") !== null,
-  );
+  const button = "[aria-label='Project folder, 1 file changed here']";
+
+  await settle(() => document.querySelector(button) !== null);
 
   act(() => {
-    document
-      .querySelector<HTMLButtonElement>("[aria-label='Files, 2']")
-      ?.click();
+    document.querySelector<HTMLButtonElement>(button)?.click();
   });
 
-  const rows = [
+  const rows = (): HTMLButtonElement[] => [
     ...document.querySelectorAll<HTMLButtonElement>(
-      "section[aria-label='Project folder · project/'] button",
+      "section[aria-label='Project folder'] > div button",
     ),
   ];
 
-  expect(rows.map((each) => each.textContent)).toEqual([
+  expect(rows().map((each) => each.textContent)).toEqual([
     "provider-note.mdchanged here",
     "Open the Billing folder31 files",
   ]);
 
-  const filter = document.querySelector<HTMLInputElement>(
-    "input[aria-label='Filter files']",
-  );
-
   act(() => {
-    if (filter !== null) {
-      Object.getOwnPropertyDescriptor(
-        HTMLInputElement.prototype,
-        "value",
-      )?.set?.call(filter, "budget");
-
-      filter.dispatchEvent(new Event("input", { bubbles: true }));
-    }
-  });
-
-  expect(
-    [
-      ...document.querySelectorAll(
-        "section[aria-label='Project folder · project/'] button",
-      ),
-    ].map((each) => each.textContent),
-  ).toEqual([]);
-
-  expect(document.body.textContent).toContain("Nothing matches “budget”.");
-
-  act(() => {
-    if (filter !== null) {
-      Object.getOwnPropertyDescriptor(
-        HTMLInputElement.prototype,
-        "value",
-      )?.set?.call(filter, "");
-
-      filter.dispatchEvent(new Event("input", { bubbles: true }));
-    }
-  });
-
-  act(() => {
-    document
-      .querySelector<HTMLButtonElement>(
-        "section[aria-label='Project folder · project/'] button",
-      )
-      ?.click();
+    rows()[0]?.click();
   });
 
   expect(location.hash).toBe("#session-1?project=p1&path=provider-note.md");
 
   act(() => {
-    document
-      .querySelector<HTMLButtonElement>("[aria-label='Files, 2']")
-      ?.click();
-  });
-
-  act(() => {
-    [
-      ...document.querySelectorAll<HTMLButtonElement>(
-        "section[aria-label='Project folder · project/'] button",
-      ),
-    ][1]?.click();
+    rows()[1]?.click();
   });
 
   expect(location.hash).toBe("#plugin/projects/p1/folder");
@@ -148,7 +96,7 @@ test("a Session outside a Project has no Project folder section", async () => {
 
   renderPart(
     web,
-    "session.header",
+    "session.panel",
     { session: sessionWith({}) },
     {
       hash: "#session-1",
@@ -163,7 +111,7 @@ test("a Session outside a Project has no Project folder section", async () => {
 
   await settle(() => asked > 0);
 
-  expect(document.querySelector("[aria-label^='Files']")).toBeNull();
+  expect(document.querySelector("[aria-label^='Project folder']")).toBeNull();
 });
 
 test("what Pi's turn wrote in the Project folder shows as cards that open the file, asking nothing of the server", () => {

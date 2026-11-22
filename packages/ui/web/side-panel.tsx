@@ -1,11 +1,20 @@
-import { type ReactElement, type ReactNode, useEffect } from "react";
+import { type ReactElement, type ReactNode, useEffect, useRef } from "react";
 import { Button } from "./button";
 import { cn } from "./cn";
 import { Icon } from "./icon";
 
 const sizes = {
+  sm: "w-[min(340px,100vw)]",
   md: "w-[min(640px,100vw)]",
   lg: "w-[min(760px,100vw)]",
+} as const;
+
+const wide = "(min-width: 64rem)";
+
+const dockedSizes = {
+  sm: "lg:w-[340px]",
+  md: "lg:w-[min(720px,50%)]",
+  lg: "lg:w-[min(720px,50%)]",
 } as const;
 
 // A panel over the right edge that leaves the page usable, such as a
@@ -32,13 +41,37 @@ export function SidePanel({
   readonly className?: string;
   readonly children: ReactNode;
 }): ReactElement {
+  const panel = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    if (open && docked) {
+      panel.current?.focus();
+    }
+  }, [open, docked, title]);
+
   useEffect(() => {
     if (!open) {
       return undefined;
     }
 
     const close = (event: KeyboardEvent): void => {
-      if (event.key === "Escape") {
+      if (event.key !== "Escape" || event.defaultPrevented) {
+        return;
+      }
+
+      // A dialog over the page takes its own Escape, and a panel docked
+      // beside the page only takes one pressed inside it.
+      const target = event.target instanceof Node ? event.target : null;
+
+      const inDialog =
+        target instanceof Element && target.closest("dialog") !== null;
+
+      const outside =
+        docked &&
+        matchMedia(wide).matches &&
+        !(panel.current?.contains(target) ?? false);
+
+      if (!inDialog && !outside) {
         onClose();
       }
     };
@@ -48,18 +81,23 @@ export function SidePanel({
     return () => {
       document.removeEventListener("keydown", close);
     };
-  }, [open, onClose]);
+  }, [open, docked, onClose]);
 
   return (
     <section
-      role="dialog"
+      ref={panel}
+      role={docked ? "complementary" : "dialog"}
       aria-label={title}
+      tabIndex={-1}
       hidden={!open}
       className={cn(
-        "fixed inset-y-0 right-0 z-40 flex flex-col border-l border-line bg-panel text-ui text-fg shadow-pop",
+        "fixed inset-y-0 right-0 z-40 flex flex-col border-l border-line bg-panel text-ui text-fg shadow-pop focus:outline-none",
         sizes[size],
         docked &&
-          "lg:relative lg:inset-auto lg:z-auto lg:w-[min(720px,50%)] lg:shrink-0 lg:shadow-none",
+          cn(
+            "lg:relative lg:inset-auto lg:z-auto lg:shrink-0 lg:shadow-none",
+            dockedSizes[size],
+          ),
       )}
     >
       <header className="flex min-h-14 items-center gap-2 border-b border-line px-4">

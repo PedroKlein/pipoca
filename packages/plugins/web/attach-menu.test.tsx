@@ -52,7 +52,7 @@ function Composer(): ReactElement {
   );
 }
 
-const web = defineWeb(attach, { slots: { "session.header": Composer } });
+const web = defineWeb(attach, { slots: { "session.panel": Composer } });
 
 const plus = (): HTMLButtonElement | null =>
   document.querySelector<HTMLButtonElement>(
@@ -74,7 +74,7 @@ const key = (name: string): void => {
 
 test("the + menu opens on its first row, moves with the arrow keys, and a plugin's row closes it and opens its picker", async () => {
   picked.splice(0);
-  renderPart(web, "session.header", {});
+  renderPart(web, "session.panel", {});
 
   expect(group()?.hidden).toBe(true);
 
@@ -157,7 +157,7 @@ test("the + menu opens on its first row, moves with the arrow keys, and a plugin
 });
 
 test("the + menu closes when focus leaves it", () => {
-  renderPart(web, "session.header", {});
+  renderPart(web, "session.panel", {});
 
   const outside = document.createElement("button");
 
@@ -179,7 +179,7 @@ test("the + menu closes when focus leaves it", () => {
 
 test("files chosen from the + menu are attached and close it", () => {
   uploaded.splice(0);
-  renderPart(web, "session.header", {});
+  renderPart(web, "session.panel", {});
 
   act(() => {
     plus()?.click();

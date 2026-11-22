@@ -27,7 +27,7 @@ export const web = defineWeb(usage, {
     activity: { title: "Activity", Panel: Activity },
     spend: { title: "Spend this month", Panel: Spend },
   },
-  slots: { "session.header": SessionHeader },
+  slots: { "session.meter": ContextMeter },
 });
 
 interface Context {
@@ -37,7 +37,7 @@ interface Context {
 
 // A ring for how full the context is and the cost so far, like Claude Code's
 // context meter. The numbers behind them show on hover.
-function SessionHeader({
+function ContextMeter({
   session,
 }: {
   readonly session: MountedSession;

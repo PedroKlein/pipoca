@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import {
@@ -56,6 +56,13 @@ const wideProvider = fauxProvider({
   models: Array.from({ length: 8 }, (_, index) => ({
     id: `wide-${String(index + 1)}`,
   })),
+});
+
+// The Session panel stays open per browser, and every test shares one.
+afterEach(async () => {
+  await page
+    .evaluate("localStorage.removeItem('pipoca.session-panel')")
+    .catch(() => undefined);
 });
 
 beforeAll(async () => {
@@ -4325,15 +4332,13 @@ test("shows the session's changes and usage from their plugins", async () => {
   await page.locator("#prompt-text").press("Enter");
 
   await page.getByRole("button", { name: "Diff, 1 file changed" }).click();
-  const changes = page.getByRole("dialog", { name: "Changes" });
+  const changes = page.getByRole("complementary", { name: "Changes" });
   await changes.getByText("Changes (1 file)").waitFor();
   await changes.locator("tr", { hasText: "new notes" }).waitFor();
   await page.keyboard.press("Escape");
   await changes.waitFor({ state: "hidden" });
 
-  await page
-    .locator('#plugin-header [data-plugin="usage"] [title*=" out "]')
-    .waitFor();
+  await page.locator('[data-plugin="usage"] [title*=" out "]').waitFor();
 }, 30_000);
 
 test("lists a Session's pending wake-ups above the composer and cancels one", async () => {
@@ -5271,7 +5276,7 @@ test("opens what Pi made from the header's Files menu in the file viewer, and st
   const button = page.getByRole("button", { name: "Files, 2" });
   await button.waitFor({ timeout: 30_000 });
   await button.click();
-  const menu = page.getByRole("dialog", { name: "Files" });
+  const menu = page.getByRole("complementary", { name: "Files" });
   const filter = menu.getByLabel("Filter files");
   await filter.fill("zzz");
   await menu.getByText("Nothing matches “zzz”.").waitFor();
@@ -5293,8 +5298,10 @@ test("opens what Pi made from the header's Files menu in the file viewer, and st
   await page.getByText("2 of 2 files in this Session").waitFor();
   await page.keyboard.press("Escape");
   await viewer.waitFor({ state: "detached" });
-  await page.locator("button[aria-label='Files, 2']:focus").waitFor();
+  await menu.getByRole("button", { name: /^latency\.csv/ }).waitFor();
   await overlayClosed();
+  await menu.getByRole("button", { name: "Close panel" }).click();
+  await menu.waitFor({ state: "detached" });
 }, 90_000);
 
 test("opens what Pi's turn saved from the card under its reply, publishes it as an artifact, and attaches the artifact to the next message", async () => {
@@ -5353,12 +5360,12 @@ test("opens what Pi's turn saved from the card under its reply, publishes it as 
   await page.getByRole("button", { name: "Files, 2" }).click();
 
   await page
-    .getByRole("dialog", { name: "Files" })
+    .getByRole("complementary", { name: "Files" })
     .getByRole("region", { name: "Artifacts" })
     .getByRole("button", { name: /^joined\.csv/ })
     .waitFor();
 
-  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Close panel" }).click();
 
   await page.getByRole("button", { name: "Attach files" }).click();
 
@@ -5568,7 +5575,7 @@ test("creates a pull request from the Changes panel", async () => {
     await page.locator("#prompt-text").press("Enter");
 
     await page.getByRole("button", { name: "Diff, 1 file changed" }).click();
-    const changes = page.getByRole("dialog", { name: "Changes" });
+    const changes = page.getByRole("complementary", { name: "Changes" });
     await changes.getByText("Changes (1 file)").waitFor();
 
     await changes
@@ -5708,7 +5715,7 @@ test("sends comments on diff lines to Pi as one message", async () => {
   await page.locator("#prompt-text").press("Enter");
 
   await page.getByRole("button", { name: "Diff, 1 file changed" }).click();
-  const changes = page.getByRole("dialog", { name: "Changes" });
+  const changes = page.getByRole("complementary", { name: "Changes" });
   await changes.getByText("Changes (1 file)").waitFor();
 
   await changes
@@ -6220,7 +6227,7 @@ test("draws a subagent run as a card in the chat, with its fleet in the header",
 
   await card.getByText(/Running · 1 tool/).waitFor();
   await card.getByText("faux/faux-1").waitFor();
-  await page.getByRole("button", { name: "1 running" }).waitFor();
+  await page.getByRole("button", { name: "Subagents, 1 running" }).waitFor();
 
   await card.getByRole("button", { name: /worker/ }).click();
   await card.getByText("› ls .").waitFor();
@@ -6230,7 +6237,7 @@ test("draws a subagent run as a card in the chat, with its fleet in the header",
 
   await card.getByText(/Done · 1 tool/).waitFor();
   await card.getByText("The tests pass").waitFor();
-  await page.getByRole("button", { name: "Subagents" }).waitFor();
+  await page.getByRole("button", { name: "Subagents", exact: true }).waitFor();
   await page.getByText("Subagents finished: worker done").waitFor();
 
   await page.reload();
@@ -7834,7 +7841,14 @@ test("opens the team hub from the sidebar and lists team work anyone can pick up
   await access.getByRole("button", { name: "View only" }).click();
   await access.getByRole("button", { name: "Save" }).click();
   await access.waitFor({ state: "hidden" });
-  await page.locator("header").getByText("View only").waitFor();
+  await page.getByRole("button", { name: "About this Session" }).click();
+
+  await page
+    .getByRole("complementary", { name: "Session" })
+    .getByText(/View only/)
+    .waitFor();
+
+  await page.getByRole("button", { name: "Close panel" }).click();
 
   const sendTo = page.getByRole("group", { name: "Send to" });
 
@@ -7859,7 +7873,8 @@ test("opens the team hub from the sidebar and lists team work anyone can pick up
   await aside.getByText("Hidden from Pi, visible to the team").waitFor();
   await aside.getByText("Ship it today?").waitFor();
 
-  await page.locator("header").getByRole("button", { name: "Vote" }).click();
+  await page.getByRole("button", { name: "Votes", exact: true }).click();
+  await page.getByRole("button", { name: "Open a vote" }).click();
 
   const opening = page.getByRole("dialog", { name: "Open a vote" });
 
@@ -8741,7 +8756,7 @@ test("drops a plugin's parts from open team work once an admin keeps it out", as
 
   await page.goto(new URL(`/#${session.id}`, server.url).href);
 
-  const usageHeader = page.locator('header [data-plugin="usage"]');
+  const usageHeader = page.locator('form [data-plugin="usage"]');
 
   await usageHeader.waitFor({ state: "attached" });
   await call("/api/plugins/usage", { teamWork: false }, "PATCH");
@@ -8801,17 +8816,20 @@ test("keeps team work inside the team's area, with the server's pages shared fro
   await page.waitForURL(`**/#team/sessions/${session.id}`);
   await team.waitFor();
 
-  // Its header and composer take the team Environment from the team's list.
+  // Its panel and composer take the team Environment from the team's list.
   await page.route("**/api/environments?scope=team", async (route) =>
     route.fulfill({ json: [{ ...environment, name: "Team machines" }] }),
   );
 
   await page.reload();
+  await page.getByRole("button", { name: "About this Session" }).click();
 
   await page
+    .getByRole("complementary", { name: "Session" })
     .getByText(/^Team machines · /)
-    .first()
     .waitFor();
+
+  await page.getByRole("button", { name: "Close panel" }).click();
 
   await page.unroute("**/api/environments?scope=team");
 

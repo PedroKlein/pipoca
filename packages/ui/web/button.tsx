@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, ReactElement } from "react";
+import type { ComponentProps, ReactElement } from "react";
 import { cn } from "./cn";
 
 const variants = {
@@ -21,7 +21,7 @@ const sizes = {
 export type ButtonVariant = keyof typeof variants | "link";
 export type ButtonSize = keyof typeof sizes;
 
-interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+interface ButtonProps extends ComponentProps<"button"> {
   readonly variant?: ButtonVariant;
   readonly size?: ButtonSize;
   readonly iconOnly?: boolean;

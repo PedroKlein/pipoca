@@ -61,7 +61,8 @@ export const web = defineWeb(greeter, {
 | Slot                                                                                 | Where                                                                                                                                              |
 | ------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `session.composer`                                                                   | Above a Session's composer, as the checklist is.                                                                                                   |
-| `session.header`                                                                     | A Session's header. It can draw a `SessionTab` (below).                                                                                            |
+| `session.panel`                                                                      | A section of the panel beside a Session, drawn with `SessionSection` (below).                                                                      |
+| `session.meter`                                                                      | A small readout beside the composer's Send button, as the context ring is.                                                                         |
 | `session.files`                                                                      | Files added in the composer that aren't images, until the message is sent.                                                                         |
 | `session.attach`                                                                     | A row in the composer's **+** menu, drawn with `AttachRow`, that can open an `AttachPicker` and attach what's picked with `add`.                   |
 | `file.actions`                                                                       | Buttons in the file viewer's header for a file of a Session the person steers, such as **Publish**, with the Session, file name and download link. |
@@ -80,11 +81,11 @@ export const web = defineWeb(greeter, {
 
 `useFilled(slot)` says whether any plugin fills a slot, so a part can leave out a button that would open nothing.
 
-A part adds a section to a Session header's **Files** menu with `FilesSection` (`name`, `order`, `title`, `count`, an `action` beside the filter, and its rows as a function of the filter), drawn while the menu is open. `FilesRow` is one row. `FileViewer` shows a file over the page in the shared viewer, with the header actions you give it.
+A part adds a part to the panel's **Files** section with `FilesSection` (`name`, `order`, `title`, `count`, an `action` beside the filter, and its rows as a function of the filter): its first rows show in the panel's summary and all of them, filtered, in the section's detail. `FilesRow` is one row. `FileViewer` shows a file over the page in the shared viewer, with the header actions you give it.
 
 The composer's attachments are `Attachment`s (`key`, `title`, `icon`, `detail` and the `text` that goes with the message), drawn as `AttachedCard`s. `FileCard` is the card a file shows as in the chat, which opens it.
 
-A `session.header` part can draw a `SessionTab` (`name`, `order`, `label`, `button`, `icon`, its contents as children): a button in the header that opens its contents as a tab of the one panel beside the Session, next to other plugins' tabs.
+A `session.panel` part draws a `SessionSection` (`name`, `order`, `label`, `icon`, `button` for the rail icon's accessible name, an optional short `badge` and `waiting` when it needs the person, an optional `detail`, and its summary as children). Closed, the panel is a rail of every section's icon and badge; open, it lists the summaries, and a section's title or icon opens its detail ([ADR 0084](../adr/0084-session-side-panel.md)). Drawing nothing leaves the plugin out of the panel.
 
 ## Team hub and New session
 

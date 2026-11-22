@@ -49,7 +49,7 @@ import {
 export const web = defineWeb(plugin, {
   settings: { group: "server", Section: FilesSettings },
   slots: {
-    "session.header": SessionFiles,
+    "session.panel": SessionFiles,
     "session.files": Attached,
     "notice:files": UploadNotice,
     "notice:saved": SavedCards,

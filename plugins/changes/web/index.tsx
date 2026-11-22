@@ -2,7 +2,7 @@ import { errorText } from "@pipoca/protocol";
 import {
   defineWeb,
   type MountedSession,
-  SessionTab,
+  SessionSection,
   Slot,
   useSessionState,
 } from "@pipoca/plugins/web";
@@ -34,14 +34,14 @@ declare module "@pipoca/plugins/web" {
 }
 
 export const web = defineWeb(changes, {
-  slots: { "session.header": SessionHeader },
+  slots: { "session.panel": SessionChanges },
 });
 
 const none: readonly never[] = [];
 
-// The header's Diff button opens the session's changes in a side panel, like
-// the mockups and Claude Code's diff view.
-function SessionHeader({
+// The session's changes as a section of its panel, whose detail is the diff,
+// like Claude Code's diff view.
+function SessionChanges({
   session,
 }: {
   readonly session: MountedSession;
@@ -60,14 +60,14 @@ function SessionHeader({
   const count = changed.reduce((sum, { fileCount }) => sum + fileCount, 0);
 
   return (
-    <SessionTab
+    <SessionSection
       name="changes"
-      order={30}
-      label={`Changes ${String(count)}`}
-      button={`Diff, ${plural(count, "file")} changed`}
+      order={20}
+      label="Changes"
       icon="git-pull-request"
-    >
-      {changed.map((checkout) => (
+      button={`Diff, ${plural(count, "file")} changed`}
+      badge={String(count)}
+      detail={changed.map((checkout) => (
         <Checkout
           key={checkout.name}
           checkout={checkout}
@@ -75,7 +75,35 @@ function SessionHeader({
           pullRequest={pullRequests.find(({ name }) => name === checkout.name)}
         />
       ))}
-    </SessionTab>
+    >
+      {changed.map((checkout) => (
+        <Changed key={checkout.name} checkout={checkout} />
+      ))}
+    </SessionSection>
+  );
+}
+
+function Changed({
+  checkout: { name, fileCount, patch },
+}: {
+  readonly checkout: CheckoutChanges;
+}): ReactElement {
+  const diff = useMemo(() => parseDiff(patch), [patch]);
+  const added = diff.reduce((sum, file) => sum + file.added, 0);
+  const removed = diff.reduce((sum, file) => sum + file.removed, 0);
+
+  return (
+    <p className="flex items-center gap-2">
+      <span className="min-w-0 flex-1 truncate">
+        {[name, `${plural(fileCount, "file")} changed`]
+          .filter(Boolean)
+          .join(" · ")}
+      </span>
+      <span className="shrink-0 font-mono text-caption">
+        <span className="text-done">{`+${String(added)}`}</span>{" "}
+        <span className="text-failed">{`−${String(removed)}`}</span>
+      </span>
+    </p>
   );
 }
 

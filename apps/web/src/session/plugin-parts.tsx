@@ -5,7 +5,7 @@ import { fillsOf, useSessionPlugins } from "../plugins";
 
 // Kept across renders so plugin parts re-render on their own events, not on
 // every token.
-export function usePluginHeaders(
+export function usePluginSections(
   team: boolean,
   session: MountedSession,
 ): ReactNode {
@@ -13,7 +13,7 @@ export function usePluginHeaders(
 
   return useMemo(
     () =>
-      fillsOf("session.header", parts).map(({ plugin, Component }) => (
+      fillsOf("session.panel", parts).map(({ plugin, Component }) => (
         <span key={plugin} data-plugin={plugin}>
           <PluginBoundary name={plugin}>
             <Component session={session} />

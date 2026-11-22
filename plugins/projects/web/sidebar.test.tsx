@@ -34,8 +34,8 @@ test("the sidebar's Assistant entry and its active Projects load the list once",
   );
 
   const page = renderPart(
-    { ...web, slots: { "session.header": Sidebar } },
-    "session.header",
+    { ...web, slots: { "session.panel": Sidebar } },
+    "session.panel",
     {},
     {
       fetch: async (url) => {
