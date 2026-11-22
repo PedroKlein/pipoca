@@ -4886,7 +4886,9 @@ test("creates a Project and shares a file through its folder", async () => {
   await side.waitFor();
   await side.getByRole("button", { name: "Back to threads" }).click();
 
-  await page.getByRole("button", { name: "Project folder" }).click();
+  await page
+    .getByRole("button", { name: "Project folder", exact: true })
+    .click();
 
   await page.getByText(/^No files here yet\./).waitFor();
 
@@ -8023,7 +8025,9 @@ test("opens the Team assistant as the same Project page as a person's own assist
 
   await settings.getByLabel("Name").waitFor();
   await settings.getByRole("region", { name: "Memory" }).waitFor();
-  await page.getByRole("button", { name: "Project folder" }).waitFor();
+  await page
+    .getByRole("button", { name: "Project folder", exact: true })
+    .waitFor();
 });
 
 test("shows plugin panels on the team hub and lets an admin lay out a page of them", async () => {
