@@ -53,7 +53,9 @@ export function Segmented<T extends string>({
           )}
           <span
             className={cn(
-              compact && option.icon !== undefined && "max-sm:sr-only @max-xl:sr-only",
+              compact &&
+                option.icon !== undefined &&
+                "max-sm:sr-only @max-xl:sr-only",
             )}
           >
             {option.label}
