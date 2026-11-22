@@ -13,6 +13,7 @@ import {
   pickerModels,
   RepositoryField,
   sessionHref,
+  SessionPanelGroup,
   SessionView,
   Slot,
   useApi,
@@ -1287,128 +1288,133 @@ function ProjectPage({
 
   return (
     <div className="relative flex min-h-0 min-w-0 flex-1">
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        {panel.kind === "thread" && panel.full ? (
-          <SessionView
-            sessionId={panel.id}
-            layout="full"
-            {...(thread && { title: thread.title })}
-            crumb={
-              <>
-                <a
-                  href={to("")}
-                  className="shrink-0 font-normal text-fg-dim hover:text-fg hover:underline"
-                >
-                  {project.name}
-                </a>
-                <Icon
-                  name="chevron-right"
-                  className="size-3.5 shrink-0 text-fg-dim"
-                />
-              </>
-            }
-            actions={
-              <>
+      <SessionPanelGroup>
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col md:min-w-72">
+          {panel.kind === "thread" && panel.full ? (
+            <SessionView
+              sessionId={panel.id}
+              layout="full"
+              {...(thread && { title: thread.title })}
+              crumb={
+                <>
+                  <a
+                    href={to("")}
+                    className="shrink-0 font-normal text-fg-dim hover:text-fg hover:underline"
+                  >
+                    {project.name}
+                  </a>
+                  <Icon
+                    name="chevron-right"
+                    className="size-3.5 shrink-0 text-fg-dim"
+                  />
+                </>
+              }
+              actions={
+                <>
+                  <Button
+                    variant="ghost"
+                    iconOnly
+                    aria-label="Show beside the coordinator"
+                    onClick={() => {
+                      go(panel.id);
+                    }}
+                    className="max-md:hidden"
+                  >
+                    <Icon name="minimize" />
+                  </Button>
+                </>
+              }
+            />
+          ) : (
+            <SessionView
+              sessionId={project.coordinatorId}
+              layout="full"
+              title={project.name}
+              actions={
+                <>
+                  {(
+                    [
+                      ["folder", "Project folder", "folder"],
+                      ...(published
+                        ? ([
+                            ["artifacts", "Project artifacts", "layout-grid"],
+                          ] as const)
+                        : []),
+                      ["settings", "Project settings", "settings"],
+                    ] as const
+                  ).map(([kind, label, icon]) => (
+                    <Button
+                      key={kind}
+                      variant="ghost"
+                      iconOnly
+                      title={label}
+                      aria-label={label}
+                      aria-pressed={panel.kind === kind}
+                      className="aria-pressed:bg-hover aria-pressed:text-fg-strong"
+                      onClick={() => {
+                        go(panel.kind === kind ? "" : kind);
+                      }}
+                    >
+                      <Icon name={icon} />
+                    </Button>
+                  ))}
+                  {railToggle}
+                </>
+              }
+            />
+          )}
+        </div>
+
+        {beside === "thread" && panel.kind === "thread" && (
+          <aside
+            aria-label={thread?.title ?? "Thread"}
+            className={cn(
+              column,
+              "w-[min(52rem,50%)] bg-bg md:min-w-72 md:shrink",
+            )}
+          >
+            <SessionView
+              sessionId={panel.id}
+              layout="side"
+              {...(thread && { title: thread.title })}
+              crumb={
                 <Button
                   variant="ghost"
                   iconOnly
-                  aria-label="Show beside the coordinator"
+                  aria-label="Back to threads"
                   onClick={() => {
-                    go(panel.id);
+                    setRailOpen(true);
+                    go("");
                   }}
-                  className="max-md:hidden"
+                  className="-ml-2"
                 >
-                  <Icon name="minimize" />
+                  <Icon name="chevron-right" className="rotate-180" />
                 </Button>
-              </>
-            }
-          />
-        ) : (
-          <SessionView
-            sessionId={project.coordinatorId}
-            layout="full"
-            title={project.name}
-            actions={
-              <>
-                {(
-                  [
-                    ["folder", "Project folder", "folder"],
-                    ...(published
-                      ? ([
-                          ["artifacts", "Project artifacts", "layout-grid"],
-                        ] as const)
-                      : []),
-                    ["settings", "Project settings", "settings"],
-                  ] as const
-                ).map(([kind, label, icon]) => (
-                  <Button
-                    key={kind}
-                    variant="ghost"
-                    iconOnly
-                    title={label}
-                    aria-label={label}
-                    aria-pressed={panel.kind === kind}
-                    className="aria-pressed:bg-hover aria-pressed:text-fg-strong"
-                    onClick={() => {
-                      go(panel.kind === kind ? "" : kind);
-                    }}
-                  >
-                    <Icon name={icon} />
-                  </Button>
-                ))}
-                {railToggle}
-              </>
-            }
-          />
+              }
+              actions={
+                <Button
+                  variant="ghost"
+                  iconOnly
+                  aria-label="Open fullscreen"
+                  onClick={() => {
+                    go(`${panel.id}/full`);
+                  }}
+                >
+                  <Icon name="maximize" />
+                </Button>
+              }
+            />
+          </aside>
         )}
-      </div>
-
-      {beside === "thread" && panel.kind === "thread" && (
-        <aside
-          aria-label={thread?.title ?? "Thread"}
-          className={cn(column, "w-[min(52rem,58%)] bg-bg")}
-        >
-          <SessionView
-            sessionId={panel.id}
-            layout="side"
-            {...(thread && { title: thread.title })}
-            crumb={
-              <Button
-                variant="ghost"
-                iconOnly
-                aria-label="Back to threads"
-                onClick={() => {
-                  setRailOpen(true);
-                  go("");
-                }}
-                className="-ml-2"
-              >
-                <Icon name="chevron-right" className="rotate-180" />
-              </Button>
-            }
-            actions={
-              <Button
-                variant="ghost"
-                iconOnly
-                aria-label="Open fullscreen"
-                onClick={() => {
-                  go(`${panel.id}/full`);
-                }}
-              >
-                <Icon name="maximize" />
-              </Button>
-            }
-          />
-        </aside>
-      )}
+      </SessionPanelGroup>
 
       {beside === "settings" && (
         <aside
           aria-label="Project settings"
           className={cn(column, "w-[min(30rem,45%)] bg-bg")}
         >
-          <header className="flex min-h-14 items-center gap-2 border-b border-line px-4">
-            <h2 className="flex-1 text-title font-semibold text-fg-strong">
+          <header className="flex min-h-10 items-center gap-2 border-b border-line pr-1.5 pl-4">
+            <h2 className="flex-1 text-ui font-semibold text-fg-strong">
               Settings
             </h2>
             <Button
@@ -1456,8 +1462,8 @@ function ProjectPage({
           aria-label="Project folder"
           className={cn(column, "w-[min(30rem,45%)] bg-bg")}
         >
-          <header className="flex min-h-14 items-center gap-2 border-b border-line px-4">
-            <h2 className="flex-1 text-title font-semibold text-fg-strong">
+          <header className="flex min-h-10 items-center gap-2 border-b border-line pr-1.5 pl-4">
+            <h2 className="flex-1 text-ui font-semibold text-fg-strong">
               Folder
             </h2>
             <Button
@@ -1482,8 +1488,8 @@ function ProjectPage({
           aria-label="Project artifacts"
           className={cn(column, "w-[min(44rem,55%)] bg-bg")}
         >
-          <header className="flex min-h-14 items-center gap-2 border-b border-line px-4">
-            <h2 className="flex-1 text-title font-semibold text-fg-strong">
+          <header className="flex min-h-10 items-center gap-2 border-b border-line pr-1.5 pl-4">
+            <h2 className="flex-1 text-ui font-semibold text-fg-strong">
               Artifacts
             </h2>
             <Button

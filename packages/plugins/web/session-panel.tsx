@@ -7,6 +7,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -36,13 +37,26 @@ interface Panel {
 interface Host {
   readonly sections: readonly Section[];
   readonly panel: Panel;
-  // The rail button to focus once the panel closes, by its section's name,
-  // or "" for the rail's own.
-  readonly closedFrom: string | undefined;
+  // Where focus goes once the panel opens or closes: "panel", or the rail
+  // button of a section by its name, "" for the rail's own.
+  readonly focusTo: string | undefined;
+  readonly focused: () => void;
   readonly body: (element: HTMLElement | null) => (() => void) | undefined;
 }
 
+interface Group {
+  readonly active: string | undefined;
+  readonly activate: (id: string) => void;
+  // Shows this Session unless the group already shows one.
+  readonly claim: (id: string) => void;
+  readonly release: (id: string) => void;
+  readonly open: boolean;
+  readonly setOpen: (open: boolean) => void;
+  readonly slot: HTMLElement | null;
+}
+
 const PanelContext = createContext<Panel | undefined>(undefined);
+const GroupContext = createContext<Group | undefined>(undefined);
 const HostContext = createContext<Host | undefined>(undefined);
 
 // The header's button, which takes focus back on a small screen.
@@ -80,10 +94,19 @@ export function SessionPanel({
 }: {
   readonly children: ReactNode;
 }): ReactElement {
+  const group = useContext(GroupContext);
+  const id = useId();
   const [sections, setSections] = useState<readonly Section[]>([]);
-  const [open, setOpen] = useState(storedOpen);
+  const [ownOpen, setOwnOpen] = useState(storedOpen);
+  const open = group?.open ?? ownOpen;
+  const setOpen = group?.setOpen ?? setOwnOpen;
   const [view, setView] = useState<string>();
-  const [closedFrom, setClosedFrom] = useState<string>();
+  const [focusTo, setFocusTo] = useState<string>();
+
+  const focused = useCallback(() => {
+    setFocusTo(undefined);
+  }, []);
+
   const button = useRef<HTMLButtonElement>(null);
 
   const [bodies, setBodies] = useState<ReadonlyMap<string, HTMLElement>>(
@@ -103,12 +126,12 @@ export function SessionPanel({
 
   const show = useCallback(
     (next: boolean, name?: string) => {
-      setClosedFrom(next ? undefined : (view ?? ""));
+      setFocusTo(next ? "panel" : (view ?? ""));
       setOpen(next);
       setView(name);
       storeOpen(next);
     },
-    [view],
+    [view, setOpen],
   );
 
   const body = useCallback((element: HTMLElement | null) => {
@@ -131,6 +154,19 @@ export function SessionPanel({
     };
   }, []);
 
+  const claim = group?.claim;
+  const unclaimed = group !== undefined && group.active === undefined;
+
+  const release = group?.release;
+
+  useEffect(() => {
+    if (unclaimed) {
+      claim?.(id);
+    }
+  }, [unclaimed, claim, id]);
+
+  useEffect(() => () => release?.(id), [release, id]);
+
   const sorted = useMemo(
     () => [...sections].sort((a, b) => a.order - b.order),
     [sections],
@@ -144,19 +180,83 @@ export function SessionPanel({
   );
 
   const host = useMemo(
-    () => ({ sections: sorted, panel, closedFrom, body }),
-    [sorted, panel, closedFrom, body],
+    () => ({ sections: sorted, panel, focusTo, focused, body }),
+    [sorted, panel, focusTo, focused, body],
   );
 
   return (
     <HostContext value={host}>
       <ButtonContext value={button}>
         <PanelContext value={panel}>
-          {children}
-          {open ? <Open shown={shown} /> : <Rail />}
+          {group === undefined ? (
+            <>
+              {children}
+              {open ? <Open shown={shown} /> : <Rail />}
+            </>
+          ) : (
+            <div
+              className="contents"
+              onPointerDownCapture={() => {
+                group.activate(id);
+              }}
+              onFocusCapture={() => {
+                group.activate(id);
+              }}
+            >
+              {children}
+              {group.active === id &&
+                group.slot !== null &&
+                createPortal(
+                  open ? <Open shown={shown} /> : <Rail />,
+                  group.slot,
+                )}
+            </div>
+          )}
         </PanelContext>
       </ButtonContext>
     </HostContext>
+  );
+}
+
+// Several Sessions side by side, such as a Project's coordinator and a
+// thread, that share one panel at the group's end. It shows the Session
+// last clicked or focused.
+export function SessionPanelGroup({
+  children,
+}: {
+  readonly children: ReactNode;
+}): ReactElement {
+  const [active, setActive] = useState<string>();
+  const [slot, setSlot] = useState<HTMLElement | null>(null);
+
+  const claim = useCallback((id: string) => {
+    setActive((now) => now ?? id);
+  }, []);
+
+  const release = useCallback((id: string) => {
+    setActive((now) => (now === id ? undefined : now));
+  }, []);
+
+  const [open, setOpen] = useState(storedOpen);
+
+  const group = useMemo(
+    () => ({
+      active,
+      activate: setActive,
+      claim,
+      release,
+      open,
+      setOpen,
+      slot,
+    }),
+    [active, claim, release, open, slot],
+  );
+
+  return (
+    <GroupContext value={group}>
+      {children}
+      <div ref={setSlot} className="contents" />
+    </GroupContext>
   );
 }
 
@@ -165,12 +265,14 @@ function Open({
 }: {
   readonly shown: Section | undefined;
 }): ReactElement | null {
-  const { sections, panel, body } = useHost();
+  const { sections, panel, focusTo, focused, body } = useHost();
 
   return (
     <SidePanel
       open
       docked
+      takeFocus={focusTo === "panel"}
+      onFocused={focused}
       title={shown?.label ?? "Session"}
       closeLabel="Close panel"
       size={shown === undefined ? "sm" : "lg"}
@@ -234,14 +336,16 @@ function Open({
 }
 
 function Rail(): ReactElement | null {
-  const { sections, panel, closedFrom } = useHost();
+  const { sections, panel, focusTo, focused } = useHost();
   const button = useContext(ButtonContext);
   const rail = useRef<HTMLElement>(null);
 
   useEffect(() => {
-    if (closedFrom === undefined) {
+    if (focusTo === undefined || focusTo === "panel") {
       return;
     }
+
+    focused();
 
     if (!matchMedia(wide).matches) {
       button.current?.focus();
@@ -250,9 +354,9 @@ function Rail(): ReactElement | null {
     }
 
     rail.current
-      ?.querySelector<HTMLButtonElement>(`button[data-section="${closedFrom}"]`)
+      ?.querySelector<HTMLButtonElement>(`button[data-section="${focusTo}"]`)
       ?.focus();
-  }, [closedFrom, button]);
+  }, [focusTo, focused, button]);
 
   if (sections.length === 0) {
     return null;

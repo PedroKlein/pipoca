@@ -1,7 +1,12 @@
 import { expect, test } from "bun:test";
 import { act, type ReactElement } from "react";
 import { definePlugin } from "../src/definition";
-import { defineWeb, SessionSection } from "./index";
+import {
+  defineWeb,
+  SessionPanel,
+  SessionPanelGroup,
+  SessionSection,
+} from "./index";
 import { renderPart } from "./testing";
 
 const sections = definePlugin({
@@ -118,4 +123,51 @@ test("a rail icon opens its section's detail, and the browser remembers whether 
 
   expect(page.querySelector("[role=complementary]")).toBeNull();
   expect(localStorage.getItem("pipoca.session-panel")).toBe("closed");
+});
+
+function Pane({ name }: { readonly name: string }): ReactElement {
+  return (
+    <div data-pane={name}>
+      <SessionPanel>
+        <button type="button">{`Steer the ${name}`}</button>
+        <SessionSection
+          name={name}
+          order={10}
+          label={name}
+          icon="file"
+          button={`${name} things`}
+        >
+          <p>{name}</p>
+        </SessionSection>
+      </SessionPanel>
+    </div>
+  );
+}
+
+const panes = defineWeb(sections, {
+  slots: {
+    "session.panel": () => (
+      <SessionPanelGroup>
+        <Pane name="coordinator" />
+        <Pane name="thread" />
+      </SessionPanelGroup>
+    ),
+  },
+});
+
+test("Sessions side by side share one panel, which shows the one last used", () => {
+  const page = renderPart(panes, "session.panel", {});
+
+  const railed = (): (string | null)[] =>
+    [...page.querySelectorAll("nav[aria-label='Session panel'] button")].map(
+      (each) => each.getAttribute("aria-label"),
+    );
+
+  expect(railed()).toEqual(["Open panel", "coordinator things"]);
+
+  act(() => {
+    page.querySelector<HTMLButtonElement>("[data-pane=thread] button")?.focus();
+  });
+
+  expect(railed()).toEqual(["Open panel", "thread things"]);
 });

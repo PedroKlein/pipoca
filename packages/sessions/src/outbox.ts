@@ -5,7 +5,11 @@ export type Outgoing =
   | {
       readonly kind: "notice";
       readonly text: string;
-      readonly notice: { readonly kind: string; readonly data?: unknown };
+      readonly notice: {
+        readonly kind: string;
+        readonly data?: unknown;
+        readonly about?: string;
+      };
       readonly turn: boolean;
     }
   | {

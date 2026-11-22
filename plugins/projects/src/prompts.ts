@@ -173,6 +173,7 @@ export function threadNotice(
     ].join("\n"),
     notice: {
       kind: "thread",
+      ...(!quiet && { about: thread.sessionId }),
       data: {
         threadId: thread.sessionId,
         title: thread.title,
