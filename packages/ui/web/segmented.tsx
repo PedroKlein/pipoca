@@ -9,6 +9,7 @@ export function Segmented<T extends string>({
   options,
   value,
   compact = false,
+  small = false,
   onChange,
 }: {
   readonly label: string;
@@ -18,15 +19,20 @@ export function Segmented<T extends string>({
     readonly icon?: IconName;
   }[];
   readonly value: T;
-  // Shows only the icons on a phone.
+  // Shows only the icons on a phone, or in a narrow container.
   readonly compact?: boolean;
+  // Lower, for a slim bar such as a Session's header.
+  readonly small?: boolean;
   readonly onChange: (value: T) => void;
 }): ReactElement {
   return (
     <div
       role="group"
       aria-label={label}
-      className="inline-flex shrink-0 gap-0.5 rounded-[10px] bg-hover p-0.75"
+      className={cn(
+        "inline-flex shrink-0 gap-0.5 bg-hover",
+        small ? "rounded-[9px] p-0.5" : "rounded-[10px] p-0.75",
+      )}
     >
       {options.map((option) => (
         <button
@@ -36,14 +42,18 @@ export function Segmented<T extends string>({
           onClick={() => {
             onChange(option.value);
           }}
-          className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-[7px] px-3 text-label font-medium text-fg-dim transition-colors hover:text-fg aria-pressed:bg-elevated aria-pressed:text-fg-strong aria-pressed:shadow-xs pointer-coarse:h-9"
+          className={cn(
+            "inline-flex cursor-pointer items-center gap-1.5 rounded-[7px] font-medium",
+            "text-fg-dim transition-colors hover:text-fg aria-pressed:bg-elevated aria-pressed:text-fg-strong aria-pressed:shadow-xs pointer-coarse:h-9",
+            small ? "h-6 px-2.5 text-caption" : "h-7 px-3 text-label",
+          )}
         >
           {option.icon !== undefined && (
             <Icon name={option.icon} className="size-3.5" />
           )}
           <span
             className={cn(
-              compact && option.icon !== undefined && "max-sm:sr-only",
+              compact && option.icon !== undefined && "max-sm:sr-only @max-xl:sr-only",
             )}
           >
             {option.label}

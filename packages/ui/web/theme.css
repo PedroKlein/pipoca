@@ -180,10 +180,10 @@
   --text-display--letter-spacing: -0.01em;
   --text-title: 16px;
   --text-title--line-height: 22px;
-  --text-prose: 15px;
-  --text-prose--line-height: 24px;
-  --text-ui: 14px;
-  --text-ui--line-height: 20px;
+  --text-prose: 14px;
+  --text-prose--line-height: 22px;
+  --text-ui: 13px;
+  --text-ui--line-height: 19px;
   --text-label: 13px;
   --text-label--line-height: 18px;
   --text-caption: 12px;
@@ -235,7 +235,7 @@
     }
   }
 
-  --container-chat: 760px;
+  --container-chat: 720px;
   --container-form: 768px;
   /* The chat column with a page's side padding on a wide screen. */
   --container-page: 856px;

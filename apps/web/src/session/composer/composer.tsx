@@ -36,7 +36,7 @@ import { useSend } from "./send";
 import { useSuggestions } from "./suggestions";
 import { placeholders, type Target } from "./target";
 import { TeamTalk } from "./team-talk";
-import { Toolbar } from "./toolbar";
+import { SendButtons, Toolbar } from "./toolbar";
 import { PluginParts, Widgets } from "./widgets";
 
 // A reply in team work, and the name of whoever it answers.
@@ -203,132 +203,144 @@ export function Composer({
               attach([...event.dataTransfer.files]);
             }
           }}
-          className="relative flex flex-col gap-2 rounded-xl border border-line bg-elevated py-2 pr-2 pl-4 shadow-card transition-[border-color,box-shadow] duration-150 focus-within:border-line-focus focus-within:ring-4 focus-within:ring-focus"
+          className="flex flex-col gap-1.5"
         >
-          {suggestions.menu}
-          <label htmlFor={textId} className="sr-only">
-            {placeholders[talk ? target : "pi"]}
-          </label>
-          {replying && (
-            <p className="flex items-start gap-2 border-l-2 border-line-strong pl-2 text-label text-fg-dim">
-              <span className="min-w-0 flex-1">
-                Replying to <span className="font-medium">{replying.by}</span>
-                <span className="line-clamp-1">{replying.quote.text}</span>
-              </span>
-              <Button
-                variant="ghost"
-                size="xs"
-                iconOnly
-                aria-label="Cancel the reply"
-                onClick={onReplied}
-              >
-                <Icon name="x" className="size-3.5" />
-              </Button>
-            </p>
-          )}
-          {talk && target === "pi" && (
-            <TeamTalk
-              unread={teamTalkSince(feed.voices).length}
-              onFork={
-                onFork &&
-                (() => {
-                  const draft = text.current?.value ?? "";
+          <div className="relative flex flex-col gap-2 rounded-xl border border-line bg-elevated py-2 pr-2 pl-4 shadow-card transition-[border-color,box-shadow] duration-150 focus-within:border-line-focus focus-within:ring-4 focus-within:ring-focus">
+            {suggestions.menu}
+            <label htmlFor={textId} className="sr-only">
+              {placeholders[talk ? target : "pi"]}
+            </label>
+            {replying && (
+              <p className="flex items-start gap-2 border-l-2 border-line-strong pl-2 text-label text-fg-dim">
+                <span className="min-w-0 flex-1">
+                  Replying to <span className="font-medium">{replying.by}</span>
+                  <span className="line-clamp-1">{replying.quote.text}</span>
+                </span>
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  iconOnly
+                  aria-label="Cancel the reply"
+                  onClick={onReplied}
+                >
+                  <Icon name="x" className="size-3.5" />
+                </Button>
+              </p>
+            )}
+            {talk && target === "pi" && (
+              <TeamTalk
+                unread={teamTalkSince(feed.voices).length}
+                onFork={
+                  onFork &&
+                  (() => {
+                    const draft = text.current?.value ?? "";
 
-                  if (text.current) {
-                    text.current.value = "";
+                    if (text.current) {
+                      text.current.value = "";
+                    }
+
+                    onFork(draft);
+                  })
+                }
+              />
+            )}
+            <div className="flex flex-wrap gap-2 pt-1 empty:hidden">
+              <AttachedImages
+                images={images}
+                onRemove={(id) => {
+                  setImages((current) =>
+                    current.filter((each) => each.id !== id),
+                  );
+                }}
+              />
+              {fileParts.map(({ plugin, Component }) => (
+                <PluginBoundary key={plugin} name={plugin}>
+                  <Component
+                    session={session}
+                    files={files}
+                    onRemove={(file) => {
+                      setFiles((current) =>
+                        current.filter((each) => each !== file),
+                      );
+                    }}
+                    onUploading={setUploading}
+                  />
+                </PluginBoundary>
+              ))}
+              {attachments.length > 0 && (
+                <ul aria-label="Attached" className="flex flex-wrap gap-2">
+                  {attachments.map((each) => (
+                    <li key={each.key} className="min-w-0">
+                      <AttachedCard
+                        icon={each.icon}
+                        title={each.title}
+                        detail={each.detail}
+                        onRemove={() => {
+                          setAttachments((now) =>
+                            now.filter(({ key }) => key !== each.key),
+                          );
+
+                          text.current?.focus();
+                        }}
+                      />
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            <div className="flex items-end gap-2">
+              <textarea
+                ref={text}
+                id={textId}
+                name="text"
+                rows={1}
+                placeholder={
+                  starting
+                    ? "Pi is starting…"
+                    : placeholders[talk ? target : "pi"]
+                }
+
+                {...suggestions.box}
+                onInput={(event) => {
+                  suggestions.box.onInput(event);
+
+                  if (talk && event.currentTarget.value.includes("@pipoca")) {
+                    setTarget("pi");
+                  }
+                }}
+                onPaste={(event) => {
+                  const pasted = [...event.clipboardData.files];
+
+                  // Excel and Word put a picture of the copied cells or text next
+                  // to the text itself, as HTML. A copied file has no HTML.
+                  if (
+                    pasted.length > 0 &&
+                    !event.clipboardData.types.includes("text/html")
+                  ) {
+                    event.preventDefault();
+                    attach(pasted);
+                  }
+                }}
+                onKeyDown={(event) => {
+                  if (isComposing(event) || suggestions.keyDown(event)) {
+                    return;
                   }
 
-                  onFork(draft);
-                })
-              }
-            />
-          )}
-          <div className="flex flex-wrap gap-2 pt-1 empty:hidden">
-            <AttachedImages
-              images={images}
-              onRemove={(id) => {
-                setImages((current) =>
-                  current.filter((each) => each.id !== id),
-                );
-              }}
-            />
-            {fileParts.map(({ plugin, Component }) => (
-              <PluginBoundary key={plugin} name={plugin}>
-                <Component
-                  session={session}
-                  files={files}
-                  onRemove={(file) => {
-                    setFiles((current) =>
-                      current.filter((each) => each !== file),
-                    );
-                  }}
-                  onUploading={setUploading}
-                />
-              </PluginBoundary>
-            ))}
-            {attachments.length > 0 && (
-              <ul aria-label="Attached" className="flex flex-wrap gap-2">
-                {attachments.map((each) => (
-                  <li key={each.key} className="min-w-0">
-                    <AttachedCard
-                      icon={each.icon}
-                      title={each.title}
-                      detail={each.detail}
-                      onRemove={() => {
-                        setAttachments((now) =>
-                          now.filter(({ key }) => key !== each.key),
-                        );
-
-                        text.current?.focus();
-                      }}
-                    />
-                  </li>
-                ))}
-              </ul>
-            )}
+                  if (sendsOnEnter(event)) {
+                    event.preventDefault();
+                    send(event.metaKey || event.ctrlKey ? "steer" : "followUp");
+                  }
+                }}
+                className="max-h-72 min-h-7 min-w-0 flex-1 resize-none field-sizing-content bg-transparent pt-1 text-prose text-fg placeholder:text-fg-dim focus:outline-none"
+              />
+              <SendButtons
+                sessionId={sessionId}
+                running={running}
+                disabled={uploading || starting}
+                report={report}
+              />
+            </div>
           </div>
-          <textarea
-            ref={text}
-            id={textId}
-            name="text"
-            rows={2}
-            placeholder={
-              starting ? "Pi is starting…" : placeholders[talk ? target : "pi"]
-            }
-
-            {...suggestions.box}
-            onInput={(event) => {
-              suggestions.box.onInput(event);
-
-              if (talk && event.currentTarget.value.includes("@pipoca")) {
-                setTarget("pi");
-              }
-            }}
-            onPaste={(event) => {
-              const pasted = [...event.clipboardData.files];
-
-              // Excel and Word put a picture of the copied cells or text next
-              // to the text itself, as HTML. A copied file has no HTML.
-              if (
-                pasted.length > 0 &&
-                !event.clipboardData.types.includes("text/html")
-              ) {
-                event.preventDefault();
-                attach(pasted);
-              }
-            }}
-            onKeyDown={(event) => {
-              if (isComposing(event) || suggestions.keyDown(event)) {
-                return;
-              }
-
-              if (sendsOnEnter(event)) {
-                event.preventDefault();
-                send(event.metaKey || event.ctrlKey ? "steer" : "followUp");
-              }
-            }}
-            className="max-h-72 min-h-12 resize-none field-sizing-content bg-transparent pt-1 text-prose text-fg placeholder:text-fg-dim focus:outline-none"
-          />
           <Toolbar
             sessionId={sessionId}
             feed={feed}
@@ -339,11 +351,13 @@ export function Composer({
             team={team}
             talk={talk}
             target={target}
-            onTarget={setTarget}
+            onTarget={(next) => {
+              setTarget(next);
+              text.current?.focus();
+            }}
             running={running}
             anyFile={fileParts.length > 0}
             uploading={uploading}
-            starting={starting}
             attach={attach}
             report={report}
             meter={meterParts.map(({ plugin, Component }) => (

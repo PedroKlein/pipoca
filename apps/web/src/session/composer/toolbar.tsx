@@ -1,6 +1,6 @@
 import { type Environment, imageTypes, type ModelInfo } from "@pipoca/protocol";
 import { AttachMenu } from "@pipoca/plugins/web";
-import { Button, Icon, Segmented } from "@pipoca/ui";
+import { Button, Icon, Menu } from "@pipoca/ui";
 import type { ReactElement, ReactNode, RefObject } from "react";
 import { command } from "../../data/client";
 import type { Feed } from "../feed";
@@ -27,7 +27,6 @@ export function Toolbar({
   running,
   anyFile,
   uploading,
-  starting,
   attach,
   report,
   meter,
@@ -47,17 +46,16 @@ export function Toolbar({
   // A plugin keeps files that aren't images, so the button takes any.
   readonly anyFile: boolean;
   readonly uploading: boolean;
-  readonly starting: boolean;
   readonly attach: (files: readonly File[]) => void;
   readonly report: (error: unknown) => void;
-  // Plugins' small readouts beside the send button, such as how full the
-  // context is.
+  // Plugins' small readouts beside the model, such as how full the context
+  // is.
   readonly meter: ReactNode;
   // The plugins' rows of the + menu.
   readonly children: ReactNode;
 }): ReactElement {
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-2 px-1">
       <AttachMenu
         label={anyFile ? "Attach files" : "Attach images"}
         {...(!anyFile && { accept: imageTypes.join(",") })}
@@ -65,6 +63,34 @@ export function Toolbar({
       >
         {children}
       </AttachMenu>
+      {talk && (
+        <Menu
+          label={`Send to: ${targets.find(({ value }) => value === target)?.label ?? ""}`}
+          side="above"
+          align="start"
+          size="xs"
+          trigger={
+            <>
+              {targets.find(({ value }) => value === target)?.label}
+              <Icon name="chevron-down" className="size-3" />
+            </>
+          }
+          items={targets.map(({ value, label }) => ({
+            label,
+            checked: value === target,
+            run: () => {
+              onTarget(value);
+            },
+          }))}
+        />
+      )}
+      <span className="min-w-0 flex-1 truncate text-caption text-fg-dim">
+        {uploading && "Send waits for uploads"}
+        {!uploading && running && (
+          <span className="max-md:hidden">{`Enter queues · ${sendNowKeys} sends now`}</span>
+        )}
+      </span>
+      {meter}
       {feed.settings && (
         <ModelMenu
           settings={feed.settings}
@@ -90,29 +116,29 @@ export function Toolbar({
           }}
         />
       )}
-      {talk && (
-        <Segmented
-          label="Send to"
-          value={target}
-          options={targets}
-          onChange={onTarget}
-        />
-      )}
-      {uploading ? (
-        <span className="flex-1 truncate text-caption text-fg-dim">
-          Send waits for uploads
-        </span>
-      ) : (
-        <span className="flex-1 truncate text-caption text-fg-dim max-md:hidden">
-          {running ? `Enter queues · ${sendNowKeys} sends now` : "Enter sends"}{" "}
-          · / commands · @ files
-        </span>
-      )}
-      {meter}
+    </div>
+  );
+}
+
+// Stop while Pi works, and Send, beside the message.
+export function SendButtons({
+  sessionId,
+  running,
+  disabled,
+  report,
+}: {
+  readonly sessionId: string;
+  readonly running: boolean;
+  readonly disabled: boolean;
+  readonly report: (error: unknown) => void;
+}): ReactElement {
+  return (
+    <span className="flex shrink-0 items-center gap-1.5 self-end">
       {running && (
         <Button
           variant="default"
           iconOnly
+          size="sm"
           aria-label="Stop"
           className="rounded-full"
           onClick={() => {
@@ -125,13 +151,14 @@ export function Toolbar({
       <Button
         variant="primary"
         iconOnly
+        size="sm"
         type="submit"
         aria-label="Send"
-        disabled={uploading || starting}
-        className="ml-auto rounded-full"
+        disabled={disabled}
+        className="rounded-full"
       >
         <Icon name="arrow-up" />
       </Button>
-    </div>
+    </span>
   );
 }

@@ -141,7 +141,7 @@ export function AttachMenu({
         },
       }}
     >
-      <div ref={box} className="-ml-2">
+      <div ref={box} className="relative -ml-2">
         <Button
           variant="ghost"
           iconOnly
