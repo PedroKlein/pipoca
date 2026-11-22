@@ -8032,6 +8032,7 @@ test("opens the Team assistant as the same Project page as a person's own assist
 
   await settings.getByLabel("Name").waitFor();
   await settings.getByRole("region", { name: "Memory" }).waitFor();
+
   await page
     .getByRole("button", { name: "Project folder", exact: true })
     .waitFor();
