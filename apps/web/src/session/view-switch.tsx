@@ -14,6 +14,7 @@ export function ViewSwitch({
     <Segmented
       label="View"
       compact
+      small
       value={view}
       onChange={onChange}
       options={[

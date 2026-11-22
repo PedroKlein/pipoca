@@ -100,8 +100,10 @@ export function SidePanel({
           ),
       )}
     >
-      <header className="flex min-h-14 items-center gap-2 border-b border-line px-4">
-        <h2 className="flex-1 font-semibold text-fg-strong">{title}</h2>
+      <header className="flex min-h-10 shrink-0 items-center gap-2 border-b border-line pr-1.5 pl-4">
+        <h2 className="flex-1 truncate font-semibold text-fg-strong">
+          {title}
+        </h2>
         <Button
           variant="ghost"
           iconOnly

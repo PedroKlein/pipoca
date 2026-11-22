@@ -37,7 +37,7 @@ export function Header({
   return (
     <header
       className={cn(
-        "flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1 border-b border-line px-4 py-1.5",
+        "@container flex min-h-10 shrink-0 items-center gap-2 border-b border-line px-3",
         shown !== "chat" && "bg-term-bg",
       )}
     >
@@ -53,28 +53,53 @@ export function Header({
           </Button>
         </span>
       )}
-      <h1
-        className={cn(
-          "flex min-w-0 items-center gap-1.5 text-title font-semibold text-fg-strong",
-          primary ? "flex-[1_1_240px]" : "flex-[1_1_160px]",
-        )}
-      >
-        {crumb}
-        <span className="truncate">{title}</span>
+      <div className="flex min-w-16 flex-1 items-center gap-2">
+        <h1 className="flex min-w-0 items-center gap-2 text-ui font-semibold text-fg-strong">
+          {crumb}
+          <span
+            aria-hidden="true"
+            className={cn(
+              "size-2 shrink-0 rounded-full",
+              dotClass(feed.session),
+            )}
+          />
+          <span className="truncate">{title}</span>
+        </h1>
         <span
           id={primary ? "status" : undefined}
-          className="shrink-0 text-caption font-normal text-fg-dim"
+          className="shrink-0 text-caption text-fg-dim max-sm:sr-only @max-lg:sr-only"
         >
           {statusText(feed)}
         </span>
-      </h1>
+      </div>
       {session && <StateBadge session={session} />}
       <SessionPanelButton />
-      {!archived && <ViewSwitch view={view} onChange={onView} />}
+      {primary && !archived && (
+        <span className="@max-md:hidden">
+          <ViewSwitch view={view} onChange={onView} />
+        </span>
+      )}
       {actions}
-      {menu}
+      {primary && menu}
     </header>
   );
+}
+
+function dotClass(session: Session | undefined): string {
+  const badge = session && sessionBadge(session);
+
+  switch (badge?.state) {
+    case "working":
+      return "bg-working motion-safe:animate-pulse";
+    case "waiting":
+      return "bg-waiting";
+    case "failed":
+      return "bg-failed";
+    case "offline":
+      return "bg-line-strong";
+    case undefined:
+      return session?.archivedAt === null ? "bg-done" : "bg-line-strong";
+  }
 }
 
 function statusText({ missing, session }: Feed): string {
@@ -136,5 +161,7 @@ function StateBadge({
 }): ReactElement | null {
   const badge = sessionBadge(session);
 
-  return badge ? <Badge state={badge.state}>{badge.label}</Badge> : null;
+  return badge?.state === "waiting" || badge?.state === "failed" ? (
+    <Badge state={badge.state}>{badge.label}</Badge>
+  ) : null;
 }

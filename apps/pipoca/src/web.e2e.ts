@@ -7852,9 +7852,12 @@ test("opens the team hub from the sidebar and lists team work anyone can pick up
 
   await page.getByRole("button", { name: "Close panel" }).click();
 
-  const sendTo = page.getByRole("group", { name: "Send to" });
+  const sendTo = async (target: string): Promise<void> => {
+    await page.getByRole("button", { name: /^Send to:/ }).click();
+    await page.getByRole("menuitemradio", { name: target }).click();
+  };
 
-  await sendTo.getByRole("button", { name: "To the team" }).click();
+  await sendTo("To the team");
   await page.locator("#prompt-text").fill("Ship it today?");
   await page.locator("#prompt-text").press("Enter");
 
@@ -7864,7 +7867,7 @@ test("opens the team hub from the sidebar and lists team work anyone can pick up
 
   await said.getByText("Pi didn't answer").waitFor();
   await said.getByRole("button", { name: "Reply" }).click();
-  await sendTo.getByRole("button", { name: "Off the record" }).click();
+  await sendTo("Off the record");
   await page.locator("#prompt-text").fill("Check the release first");
   await page.locator("#prompt-text").press("Enter");
 
@@ -8372,7 +8375,7 @@ test("keeps team talk off team work nobody else sees, such as a Team assistant",
   await page.locator("header").getByText("own-talk", { exact: true }).waitFor();
   await page.locator("#prompt-text").waitFor();
 
-  expect(await page.getByRole("group", { name: "Send to" }).count()).toBe(0);
+  expect(await page.getByRole("button", { name: /^Send to:/ }).count()).toBe(0);
 });
 
 test("offers a fork once the team said more than Pi reads", async () => {
@@ -8442,9 +8445,9 @@ test("offers a fork once the team said more than Pi reads", async () => {
   // No runner serves these pods, so Pi never starts to take the message.
   await page.getByPlaceholder("Pi is starting…").waitFor();
 
-  expect(await page.getByRole("button", { name: "Send" }).isDisabled()).toBe(
-    true,
-  );
+  expect(
+    await page.getByRole("button", { name: "Send", exact: true }).isDisabled(),
+  ).toBe(true);
 
   await offer.getByRole("button", { name: "Fork" }).click();
 
