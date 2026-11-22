@@ -170,13 +170,21 @@ function outputSync(
       withFileTypes: true,
     }).catch(() => []);
 
-    for (const entry of entries) {
-      if (!entry.isFile() || found.length >= maxOutputs) {
-        continue;
+    // readdir's order is the filesystem's, which differs between disks.
+    const paths = entries
+      .filter((entry) => entry.isFile())
+      .map((entry) => {
+        const full = join(entry.parentPath, entry.name);
+
+        return { full, path: relative(root, full).split(sep).join("/") };
+      })
+      .sort((a, b) => (a.path < b.path ? -1 : 1));
+
+    for (const { full, path } of paths) {
+      if (found.length >= maxOutputs) {
+        break;
       }
 
-      const full = join(entry.parentPath, entry.name);
-      const path = relative(root, full).split(sep).join("/");
       const info = await stat(full).catch(() => undefined);
 
       if (info === undefined) {
