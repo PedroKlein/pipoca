@@ -36,7 +36,7 @@ function rendered(
 ): HTMLElement {
   const page = renderPart(
     web,
-    "session.header",
+    "session.panel",
     { session: sessionWith({ published }) },
     { ...(fills && { fills }) },
   );
@@ -48,23 +48,23 @@ function rendered(
   return page;
 }
 
-test("the header shows what the Session part last published under changes", () => {
+test("the panel's Changes section shows what the Session part last published under changes", () => {
   const page = rendered([
     { plugin: "changes", key: "changes", data: [] },
     { plugin: "other", key: "changes", data: [checkout, checkout] },
     { plugin: "changes", key: "changes", data: [checkout] },
   ]);
 
-  expect(page.querySelector("button")?.getAttribute("aria-label")).toBe(
-    "Diff, 1 file changed",
-  );
+  expect(
+    page.querySelector("[role=complementary]")?.getAttribute("aria-label"),
+  ).toBe("Changes");
 
-  expect(page.querySelector("[role=dialog] h3")?.textContent).toContain(
+  expect(page.querySelector("[role=complementary] h3")?.textContent).toContain(
     "Changes (1 file)",
   );
 });
 
-test("a Session that changed nothing draws nothing in the header", () => {
+test("a Session that changed nothing has no Changes section", () => {
   const page = rendered([{ plugin: "changes", key: "changes", data: [] }]);
 
   expect(page.innerHTML).toBe("");
@@ -76,7 +76,9 @@ test("an open pull request's status slot is empty without a plugin to fill it", 
     { plugin: "changes", key: "pull-requests", data: [opened] },
   ]);
 
-  const actions = page.querySelector("[role=dialog] h3")?.nextElementSibling;
+  const actions = page.querySelector(
+    "[role=complementary] h3",
+  )?.nextElementSibling;
 
   expect(
     [...(actions?.querySelectorAll("button, a") ?? [])].map(

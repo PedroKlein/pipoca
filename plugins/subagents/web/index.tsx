@@ -1,6 +1,7 @@
 import {
   defineWeb,
   type MountedSession,
+  SessionSection,
   type ToolCall,
   useNow,
   useSessionState,
@@ -17,7 +18,6 @@ import {
   Icon,
   isComposing,
   plural,
-  SidePanel,
   StatusMark,
   TextInput,
 } from "@pipoca/ui";
@@ -53,7 +53,7 @@ import {
 export const web = defineWeb(subagents, {
   slots: {
     "session.toolCall:subagent": SubagentCall,
-    "session.header": FleetButton,
+    "session.panel": Fleet,
     "notice:finished": FinishedNotice,
     "notice:interrupted": InterruptedNotice,
     [`notice:${watchdogKind}`]: WatchdogNotice,
@@ -427,15 +427,13 @@ function Mark({ tone }: { readonly tone: Tone }): ReactElement {
   return <StatusMark status={tone} label="" />;
 }
 
-// The header's Subagents button opens every run of the Session in a side
-// panel, once there is one.
-function FleetButton({
+// Runs and missions as a section of the Session's panel, with the fleet as
+// its detail.
+function Fleet({
   session,
 }: {
   readonly session: MountedSession;
 }): ReactElement | null {
-  const [open, setOpen] = useState(false);
-
   const runs = [...useRuns(session).values()].sort(
     (one, other) => other.startedAt - one.startedAt,
   );
@@ -449,41 +447,42 @@ function FleetButton({
   }
 
   return (
-    <>
-      <Button
-        variant="ghost"
-        aria-expanded={open}
-        onClick={() => {
-          setOpen(!open);
-        }}
-      >
+    <SessionSection
+      name="subagents"
+      order={30}
+      label="Subagents"
+      icon="git-fork"
+      button={count > 0 ? `Subagents, ${String(count)} running` : "Subagents"}
+      {...(asking > 0
+        ? { badge: String(asking), waiting: true }
+        : count > 0 && { badge: String(count) })}
+      detail={
+        <div className="flex flex-col gap-3">
+          {missions.map((mission) => (
+            <Mission key={mission.id} mission={mission} session={session} />
+          ))}
+          {runs.map((run) => (
+            <Card padding="none" key={run.id} className="overflow-hidden">
+              <Run run={run} session={session} />
+            </Card>
+          ))}
+        </div>
+      }
+    >
+      <p className="flex items-center gap-2">
         {count > 0 ? (
           <StatusMark status="running" label="" />
         ) : (
-          <Icon name="git-fork" className="size-3.5" />
+          <Icon name="check" className="size-3.5 text-fg-dim" />
         )}
-        {count > 0 ? `${String(count)} running` : "Subagents"}
+        <span className="min-w-0 flex-1 truncate">
+          {count > 0
+            ? `${String(count)} running`
+            : `${plural(runs.length, "run")}, none running`}
+        </span>
         {asking > 0 && <Badge state="waiting">{asking} to decide</Badge>}
-      </Button>
-      <SidePanel
-        open={open}
-        title="Subagents"
-        closeLabel="Close subagents"
-        className="gap-3"
-        onClose={() => {
-          setOpen(false);
-        }}
-      >
-        {missions.map((mission) => (
-          <Mission key={mission.id} mission={mission} session={session} />
-        ))}
-        {runs.map((run) => (
-          <Card padding="none" key={run.id} className="overflow-hidden">
-            <Run run={run} session={session} />
-          </Card>
-        ))}
-      </SidePanel>
-    </>
+      </p>
+    </SessionSection>
   );
 }
 

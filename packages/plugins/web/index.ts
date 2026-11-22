@@ -21,7 +21,11 @@ export { ConfigForm } from "./config-form";
 export { ModelField, pickerModels, providerName } from "./models";
 export { hashParts, useOverlay } from "./overlay";
 export { RepositoryField } from "./repositories";
-export { SessionPanel, SessionTab } from "./session-panel";
+export {
+  SessionPanel,
+  SessionPanelButton,
+  SessionSection,
+} from "./session-panel";
 export { uploadBlob } from "./upload";
 export {
   type Attachment,

@@ -25,6 +25,7 @@ const meansOther: Readonly<Record<string, readonly string[]>> = {
   "apps/web/src/settings/profiles/overview.tsx": ["files"],
   "apps/web/src/settings/profiles/tabs.tsx": ["models", "files"],
   "packages/environments/src/environments.ts": ["models"],
+  "packages/plugins/web/files-menu.tsx": ["files"],
   "packages/environments/src/runner-polls.ts": ["models"],
   "packages/pluginhost/src/host.ts": ["models"],
   "packages/runner/src/agent.ts": ["logins", "models"],

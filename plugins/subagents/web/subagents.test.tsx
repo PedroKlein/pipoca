@@ -87,7 +87,7 @@ function sessionWith(events: readonly SessionEvent[]): MountedSession {
 }
 
 function rendered(
-  slot: "session.header" | "session.toolCall:subagent",
+  slot: "session.panel" | "session.toolCall:subagent",
   session: MountedSession,
 ): HTMLElement {
   return renderPart(web, slot, { session, call });
@@ -124,7 +124,12 @@ test("a run the transcript recorded after its call shows as recorded", () => {
   expect(tone(page)).toBe("done");
 });
 
-test("the header counts the runs the Session part last published", () => {
+const railed = (page: HTMLElement): readonly (string | null)[] =>
+  [...page.querySelectorAll("nav[aria-label='Session panel'] button")].map(
+    (each) => each.getAttribute("aria-label"),
+  );
+
+test("the panel's rail counts the runs the Session part last published", () => {
   const published: SessionEvent = {
     type: "live",
     event: {
@@ -136,18 +141,18 @@ test("the header counts the runs the Session part last published", () => {
   };
 
   const page = rendered(
-    "session.header",
+    "session.panel",
     sessionWith([...called(done), published]),
   );
 
-  expect(page.querySelector("button")?.textContent).toBe("1 running");
+  expect(railed(page)).toEqual(["Open panel", "Subagents, 1 running"]);
 });
 
-test("a Session without runs draws nothing in the header", () => {
-  expect(rendered("session.header", sessionWith([])).innerHTML).toBe("");
+test("a Session without runs has no section in the panel", () => {
+  expect(railed(rendered("session.panel", sessionWith([])))).toEqual([]);
 });
 
-test("a steer call, whose result carries no details, doesn't break the header", () => {
+test("a steer call, whose result carries no details, doesn't break the panel", () => {
   const steered: SessionEvent = {
     type: "entry",
     line: 2,
@@ -164,9 +169,9 @@ test("a steer call, whose result carries no details, doesn't break the header", 
   };
 
   const page = rendered(
-    "session.header",
+    "session.panel",
     sessionWith([...called(running), steered]),
   );
 
-  expect(page.querySelector("button")?.textContent).toBe("1 running");
+  expect(railed(page)).toEqual(["Open panel", "Subagents, 1 running"]);
 });

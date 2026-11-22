@@ -53,7 +53,7 @@ function Count(_props: { readonly session: MountedSession }) {
   return <p>{value}</p>;
 }
 
-const web = defineWeb(votes, { slots: { "session.header": Count } });
+const web = defineWeb(votes, { slots: { "session.panel": Count } });
 
 test("a part's changes are its own topics, by the name its routes give them", async () => {
   const globals = globalThis as unknown as { EventSource: unknown };
@@ -61,7 +61,7 @@ test("a part's changes are its own topics, by the name its routes give them", as
   globals.EventSource = FakeStream;
 
   try {
-    renderPart(web, "session.header", {});
+    renderPart(web, "session.panel", {});
     await sleep(50);
     const before = loads;
 

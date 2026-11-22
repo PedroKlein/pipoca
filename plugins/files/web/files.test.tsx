@@ -161,7 +161,7 @@ const filesButton = async (): Promise<HTMLButtonElement> => {
 };
 
 const menu = (): HTMLElement | null =>
-  document.querySelector<HTMLElement>("[role=dialog][aria-label=Files]");
+  document.querySelector<HTMLElement>("[role=complementary][aria-label=Files]");
 
 const typeInto = (input: HTMLInputElement | null, value: string): void => {
   act(() => {
@@ -176,24 +176,23 @@ const typeInto = (input: HTMLInputElement | null, value: string): void => {
   });
 };
 
-test("the header's Files button lists what Pi made and what people uploaded, and a row opens the file over the page", async () => {
+test("the panel's Files section lists what Pi made and what people uploaded, and a row opens the file over the page", async () => {
   renderPart(
     web,
-    "session.header",
+    "session.panel",
     { session: sessionWith({}) },
     { fetch: listing, hash: "#session-1" },
   );
 
   const button = await filesButton();
 
-  expect(button.textContent).toBe("Files 2");
-  expect(menu()?.hidden).toBe(true);
+  expect(button.getAttribute("aria-label")).toBe("Files, 2");
+  expect(button.textContent).toBe("2");
+  expect(menu()).toBeNull();
 
   act(() => {
     button.click();
   });
-
-  expect(menu()?.hidden).toBe(false);
 
   expect(
     [...(menu()?.querySelectorAll("section") ?? [])]
@@ -214,14 +213,13 @@ test("the header's Files button lists what Pi made and what people uploaded, and
     "#session-1?session=session-1&file=uploads%2Fledger.xlsx",
   );
 
-  expect(menu()?.hidden).toBe(true);
-  expect(document.activeElement).toBe(button);
+  expect(menu()).not.toBeNull();
 });
 
 test("the Files filter narrows the rows to the names that hold it", async () => {
   renderPart(
     web,
-    "session.header",
+    "session.panel",
     { session: sessionWith({}) },
     { fetch: listing },
   );
@@ -251,7 +249,7 @@ test("Upload in the Files menu gives the Session a file, which Pi is told about"
 
   renderPart(
     web,
-    "session.header",
+    "session.panel",
     { session: sessionWith({}) },
     {
       fetch: async (url, init) => {
@@ -304,7 +302,7 @@ test("Upload in the Files menu gives the Session a file, which Pi is told about"
 test("an upload over the server's limit isn't sent, and the Files menu says the limit", async () => {
   renderPart(
     web,
-    "session.header",
+    "session.panel",
     { session: sessionWith({}) },
     {
       fetch: async (url) =>
@@ -343,7 +341,7 @@ test("an upload over the server's limit isn't sent, and the Files menu says the 
 test("the Files menu says when Pi's outputs aren't saved yet", async () => {
   renderPart(
     web,
-    "session.header",
+    "session.panel",
     {
       session: sessionWith({
         published: [
@@ -372,7 +370,7 @@ test("the Files menu says when Pi's outputs aren't saved yet", async () => {
 test("the Files menu warns a person whose Sessions keep more than the per-person number", async () => {
   renderPart(
     web,
-    "session.header",
+    "session.panel",
     { session: sessionWith({}) },
     {
       fetch: async (url) => {
@@ -497,10 +495,10 @@ test("a file the Session no longer keeps says so in the viewer", async () => {
   );
 });
 
-test("Escape closes the Files menu and gives focus back to the Files button", async () => {
+test("Escape closes the panel and gives focus back to the Files icon on its rail", async () => {
   renderPart(
     web,
-    "session.header",
+    "session.panel",
     { session: sessionWith({}) },
     { fetch: listing },
   );
@@ -512,53 +510,13 @@ test("Escape closes the Files menu and gives focus back to the Files button", as
   });
 
   act(() => {
-    document.dispatchEvent(
+    document.activeElement?.dispatchEvent(
       new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
     );
   });
 
-  expect(menu()?.hidden).toBe(true);
-  expect(document.activeElement).toBe(button);
-});
-
-test("a click outside the Files menu closes it and clears the filter, and a click inside keeps it open", async () => {
-  renderPart(
-    web,
-    "session.header",
-    { session: sessionWith({}) },
-    { fetch: listing },
-  );
-
-  const button = await filesButton();
-
-  act(() => {
-    button.click();
-  });
-
-  const filter = (): HTMLInputElement | null =>
-    menu()?.querySelector<HTMLInputElement>(
-      "input[aria-label='Filter files']",
-    ) ?? null;
-
-  typeInto(filter(), "ledger");
-
-  act(() => {
-    filter()?.dispatchEvent(new Event("pointerdown", { bubbles: true }));
-  });
-
-  expect(menu()?.hidden).toBe(false);
-
-  act(() => {
-    document.body.dispatchEvent(new Event("pointerdown", { bubbles: true }));
-  });
-
-  expect(menu()?.hidden).toBe(true);
-
-  act(() => {
-    button.click();
-  });
-
-  expect(filter()?.value).toBe("");
+  expect(menu()).toBeNull();
+  expect(document.activeElement?.getAttribute("aria-label")).toBe("Files, 2");
 });
 
 test("the Files button stays hidden while a Session has no files", async () => {
@@ -566,7 +524,7 @@ test("the Files button stays hidden while a Session has no files", async () => {
 
   renderPart(
     web,
-    "session.header",
+    "session.panel",
     { session: sessionWith({}) },
     {
       fetch: async (url) => {
@@ -588,7 +546,7 @@ test("the Files button stays hidden while a Session has no files", async () => {
 test("an output Pi changed since it was saved says not saved in its row, without the unsaved note", async () => {
   renderPart(
     web,
-    "session.header",
+    "session.panel",
     {
       session: sessionWith({
         published: [
@@ -770,7 +728,7 @@ test("a Session file's viewer offers plugins' actions, such as Publish, only to 
 test("someone who only sees the Session gets no Upload in the Files menu", async () => {
   renderPart(
     web,
-    "session.header",
+    "session.panel",
     { session: sessionWith({}) },
     {
       fetch: async (url) =>
@@ -790,7 +748,7 @@ test("someone who only sees the Session gets no Upload in the Files menu", async
 test("the Files button shows while Pi's only outputs aren't saved yet", async () => {
   renderPart(
     web,
-    "session.header",
+    "session.panel",
     {
       session: sessionWith({
         published: [
@@ -806,7 +764,7 @@ test("the Files button shows while Pi's only outputs aren't saved yet", async ()
     },
   );
 
-  expect((await filesButton()).textContent).toBe("Files 1");
+  expect((await filesButton()).getAttribute("aria-label")).toBe("Files, 1");
 });
 
 test("Settings shows what Session files take, and who keeps more than the per-person number", async () => {

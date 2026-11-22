@@ -4,11 +4,11 @@ import {
   AttachRow,
   FileCard,
   FilesRow,
-  FilesSection,
   FileViewer,
   type MountedSession,
   type NoticeProps,
   type SessionAttachProps,
+  SessionSection,
   useApi,
   useLoaded,
   useNow,
@@ -84,8 +84,8 @@ export function FolderSavedCards({ data }: NoticeProps): ReactElement {
   );
 }
 
-// The Project folder in a Session's Files menu: what the Session wrote
-// there, and the way to the whole folder (ADR 0081).
+// The Project folder as a section of a Session's panel: what the Session
+// wrote there, and the way to the whole folder (ADR 0081, ADR 0084).
 export function ProjectFiles({
   session,
 }: {
@@ -101,41 +101,51 @@ export function ProjectFiles({
 
   const written = value?.written ?? [];
 
+  const rows = written.map((file) => (
+    <FilesRow
+      key={file.path}
+      name={file.path}
+      detail="changed here"
+      onOpen={() => {
+        open({ project: project.id, path: file.path });
+      }}
+    />
+  ));
+
+  const folder = (
+    <FilesRow
+      icon="folder"
+      name={`Open the ${project.name} folder`}
+      detail={plural(value?.count ?? 0, "file")}
+      onOpen={() => {
+        location.hash = projectLink(project, "folder");
+      }}
+    />
+  );
+
   return (
-    <FilesSection
+    <SessionSection
       name="project"
-      order={40}
-      title="Project folder · project/"
-      count={written.length + 1}
+      order={15}
+      label="Project folder"
+      icon="folder"
+      button={`Project folder, ${plural(written.length, "file")} changed here`}
+      {...(written.length > 0 && { badge: String(written.length) })}
+      {...(written.length > 2 && {
+        detail: (
+          <div className="flex flex-col">
+            {rows}
+            {folder}
+          </div>
+        ),
+      })}
     >
-      {(filter) => [
-        ...written
-          .filter((file) => file.path.toLowerCase().includes(filter))
-          .map((file) => (
-            <FilesRow
-              key={file.path}
-              name={file.path}
-              detail="changed here"
-              onOpen={() => {
-                open({ project: project.id, path: file.path });
-              }}
-            />
-          )),
-        ...(filter === ""
-          ? [
-              <FilesRow
-                key="folder"
-                icon="folder"
-                name={`Open the ${project.name} folder`}
-                detail={plural(value?.count ?? 0, "file")}
-                onOpen={() => {
-                  location.hash = projectLink(project, "folder");
-                }}
-              />,
-            ]
-          : []),
-      ]}
-    </FilesSection>
+      {rows.slice(0, 2)}
+      {written.length > 2 && (
+        <p className="px-1 text-caption text-fg-dim">{`${String(written.length - 2)} more`}</p>
+      )}
+      {folder}
+    </SessionSection>
   );
 }
 

@@ -140,7 +140,7 @@ export const web = defineWeb(projects, {
   sessionPath: (session) => `${session.plugin?.key ?? ""}/${session.id}`,
   slots: {
     home: Home,
-    "session.header": ProjectFiles,
+    "session.panel": ProjectFiles,
     "session.attach": AttachFolderFile,
     overlay: ProjectFileOverlay,
     "notice:thread": ThreadNotice,

@@ -4277,7 +4277,7 @@ test("the Files menu lists the Session's artifacts first, and one opens over the
 
   renderPart(
     web,
-    "session.header",
+    "session.panel",
     { session: sessionWith({}) },
     {
       hash: "#session-1",

@@ -126,6 +126,7 @@ export function Composer({
   const plugins = useSessionPlugins(team);
   const fileParts = fillsOf("session.files", plugins);
   const attachParts = fillsOf("session.attach", plugins);
+  const meterParts = fillsOf("session.meter", plugins);
   const [uploading, setUploading] = useState(false);
 
   const { images, setImages, files, setFiles, attach, send } = useSend({
@@ -345,6 +346,17 @@ export function Composer({
             starting={starting}
             attach={attach}
             report={report}
+            meter={meterParts.map(({ plugin, Component }) => (
+              <span
+                key={plugin}
+                data-plugin={plugin}
+                className="flex shrink-0 items-center gap-2 text-caption text-fg-dim empty:hidden"
+              >
+                <PluginBoundary name={plugin}>
+                  <Component session={session} />
+                </PluginBoundary>
+              </span>
+            ))}
           >
             {attachParts.map(({ plugin, Component }) => (
               <PluginBoundary key={plugin} name={plugin}>

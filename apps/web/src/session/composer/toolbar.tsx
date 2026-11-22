@@ -30,6 +30,7 @@ export function Toolbar({
   starting,
   attach,
   report,
+  meter,
   children,
 }: {
   readonly sessionId: string;
@@ -49,6 +50,9 @@ export function Toolbar({
   readonly starting: boolean;
   readonly attach: (files: readonly File[]) => void;
   readonly report: (error: unknown) => void;
+  // Plugins' small readouts beside the send button, such as how full the
+  // context is.
+  readonly meter: ReactNode;
   // The plugins' rows of the + menu.
   readonly children: ReactNode;
 }): ReactElement {
@@ -104,6 +108,7 @@ export function Toolbar({
           · / commands · @ files
         </span>
       )}
+      {meter}
       {running && (
         <Button
           variant="default"

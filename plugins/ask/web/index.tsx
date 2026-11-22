@@ -2,6 +2,7 @@ import { errorText } from "@pipoca/protocol";
 import {
   defineWeb,
   type MountedSession,
+  SessionSection,
   type ToolCall,
   useApi,
   useLoaded,
@@ -17,6 +18,7 @@ import {
   Field,
   Icon,
   ListInput,
+  plural,
   TextInput,
 } from "@pipoca/ui";
 import { type ReactElement, useState } from "react";
@@ -35,7 +37,7 @@ export const web = defineWeb(ask, {
   settings: { group: "server", form: "auto" },
   slots: {
     "session.composer": AboveComposer,
-    "session.header": VoteButton,
+    "session.panel": VoteSection,
     "session.toolCall:ask_user": AskedCard,
   },
 });
@@ -325,25 +327,51 @@ function VoteCard({ vote }: { readonly vote: Vote }): ReactElement {
   );
 }
 
-function VoteButton(props: Props): ReactElement | null {
+// Open votes as a section of the Session's panel, which opens new ones.
+function VoteSection(props: Props): ReactElement | null {
   const votes = useVotes(props);
   const [open, setOpen] = useState(false);
 
-  if (votes?.canOpen !== true) {
+  if (votes === undefined || (!votes.canOpen && votes.votes.length === 0)) {
     return null;
   }
 
+  const count = votes.votes.length;
+
   return (
-    <>
-      <Button
-        variant="ghost"
-        onClick={() => {
-          setOpen(true);
-        }}
-      >
-        <Icon name="users" />
-        Vote
-      </Button>
+    <SessionSection
+      name="votes"
+      order={40}
+      label="Votes"
+      icon="users"
+      button={count === 0 ? "Votes" : `Votes, ${plural(count, "open vote")}`}
+      {...(count > 0 && {
+        badge: String(count),
+        waiting: votes.votes.some(({ mine }) => mine === null),
+      })}
+    >
+      {votes.votes.map((vote) => (
+        <p key={vote.id} className="flex items-center gap-2">
+          <span className="min-w-0 flex-1 truncate">{vote.question}</span>
+          <span className="shrink-0 text-caption text-fg-dim">
+            {vote.mine === null
+              ? "Not voted"
+              : plural(vote.picks.length, "vote")}
+          </span>
+        </p>
+      ))}
+      {votes.canOpen && (
+        <Button
+          variant="ghost"
+          className="self-start"
+          onClick={() => {
+            setOpen(true);
+          }}
+        >
+          <Icon name="plus" className="size-3.5" />
+          Open a vote
+        </Button>
+      )}
       <OpenVoteDialog
         {...props}
         open={open}
@@ -351,7 +379,7 @@ function VoteButton(props: Props): ReactElement | null {
           setOpen(false);
         }}
       />
-    </>
+    </SessionSection>
   );
 }
 

@@ -42,7 +42,10 @@ type Nothing = Readonly<Record<string, never>>;
 // interface, and fills another's by its name.
 export interface Slots {
   "session.composer": SessionPartProps;
-  "session.header": SessionPartProps;
+  // A section of the Session's panel (SessionSection).
+  "session.panel": SessionPartProps;
+  // A small readout beside the composer's send button.
+  "session.meter": SessionPartProps;
   "session.files": SessionFilesProps;
   // Rows of the composer's + menu (AttachRow) and the pickers they open.
   "session.attach": SessionAttachProps;

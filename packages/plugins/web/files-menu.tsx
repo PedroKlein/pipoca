@@ -1,13 +1,6 @@
+import { Icon, type IconName, SearchInput } from "@pipoca/ui";
 import {
-  Button,
-  cn,
-  Icon,
-  type IconName,
-  popClass,
-  SearchInput,
-  useDismiss,
-} from "@pipoca/ui";
-import {
+  Children,
   createContext,
   type ReactElement,
   type ReactNode,
@@ -15,10 +8,10 @@ import {
   useContext,
   useEffect,
   useMemo,
-  useRef,
   useState,
 } from "react";
 import { createPortal } from "react-dom";
+import { SessionSection } from "./session-panel";
 
 interface Section {
   readonly name: string;
@@ -29,11 +22,9 @@ interface Section {
 }
 
 interface Menu {
-  readonly open: boolean;
   readonly filter: string;
   readonly bodies: ReadonlyMap<string, HTMLElement>;
   readonly add: (section: Section) => () => void;
-  readonly close: () => void;
 }
 
 const MenuContext = createContext<Menu | undefined>(undefined);
@@ -41,25 +32,25 @@ const MenuContext = createContext<Menu | undefined>(undefined);
 interface Host {
   readonly sections: readonly Section[];
   readonly menu: Menu;
-  readonly setOpen: (open: boolean) => void;
   readonly setFilter: (filter: string) => void;
   readonly setBody: (key: string, body: HTMLElement | null) => void;
 }
 
 const HostContext = createContext<Host | undefined>(undefined);
 
-const ignore = (): void => undefined;
+// How many rows of each part the panel's summary shows.
+const summaryRows = 2;
 
-// One Files button in a Session's header whose sections plugins fill, such
-// as artifacts, what Pi made, uploads and the Project folder (ADR 0081).
-// The app draws it around a Session's view, and FilesMenu in its header.
+// The Files section of a Session's panel, whose parts plugins fill, such as
+// artifacts, what Pi made, uploads and the Project folder (ADR 0081, ADR
+// 0084). The app draws the host around a Session's view and FilesMenu in
+// its panel.
 export function FilesMenuHost({
   children,
 }: {
   readonly children: ReactNode;
 }): ReactElement {
   const [sections, setSections] = useState<readonly Section[]>([]);
-  const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState("");
 
   const [bodies, setBodies] = useState<ReadonlyMap<string, HTMLElement>>(
@@ -95,18 +86,10 @@ export function FilesMenuHost({
     });
   }, []);
 
-  const close = useCallback(() => {
-    setOpen(false);
-    setFilter("");
-  }, []);
-
-  const menu = useMemo(
-    () => ({ open, filter, bodies, add, close }),
-    [open, filter, bodies, add, close],
-  );
+  const menu = useMemo(() => ({ filter, bodies, add }), [filter, bodies, add]);
 
   const host = useMemo(
-    () => ({ sections, menu, setOpen, setFilter, setBody }),
+    () => ({ sections, menu, setFilter, setBody }),
     [sections, menu, setBody],
   );
 
@@ -117,10 +100,9 @@ export function FilesMenuHost({
   );
 }
 
-// The header's button, which shows once a section has something to list.
+// The panel's Files section, which shows once a part has something to list.
 export function FilesMenu(): ReactElement | null {
   const host = useContext(HostContext);
-  const box = useRef<HTMLDivElement>(null);
   const setBody = host?.setBody;
 
   const body = useCallback(
@@ -145,84 +127,86 @@ export function FilesMenu(): ReactElement | null {
   );
 
   const count = sections.reduce((sum, { count: each }) => sum + each, 0);
-  const open = (host?.menu.open ?? false) && count > 0;
-
-  useDismiss(box, open, host?.menu.close ?? ignore);
 
   if (host === undefined || count === 0) {
     return null;
   }
 
+  const parts = (prefix: string): ReactNode =>
+    sections.map((section) => (
+      <section
+        key={section.name}
+        ref={body}
+        data-body={`${prefix}${section.name}`}
+        aria-label={section.title}
+        className="flex flex-col empty:hidden"
+      />
+    ));
+
   return (
-    <div ref={box} data-files-menu className="relative">
-      <Button
-        variant="ghost"
-        className="aria-expanded:bg-hover aria-expanded:text-fg-strong"
-        aria-expanded={open}
-        aria-haspopup="dialog"
-        aria-label={`Files, ${String(count)}`}
-        onClick={() => {
-          if (open) {
-            host.menu.close();
-          } else {
-            host.setOpen(true);
-          }
-        }}
-      >
-        <Icon name="file" className="size-3.5" />
-        {`Files ${String(count)}`}
-      </Button>
-      <div
-        role="dialog"
-        aria-label="Files"
-        hidden={!open}
-        className={cn(
-          popClass,
-          "absolute top-full right-0 z-30 mt-1 flex max-h-[min(36rem,calc(100dvh-6rem))] w-[min(26rem,calc(100vw-2rem))] flex-col p-0 max-sm:right-auto max-sm:left-0",
-        )}
-      >
-        <div className="flex gap-2 border-b border-line p-3">
-          <SearchInput
-            aria-label="Filter files"
-            placeholder="Filter"
-            className="flex-1"
-            value={host.menu.filter}
-            onChange={(event) => {
-              host.setFilter(event.target.value);
-            }}
-          />
-          {sections
-            .filter(({ acts }) => acts)
-            .map(({ name }) => (
-              <span
-                key={name}
-                ref={body}
-                data-body={`${name}:action`}
-                className="flex"
-              />
-            ))}
-        </div>
-        <div className="flex min-h-0 flex-col gap-3 overflow-y-auto p-3">
-          {sections.map((section) => (
-            <section
-              key={section.name}
-              ref={body}
-              data-body={section.name}
-              aria-label={section.title}
-              className="flex flex-col empty:hidden"
+    <SessionSection
+      name="files"
+      order={10}
+      label="Files"
+      icon="file"
+      button={`Files, ${String(count)}`}
+      badge={String(count)}
+      detail={
+        <div className="flex flex-col gap-3">
+          <ClearsFilter clear={host.setFilter} />
+          <div className="flex gap-2">
+            <SearchInput
+              aria-label="Filter files"
+              placeholder="Filter"
+              className="flex-1"
+              value={host.menu.filter}
+              onChange={(event) => {
+                host.setFilter(event.target.value);
+              }}
             />
-          ))}
-          <p className="hidden px-1 py-2 text-label text-fg-dim [div:not(:has(>section:not(:empty)))>&]:block">
-            {`Nothing matches “${host.menu.filter.trim()}”.`}
-          </p>
+            {sections
+              .filter(({ acts }) => acts)
+              .map(({ name }) => (
+                <span
+                  key={name}
+                  ref={body}
+                  data-body={`action:${name}`}
+                  className="flex"
+                />
+              ))}
+          </div>
+          <div className="flex flex-col gap-3">
+            {parts("")}
+            <p className="hidden px-1 py-2 text-label text-fg-dim [div:not(:has(>section:not(:empty)))>&]:block">
+              {`Nothing matches “${host.menu.filter.trim()}”.`}
+            </p>
+          </div>
         </div>
-      </div>
-    </div>
+      }
+    >
+      <div className="flex flex-col gap-2">{parts("summary:")}</div>
+    </SessionSection>
   );
 }
 
-// A plugin's part of the Files menu, drawn while the menu is open. Its rows
-// say how many it lists for the button, and the filter narrows them.
+// The filter starts empty each time the Files detail opens.
+function ClearsFilter({
+  clear,
+}: {
+  readonly clear: (filter: string) => void;
+}): null {
+  useEffect(
+    () => () => {
+      clear("");
+    },
+    [clear],
+  );
+
+  return null;
+}
+
+// A plugin's part of the Files section: a few rows in the panel's summary,
+// and all of them in its detail, which the filter narrows.
 export function FilesSection({
   name,
   order,
@@ -234,7 +218,7 @@ export function FilesSection({
   readonly name: string;
   // Lowest first.
   readonly order: number;
-  // Its heading; without one, a note under the sections.
+  // Its heading; without one, a note under the parts.
   readonly title?: string;
   readonly count: number;
   // Beside the filter, such as Upload.
@@ -250,36 +234,69 @@ export function FilesSection({
     [add, name, order, title, count, acts],
   );
 
-  const body = menu?.bodies.get(name);
-  const actionBody = menu?.bodies.get(`${name}:action`);
-
-  if (menu === undefined || !menu.open || body === undefined) {
+  if (menu === undefined) {
     return null;
   }
 
-  const rows = children(menu.filter.trim().toLowerCase());
-  const empty = rows === null || (Array.isArray(rows) && rows.length === 0);
+  const body = menu.bodies.get(name);
+  const summary = menu.bodies.get(`summary:${name}`);
+  const actionBody = menu.bodies.get(`action:${name}`);
 
   return (
     <>
-      {!empty &&
+      {body !== undefined &&
         createPortal(
-          <>
-            {title !== undefined && (
-              <h3 className="px-1 pb-1 text-caption font-semibold text-fg-strong">
-                {title}
-              </h3>
-            )}
-            {rows}
-          </>,
+          <Rows title={title}>
+            {children(menu.filter.trim().toLowerCase())}
+          </Rows>,
           body,
+        )}
+      {summary !== undefined &&
+        createPortal(
+          <Rows title={title} limit={summaryRows}>
+            {children("")}
+          </Rows>,
+          summary,
         )}
       {actionBody !== undefined && createPortal(action, actionBody)}
     </>
   );
 }
 
-// One line of a section, which opens what it names and closes the menu.
+function Rows({
+  title,
+  limit,
+  children,
+}: {
+  readonly title: string | undefined;
+  readonly limit?: number;
+  readonly children: ReactNode;
+}): ReactElement | null {
+  const rows = Children.toArray(children);
+
+  if (rows.length === 0) {
+    return null;
+  }
+
+  const shown = limit === undefined ? rows : rows.slice(0, limit);
+  const more = rows.length - shown.length;
+
+  return (
+    <>
+      {title !== undefined && (
+        <h3 className="px-1 pb-1 text-caption font-semibold text-fg-strong">
+          {title}
+        </h3>
+      )}
+      {shown}
+      {more > 0 && (
+        <p className="px-1 text-caption text-fg-dim">{`${String(more)} more`}</p>
+      )}
+    </>
+  );
+}
+
+// One line of a part, which opens what it names.
 export function FilesRow({
   icon = "file",
   name,
@@ -291,23 +308,11 @@ export function FilesRow({
   readonly detail?: string;
   readonly onOpen: () => void;
 }): ReactElement {
-  const menu = useContext(MenuContext);
-
   return (
     <button
       type="button"
-      className="flex min-h-9 items-center gap-2.5 rounded-md px-1 py-1.5 text-left text-label text-fg hover:bg-hover focus-visible:bg-hover focus-visible:outline-none"
-      onClick={(event) => {
-        // What it opens gives focus back to the Files button, not to this
-        // row, which the closed menu hides.
-        event.currentTarget
-          .closest("[data-files-menu]")
-          ?.querySelector("button")
-          ?.focus();
-
-        menu?.close();
-        onOpen();
-      }}
+      className="flex min-h-8 items-center gap-2.5 rounded-md px-1 py-1 text-left text-label text-fg hover:bg-hover focus-visible:bg-hover focus-visible:outline-none"
+      onClick={onOpen}
     >
       <Icon name={icon} className="size-3.5 shrink-0 text-fg-dim" />
       <span className="min-w-0 flex-1 truncate">{name}</span>
