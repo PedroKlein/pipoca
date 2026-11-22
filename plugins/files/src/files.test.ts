@@ -190,6 +190,33 @@ test("the outputs a turn wrote reach the chat as one notice once they're saved, 
   expect(part.sent()).toHaveLength(1);
 });
 
+test("a turn's notice lists its outputs by path, whatever order the disk keeps them in", async () => {
+  const { runner, published } = await setUp();
+  const { cwd, part } = await runner();
+  const names = ["a.md", "b.md", "c.md", "d.md", "e.md", "f.md"];
+
+  await part.event(
+    "session_start",
+    {},
+    { sessionManager: { getBranch: () => [] } },
+  );
+
+  await until(() => published.length === 1);
+
+  for (const name of names) {
+    await write(cwd, `outputs/${name}`, "x");
+  }
+
+  await part.event("agent_settled");
+  await until(() => part.sent().length === 1);
+
+  expect(
+    (
+      part.sent()[0] as { details: { data: { files: { path: string }[] } } }
+    ).details.data.files.map(({ path }) => path),
+  ).toEqual(names);
+});
+
 test("a turn that ends while the last one's outputs are still saving gets its own notice", async () => {
   const { runner, published, hold } = await setUp();
   const { cwd, part } = await runner();
