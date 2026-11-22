@@ -4824,6 +4824,7 @@ test("creates a Project and shares a file through its folder", async () => {
   expect(
     await page.getByRole("navigation", { name: "Session panel" }).count(),
   ).toBe(1);
+
   expect(new URL(page.url()).hash).toEndWith(`/${threadId}`);
 
   await side.getByRole("button", { name: "Open fullscreen" }).click();
