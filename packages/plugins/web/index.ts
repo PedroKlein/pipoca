@@ -24,6 +24,7 @@ export { RepositoryField } from "./repositories";
 export {
   SessionPanel,
   SessionPanelButton,
+  SessionPanelGroup,
   SessionSection,
 } from "./session-panel";
 export { uploadBlob } from "./upload";

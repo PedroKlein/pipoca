@@ -403,7 +403,13 @@ export interface Sessions {
       readonly text: string;
       readonly turn: boolean;
       readonly as?: Actor;
-      readonly notice?: { readonly kind: string; readonly data?: unknown };
+      readonly notice?: {
+        readonly kind: string;
+        readonly data?: unknown;
+        // What it is about, such as a thread, so runs of notices about one
+        // thing fold into one row.
+        readonly about?: string;
+      };
       // A repeat with the key of a message queued for the Session, or
       // delivered in the last day, is a no-op.
       readonly dedupe?: string;

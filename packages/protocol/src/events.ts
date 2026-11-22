@@ -428,6 +428,9 @@ const noticeTag = Type.Object({
   plugin: Type.String(),
   kind: Type.String(),
   data: Type.Optional(Type.Unknown()),
+  // What it is about, such as a thread, so runs of notices about one thing
+  // fold into one row (ADR 0084).
+  about: Type.Optional(Type.String()),
 });
 
 export type NoticeTag = Wire<typeof noticeTag>;

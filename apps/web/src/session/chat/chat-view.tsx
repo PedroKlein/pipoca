@@ -14,7 +14,7 @@ import { usePersonName } from "../../data/hooks";
 import { usePrimaryId } from "../../primary";
 import type { Feed } from "../feed";
 import { TerminalText } from "../terminal/terminal-text";
-import { turns } from "./chat";
+import { foldNotices, turns } from "./chat";
 import { Answer } from "./markdown";
 import { claimed } from "./tool-card";
 import { turnItems } from "./turn";
@@ -46,13 +46,15 @@ export function ChatView({
 
   const shown = useMemo(
     () =>
-      turns(
-        voiced(
-          feed.items,
-          feed.voices,
-          (person) => nameOf(person) ?? "Someone",
+      foldNotices(
+        turns(
+          voiced(
+            feed.items,
+            feed.voices,
+            (person) => nameOf(person) ?? "Someone",
+          ),
+          claimed,
         ),
-        claimed,
       ),
     [feed.items, feed.voices, nameOf],
   );

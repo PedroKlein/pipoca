@@ -171,6 +171,56 @@ export function Notice({
   );
 }
 
+// A notice with the ones about the same thing before it, which open under
+// it on a click.
+export function NoticeRun({
+  notice,
+  earlier,
+  session,
+}: {
+  readonly notice: NonNullable<Turn["notice"]>;
+  readonly earlier: readonly NonNullable<Turn["notice"]>[];
+  readonly session: MountedSession;
+}): ReactElement {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="flex flex-col">
+      <div className="flex min-w-0 items-center gap-2">
+        <div className="peer min-w-0 flex-1">
+          <Notice notice={notice} session={session} />
+        </div>
+        <button
+          type="button"
+          aria-expanded={open}
+          className="flex shrink-0 peer-empty:hidden cursor-pointer items-center gap-1 text-caption text-fg-dim hover:text-fg"
+          onClick={() => {
+            setOpen(!open);
+          }}
+        >
+          {`${String(earlier.length)} earlier`}
+          <Icon
+            name="chevron-down"
+            className={cn("size-3 transition-transform", open && "rotate-180")}
+          />
+        </button>
+      </div>
+      {open && (
+        <ol
+          aria-label="Earlier updates"
+          className="flex flex-col border-l border-line pl-3 opacity-80"
+        >
+          {[...earlier].reverse().map((each, at) => (
+            <li key={String(at)}>
+              <Notice notice={each} session={session} />
+            </li>
+          ))}
+        </ol>
+      )}
+    </div>
+  );
+}
+
 export function WorkNote({
   kind,
   text,

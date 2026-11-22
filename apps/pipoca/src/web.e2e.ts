@@ -4820,6 +4820,10 @@ test("creates a Project and shares a file through its folder", async () => {
   await page.goto(server.url.href);
   await page.goto(`${server.url.href}#${threadId}`);
   await side.waitFor();
+
+  expect(
+    await page.getByRole("navigation", { name: "Session panel" }).count(),
+  ).toBe(1);
   expect(new URL(page.url()).hash).toEndWith(`/${threadId}`);
 
   await side.getByRole("button", { name: "Open fullscreen" }).click();

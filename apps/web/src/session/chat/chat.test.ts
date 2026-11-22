@@ -4,6 +4,7 @@ import {
   chatItems,
   describeTool,
   duration,
+  foldNotices,
   hasSteps,
   linkParts,
   stepStatus,
@@ -631,6 +632,56 @@ test("opens a turn with a plugin's notice, and keeps an untagged one a note", ()
 
   expect(chatItems(notice({ kind: "thread" }))).toEqual([
     { role: "note", text: "Docs finished a turn" },
+  ]);
+});
+
+test("notices nobody answered fold by what they're about, each at its latest, and an answered one stays apart", () => {
+  const notice = (
+    about: string | undefined,
+    text: string,
+    kind = "thread",
+  ): string =>
+    JSON.stringify({
+      type: "custom_message",
+      customType: "pipoca-notice",
+      content: text,
+      display: true,
+      details: {
+        plugin: "projects",
+        kind,
+        ...(about !== undefined && { about }),
+      },
+    });
+
+  const items = [
+    notice("t1", "Docs started"),
+    notice("t2", "Export started"),
+    notice("t1", "Docs finished a turn"),
+    notice(undefined, "Export finished a turn quietly"),
+    notice("t1", "Docs done"),
+    notice("t3", "Saved", "folder_saved"),
+    notice("t2", "Export done"),
+  ].flatMap((each) => chatItems(each));
+
+  const answered = [
+    ...items,
+    ...chatItems(line({ role: "assistant", content: "noted" })),
+  ];
+
+  const shown = foldNotices(
+    turns(answered.map((item, key) => ({ ...item, key }))),
+  ).map((turn) => [
+    turn.notice?.text,
+    turn.earlier?.map(({ text }) => text),
+    turn.answer,
+  ]);
+
+  expect(shown).toEqual([
+    ["Export started", undefined, []],
+    ["Export finished a turn quietly", undefined, []],
+    ["Docs done", ["Docs started", "Docs finished a turn"], []],
+    ["Saved", undefined, []],
+    ["Export done", undefined, ["noted"]],
   ]);
 });
 

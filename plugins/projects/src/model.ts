@@ -93,6 +93,7 @@ export type ProjectNotice = {
   readonly [K in keyof ProjectNotices]: {
     readonly kind: K;
     readonly data: ProjectNotices[K];
+    readonly about?: string;
   };
 }[keyof ProjectNotices];
 

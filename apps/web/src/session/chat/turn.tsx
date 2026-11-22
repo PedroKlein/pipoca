@@ -8,7 +8,7 @@ import { ago } from "../../names";
 import { duration, hasSteps, type Quoted, type Turn } from "./chat";
 import { Answer } from "./markdown";
 import { claimed, ToolCard } from "./tool-card";
-import { Notice, WorkBlock, WorkNote } from "./work-block";
+import { Notice, NoticeRun, WorkBlock, WorkNote } from "./work-block";
 
 // What Pi said, its cards and its folded tool calls, in the order it made
 // them. Tools still running belong to the turn's last work block.
@@ -166,7 +166,15 @@ export function turnItems({
         data-role="notice"
         className="empty:hidden"
       >
-        <Notice notice={turn.notice} session={session} />
+        {turn.earlier === undefined ? (
+          <Notice notice={turn.notice} session={session} />
+        ) : (
+          <NoticeRun
+            notice={turn.notice}
+            earlier={turn.earlier}
+            session={session}
+          />
+        )}
       </li>
     ),
     ...partItems(

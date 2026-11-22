@@ -281,10 +281,19 @@ function noticeOf(entry: Entry): ChatItem | undefined {
     return undefined;
   }
 
-  const { plugin, kind, data } = details as Record<string, unknown>;
+  const { plugin, kind, data, about } = details as Record<string, unknown>;
 
   return typeof plugin === "string" && typeof kind === "string"
-    ? { role: "notice", text: content, notice: { plugin, kind, data } }
+    ? {
+        role: "notice",
+        text: content,
+        notice: {
+          plugin,
+          kind,
+          data,
+          ...(typeof about === "string" && { about }),
+        },
+      }
     : undefined;
 }
 
@@ -330,6 +339,9 @@ export interface Turn {
   readonly team?: Extract<ChatItem, { role: "team" }>;
   // A plugin's notice that started the turn, in place of a user message.
   readonly notice?: { readonly text: string; readonly tag: NoticeTag };
+  // Notices about the same thing that came before it, oldest first, which
+  // fold under it.
+  readonly earlier?: readonly NonNullable<Turn["notice"]>[];
   readonly images?: readonly ImageAttachment[];
   readonly parts: readonly TurnPart[];
   readonly answer: readonly string[];
@@ -606,4 +618,60 @@ export function stepStatus(
   }
 
   return failed ? "failed" : "done";
+}
+
+// Notices nobody answered fold by what they are about: in a run of them,
+// each thing keeps one row, at its latest notice, with the ones before it
+// (ADR 0084). A notice about nothing in particular stays a row of its own
+// without ending the run.
+export function foldNotices(all: readonly Turn[]): readonly Turn[] {
+  const folded: Turn[] = [];
+  let run: { readonly turn: Turn; readonly key: string }[] = [];
+
+  const flush = (): void => {
+    const latest = new Map(run.map(({ key }, at) => [key, at]));
+
+    run.forEach(({ turn, key }, at) => {
+      if (latest.get(key) !== at) {
+        return;
+      }
+
+      const earlier = run
+        .slice(0, at)
+        .filter((each) => each.key === key)
+        .flatMap(({ turn: { notice } }) => (notice ? [notice] : []));
+
+      folded.push(earlier.length === 0 ? turn : { ...turn, earlier });
+    });
+
+    run = [];
+  };
+
+  all.forEach((turn, at) => {
+    const tag = unanswered(turn);
+    const first = run[0]?.turn.notice?.tag;
+
+    if (
+      first !== undefined &&
+      (tag?.plugin !== first.plugin || tag.kind !== first.kind)
+    ) {
+      flush();
+    }
+
+    if (tag === undefined) {
+      folded.push(turn);
+    } else {
+      run.push({ turn, key: tag.about ?? `#${String(at)}` });
+    }
+  });
+
+  flush();
+
+  return folded;
+}
+
+function unanswered(turn: Turn): NoticeTag | undefined {
+  return turn.parts.length === 0 && turn.answer.length === 0
+    ? turn.notice?.tag
+    : undefined;
 }

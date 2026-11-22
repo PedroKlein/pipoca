@@ -327,7 +327,11 @@ export function sessionStore(
           row.notice !== null && {
             notice: {
               plugin: row.plugin,
-              ...(JSON.parse(row.notice) as { kind: string; data?: unknown }),
+              ...(JSON.parse(row.notice) as {
+                kind: string;
+                data?: unknown;
+                about?: string;
+              }),
             },
           }),
       })),
@@ -349,6 +353,7 @@ export function sessionStore(
           : JSON.stringify({
               kind: voice.notice.kind,
               data: voice.notice.data,
+              about: voice.notice.about,
             }),
         ms(voice.at),
       ).changes > 0,

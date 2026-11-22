@@ -26,6 +26,8 @@ export function SidePanel({
   closeLabel = "Close",
   size = "md",
   docked = false,
+  takeFocus = false,
+  onFocused,
   className,
   children,
 }: {
@@ -37,6 +39,10 @@ export function SidePanel({
   // On a wide screen, beside what comes before it in a flex row instead of
   // over it, so both stay in view.
   readonly docked?: boolean;
+  // Moves focus into the panel, then says so, such as after a person opened
+  // it from a button that it replaces.
+  readonly takeFocus?: boolean;
+  readonly onFocused?: () => void;
   // For the scrolling body, such as the gap between its items.
   readonly className?: string;
   readonly children: ReactNode;
@@ -44,10 +50,11 @@ export function SidePanel({
   const panel = useRef<HTMLElement>(null);
 
   useEffect(() => {
-    if (open && docked) {
+    if (open && takeFocus) {
       panel.current?.focus();
+      onFocused?.();
     }
-  }, [open, docked, title]);
+  }, [open, takeFocus, onFocused]);
 
   useEffect(() => {
     if (!open) {
