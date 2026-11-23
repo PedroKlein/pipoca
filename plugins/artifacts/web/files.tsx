@@ -17,9 +17,9 @@ import { type ReactElement, useState } from "react";
 import { artifacts as plugin } from "../plugin";
 import {
   type ArtifactSummary,
-  kindLabel,
   kindOf,
   type Published,
+  typeLabel,
   versionTag,
 } from "../src/artifacts";
 
@@ -177,7 +177,7 @@ export function AttachArtifact({
           key: each.id,
           title: each.title,
           detail: [
-            kindLabel(each.kind),
+            typeLabel(each.type),
             ...versionTag(each),
             ...(each.sessionId === session.id || each.sessionTitle === null
               ? []

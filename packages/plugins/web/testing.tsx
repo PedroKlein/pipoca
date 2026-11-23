@@ -59,6 +59,9 @@ function TestShell({
     draft: (sessionId, text, attachments = []) => {
       drafts.push({ sessionId, text, attachments });
     },
+    newSession: (text, attachments = []) => {
+      newSessions.push({ text, attachments });
+    },
     repositories: async (query) =>
       Promise.resolve(
         repositories.filter(({ url }) => url.includes(query.toLowerCase())),
@@ -86,6 +89,13 @@ let realFetch = globalThis.fetch;
 // What parts put in a Session's composer, newest last.
 export const drafts: {
   sessionId: string;
+  text: string;
+  attachments: readonly Attachment[];
+}[] = [];
+
+// What parts put in the New session composer, newest last, for the test
+// that drew them.
+export const newSessions: {
   text: string;
   attachments: readonly Attachment[];
 }[] = [];
@@ -189,6 +199,7 @@ export function renderPart(
     });
 
     mounted.clear();
+    newSessions.length = 0;
     globalThis.fetch = realFetch;
 
     if (GlobalRegistrator.isRegistered) {

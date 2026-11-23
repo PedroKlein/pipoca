@@ -203,6 +203,11 @@ export function useDraft(): Shell["draft"] {
   return useShell().draft;
 }
 
+// Opens the New session composer with text waiting in it; it never starts.
+export function useNewSession(): Shell["newSession"] {
+  return useShell().newSession;
+}
+
 export function useApi(plugin: Pick<PluginDefinition, "id">): TypedClient {
   return useMemo(() => pluginClient({ id: plugin.id }), [plugin.id]);
 }

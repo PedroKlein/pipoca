@@ -97,6 +97,7 @@ A `session.panel` part draws a `SessionSection` (`name`, `order`, `label`, `icon
 - `useLoaded(load, key, { topics, changes, everyMs })` loads data, and loads it again when a kernel topic such as `sessions` or `environments` changes, when one of the plugin's own `changes` does, or every `everyMs` for data that changes outside Pipoca.
 - `useViewer()` says who is looking.
 - `useDraft()(sessionId, text, attachments)` puts text, and attachments if given, in a Session's composer and opens it, for the person to send or not. Empty text keeps what the person typed.
+- `useNewSession()(text, attachments)` opens the New session composer with text, and attachments if given, in it, for the person to pick where it runs and start it.
 - `useOverlay()` reads and changes what the address shows over the page, after a `?` in its hash: `params`, `open(params, { replace })` and `close()`. Back closes what `open` opened, and the address opens it again.
 
 ## What it can import

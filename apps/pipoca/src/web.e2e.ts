@@ -7141,6 +7141,169 @@ test("opens a folder Pi published with its stylesheet and picture loaded in the 
   await overlayClosed();
 }, 30_000);
 
+test("picks a built-in template under Artifacts › New and starts it with Pi in a new Session", async () => {
+  faux.setResponses([
+    fauxAssistantMessage(
+      [
+        fauxToolCall("start_artifact", {
+          template: "slide-deck",
+          title: "Webhooks v2 review",
+        }),
+      ],
+      { stopReason: "toolUse" },
+    ),
+    fauxAssistantMessage([fauxText("Who is the audience?")]),
+  ]);
+
+  await page.goto(new URL("/#plugin/artifacts", server.url).href);
+  await page.getByRole("button", { name: "New", exact: true }).click();
+
+  const picker = page.getByRole("dialog", { name: "New artifact" });
+
+  await picker.getByRole("tab", { name: "Built in 6" }).waitFor();
+  await picker.getByRole("button", { name: "Present", exact: true }).click();
+
+  await picker
+    .getByRole("radiogroup", { name: "Templates" })
+    .locator("label", { hasText: "Slide deck" })
+    .click();
+
+  await picker
+    .getByRole("radio", { name: /^Slide deck/, checked: true })
+    .waitFor({ state: "attached" });
+
+  const rail = picker.getByRole("complementary", {
+    name: "Slide deck template",
+  });
+
+  // Its entry draws small in the artifacts' sandbox, with its stylesheet.
+  await rail
+    .frameLocator("iframe")
+    .getByRole("heading", { name: "The point of the talk, in one line" })
+    .waitFor();
+
+  await rail.getByText(/ask who the audience is/).waitFor();
+  await rail.getByText("deck.html · deck.css").waitFor();
+
+  await rail
+    .getByRole("button", { name: "Start with Pi in a new Session…" })
+    .click();
+
+  // The person's words, with the template beside them for Pi.
+  const form = page.locator("form#create");
+  const task = form.getByLabel("What should Pi do?");
+
+  expect(await task.inputValue()).toBe("Start from the Slide deck template.");
+
+  await form
+    .getByRole("list", { name: "Attached" })
+    .getByText("template · Slides")
+    .waitFor();
+
+  await pickWorkspace(form, root);
+  await task.press("Control+Enter");
+
+  await page
+    .locator('#chat li[data-role="user"]', {
+      hasText: "Start from the Slide deck template.",
+    })
+    .waitFor();
+
+  await page
+    .locator("#chat")
+    .getByText(
+      "Started from template Slide deck · 2 files in webhooks-v2-review",
+    )
+    .waitFor();
+
+  await page.getByText("Who is the audience?").waitFor();
+}, 30_000);
+
+test("saves an artifact as a template from the viewer's More menu, which shows as a template and in the picker", async () => {
+  const folder = join(root, "template-folder");
+
+  await mkdir(folder, { recursive: true });
+
+  await writeFile(
+    join(folder, "rollout.md"),
+    "# Rollout: webhooks v2\n\n## Steps\n\n1. Ship to staging.\n",
+  );
+
+  faux.setResponses([
+    fauxAssistantMessage(
+      [
+        fauxToolCall("publish_artifact", {
+          path: "rollout.md",
+          title: "Rollout plan",
+        }),
+      ],
+      { stopReason: "toolUse" },
+    ),
+    fauxAssistantMessage([fauxText("Published the plan")]),
+  ]);
+
+  await page.goto(server.url.href);
+  await page.getByRole("button", { name: "New session" }).click();
+  const form = page.locator("form#create");
+
+  await pickWorkspace(form, folder);
+  await form.getByRole("button", { name: "Start session" }).click();
+  await page.locator("#status", { hasText: "idle" }).waitFor();
+
+  const box = page.locator("#prompt-text");
+  await box.fill("publish the plan");
+  await box.press("Enter");
+  await page.getByText("Published the plan").waitFor();
+
+  await page.getByRole("link", { name: /Rollout plan/ }).click();
+
+  const viewer = page.getByRole("dialog", { name: "Rollout plan" });
+
+  await viewer.getByRole("button", { name: "More" }).click();
+  await page.getByRole("menuitem", { name: "Save as template…" }).click();
+
+  const save = page.getByRole("dialog", { name: "Save as template" });
+
+  await save.getByLabel("Name", { exact: true }).fill("Rollout");
+  await save.getByRole("radio", { name: /Everything, as an example/ }).check();
+
+  await save
+    .getByLabel("What Pi should know")
+    .fill("Ask which service rolls out first.");
+
+  await save.getByRole("button", { name: "Only me" }).waitFor();
+  await save.getByRole("button", { name: "Save template" }).click();
+  await save.waitFor({ state: "hidden" });
+
+  await page.keyboard.press("Escape");
+  await overlayClosed();
+
+  await page.goto(new URL("/#plugin/artifacts", server.url).href);
+
+  const card = page
+    .getByRole("list", { name: "Artifacts" })
+    .getByRole("listitem")
+    .filter({ hasText: "Rollout" })
+    .filter({ hasText: "Template" });
+
+  await card.waitFor();
+
+  await page.getByRole("button", { name: "New", exact: true }).click();
+
+  const picker = page.getByRole("dialog", { name: "New artifact" });
+
+  await picker.getByRole("tab", { name: "Mine 1" }).click();
+
+  const rail = picker.getByRole("complementary", { name: "Rollout template" });
+
+  await rail
+    .getByText("Ask which service rolls out first.", { exact: false })
+    .waitFor();
+
+  await rail.getByText("rollout.md").waitFor();
+  await page.keyboard.press("Escape");
+}, 30_000);
+
 test("docks an artifact beside the chat on a wide window, and on a phone keeps its actions at the bottom and its comments in a sheet", async () => {
   const folder = join(root, "artifact-layouts");
   await mkdir(folder, { recursive: true });

@@ -195,6 +195,18 @@ create index artifacts_files_hash on artifacts_files (hash);
 
 insert into artifacts_files (artifact_id, number, path, hash, size)
 select artifact_id, number, name, hash, size from artifacts_versions;`,
+    // 13: an artifact marked as a template (ADR 0085). Whose it is follows
+    // the artifact: a server template has neither owner nor Session, and
+    // only admins change it.
+    `create table artifacts_templates (
+  artifact_id text primary key references artifacts_artifacts (id) on delete cascade,
+  purpose text not null check (purpose in ('present', 'discuss', 'design', 'report')),
+  description text not null default '',
+  instructions text not null default '',
+  example integer not null default 0 check (example in (0, 1)),
+  saved_by text references users (id) on delete set null,
+  created_at integer not null
+) strict, without rowid;`,
   ],
   events: {
     // ADR 0081: mentions, review requests and replies, for the plugins that

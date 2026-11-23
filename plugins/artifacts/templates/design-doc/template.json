@@ -1,0 +1,7 @@
+{
+  "name": "Design doc / RFC",
+  "description": "A proposal people review: the problem, goals and non-goals, the design, the alternatives, rollout and risks, and open questions.",
+  "for": "discuss",
+  "entry": "design.md",
+  "instructions": "Before you write, ask what is being designed and who reviews it, unless the Session already says. Read the code, docs and issues it touches first, and link them. State the problem so someone new to it understands why it matters now. Keep goals and non-goals to a few lines each. Describe the proposal concretely: the interfaces, data and flows that change, with a diagram in a code block if it helps. Give at least one real alternative and why it loses. Name the risks, how it rolls out and how it is undone. List what you don't know under Open questions. Keep the front matter (doc: design, status: draft); people move it to review and decide."
+}

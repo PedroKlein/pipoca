@@ -10,6 +10,7 @@ import { useMe, useQuery } from "../data/hooks";
 import { useSettledNotices } from "./settled-notices";
 import { Drawer } from "./drawer";
 import { NewSessionDialog } from "./new-session";
+import { type FirstMessage, listenNewSession } from "./new-session-text";
 import { PluginBoundary } from "../plugin-boundary";
 import { fillsOf, navEntries, PluginShell, sessionHref } from "../plugins";
 import { href, navigate, type Route, useRoute } from "../router";
@@ -124,9 +125,12 @@ function Area({ children }: { readonly children: ReactNode }): ReactElement {
 }
 
 // A person's own work: the sidebar beside home, a Session or a plugin's page.
+const noFirstMessage: FirstMessage = { text: "", attachments: [] };
+
 function Work({ route }: { readonly route: Route }): ReactElement {
   const [showArchived, setShowArchived] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [first, setFirst] = useState<FirstMessage>(noFirstMessage);
   const [drawer, setDrawer] = useState(false);
   const [drawerRoute, setDrawerRoute] = useState(route);
 
@@ -160,8 +164,18 @@ function Work({ route }: { readonly route: Route }): ReactElement {
   };
 
   const newSession = (): void => {
+    setFirst(noFirstMessage);
     setCreating(true);
   };
+
+  useEffect(
+    () =>
+      listenNewSession((asked) => {
+        setFirst(asked);
+        setCreating(true);
+      }),
+    [],
+  );
 
   const content = (): ReactElement => {
     if (route.name === "plugin") {
@@ -220,6 +234,8 @@ function Work({ route }: { readonly route: Route }): ReactElement {
 
       <NewSessionDialog
         open={creating}
+        text={first.text}
+        attachments={first.attachments}
         onClose={() => {
           setCreating(false);
         }}

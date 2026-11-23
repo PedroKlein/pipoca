@@ -1,0 +1,7 @@
+{
+  "name": "Slide deck",
+  "description": "Seven starting slides: title, agenda, three content slides, a decision and next steps. Pi keeps one idea per slide and puts the detail in the speaker notes.",
+  "for": "present",
+  "entry": "deck.html",
+  "instructions": "Before you write, ask who the audience is and how long the talk is, unless the Session already says. Fit the deck to the length, about one slide for every two minutes, adding or removing content slides. Keep one idea per slide: a headline that states the point as a sentence, then at most three short lines, one chart or one table. Put the detail, the numbers behind it and what to say in that slide's <aside class=\"notes\">. Keep one <section> per slide and keep deck.css; change the words, not the layout, unless a slide needs another shape. Draw charts as inline SVG from real numbers in the Session, and leave a slide out rather than invent data. End with the decision you need and the next steps with owners and dates."
+}
