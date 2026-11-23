@@ -26,6 +26,49 @@ export interface Version {
   // On a living doc, what makes this save a version, such as Approved by
   // Ana, or null for an edit.
   readonly label: string | null;
+  // How many files it has: its entry, name, and the ones its page links.
+  readonly files: number;
+}
+
+// A folder of files holds up to this many (ADR 0085).
+export const maxFiles = 200;
+
+// A file's path in a folder: relative, with forward slashes, no control
+// characters and no step out of it.
+export function inFolder(path: string): boolean {
+  return (
+    !path.includes("\\") &&
+    !/\p{Cc}/u.test(path) &&
+    path
+      .split("/")
+      .every((part) => part !== "" && part !== "." && part !== "..")
+  );
+}
+
+// Whether a file of a folder is compared line by line.
+export function textFile(path: string): boolean {
+  const kind = previewKind(path);
+
+  return kind !== undefined && kind !== "image" && kind !== "pdf";
+}
+
+// One file of a version, and what the version changed in it against the
+// save before.
+export interface VersionFile {
+  readonly path: string;
+  readonly size: number;
+  readonly change: "added" | "edited" | "same";
+  // The lines an edit put in and took out, for text short enough to compare.
+  readonly lines: { readonly added: number; readonly removed: number } | null;
+}
+
+export interface VersionFiles {
+  readonly entry: string;
+  readonly files: readonly VersionFile[];
+  // The paths the save before had and this one doesn't.
+  readonly removed: readonly string[];
+  // The most a version's files take together on this server.
+  readonly maxBytes: number;
 }
 
 // ADR 0082: a Markdown doc or HTML page is edited in place, and only its

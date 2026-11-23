@@ -7024,6 +7024,123 @@ test("two people chat in a comment thread, seeing who's here, who's typing and e
   }
 }, 60_000);
 
+test("opens a folder Pi published with its stylesheet and picture loaded in the frame, and lists its files", async () => {
+  const folder = join(root, "artifact-folder");
+  await mkdir(join(folder, "site", "styles"), { recursive: true });
+  await mkdir(join(folder, "site", "img"), { recursive: true });
+
+  await writeFile(
+    join(folder, "site", "index.html"),
+    '<link rel="stylesheet" href="styles/app.css"><h1 class="kpi">Orders</h1><img alt="Logo" src="img/logo.png">',
+  );
+
+  await writeFile(
+    join(folder, "site", "styles", "app.css"),
+    ".kpi { color: rgb(23, 120, 75); }\n",
+  );
+
+  await mkdir(join(folder, "site", "data"), { recursive: true });
+  await writeFile(join(folder, "site", "data", "orders.json"), "[1, 2, 3]");
+
+  await writeFile(
+    join(folder, "site", "img", "logo.png"),
+    Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+      "base64",
+    ),
+  );
+
+  faux.setResponses([
+    fauxAssistantMessage(
+      [
+        fauxToolCall("publish_artifact", {
+          path: "site",
+          title: "Orders dashboard",
+        }),
+      ],
+      { stopReason: "toolUse" },
+    ),
+    fauxAssistantMessage([fauxText("Published the dashboard")]),
+  ]);
+
+  await page.goto(server.url.href);
+  await page.getByRole("button", { name: "New session" }).click();
+  const form = page.locator("form#create");
+
+  await pickWorkspace(form, folder);
+  await form.getByRole("button", { name: "Start session" }).click();
+  await page.locator("#status", { hasText: "idle" }).waitFor();
+
+  const box = page.locator("#prompt-text");
+  await box.fill("publish the dashboard");
+  await box.press("Enter");
+  await page.getByText("Published the dashboard").waitFor();
+
+  await page.getByRole("link", { name: /Orders dashboard/ }).click();
+
+  const viewer = page.getByRole("dialog", { name: "Orders dashboard" });
+  const frame = page.frameLocator('iframe[title="Orders dashboard, latest"]');
+  const heading = frame.getByRole("heading", { name: "Orders" });
+
+  await heading.waitFor();
+
+  // The page opens from its files' own link, under which they load.
+  const inside = await (
+    await page
+      .locator('iframe[title="Orders dashboard, latest"]')
+      .elementHandle()
+  ).contentFrame();
+
+  if (inside === null) {
+    throw new Error("the viewer has no frame");
+  }
+
+  expect(inside.url()).toContain("/files/");
+
+  expect(
+    await inside.evaluate(
+      "getComputedStyle(document.querySelector('h1')).color",
+    ),
+  ).toBe("rgb(23, 120, 75)");
+
+  // decode waits for the picture to load, and fails when it can't.
+  expect(
+    await inside.evaluate(
+      "document.querySelector('img').decode().then(() => document.querySelector('img').naturalWidth)",
+    ),
+  ).toBe(1);
+
+  await viewer.getByRole("button", { name: "Files 4" }).click();
+
+  const files = viewer.getByRole("navigation", { name: "Files" });
+
+  await files.getByRole("button", { name: /index\.html/ }).waitFor();
+
+  expect(await files.getByRole("button").count()).toBe(4);
+
+  for (const [at, name] of [
+    "index.html, entry file, new",
+    "data/orders.json, new",
+    "img/logo.png, new",
+    "styles/app.css, new",
+  ].entries()) {
+    expect(
+      await files.getByRole("button").nth(at).getAttribute("aria-current"),
+    ).toBe(at === 0 ? "true" : null);
+
+    await files.getByRole("button", { name, exact: true }).waitFor();
+  }
+
+  // A picture of the folder shows as itself.
+  await files.getByRole("button", { name: "img/logo.png, new" }).click();
+  await viewer.getByRole("img", { name: "img/logo.png" }).waitFor();
+
+  await viewer.getByRole("button", { name: "Page", exact: true }).click();
+  await heading.waitFor();
+  await page.keyboard.press("Escape");
+  await overlayClosed();
+}, 30_000);
+
 test("docks an artifact beside the chat on a wide window, and on a phone keeps its actions at the bottom and its comments in a sheet", async () => {
   const folder = join(root, "artifact-layouts");
   await mkdir(folder, { recursive: true });

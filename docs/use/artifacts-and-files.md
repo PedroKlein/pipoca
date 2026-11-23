@@ -44,6 +44,8 @@ Whoever sees its Session opens it. Whoever steers the Session can share it with 
 
 An artifact runs in a sandbox on an opaque origin, so it can't reach Pipoca or your sign-in, and it loads scripts and styles only from `artifacts.scriptHosts` (cdnjs, jsDelivr and unpkg by default).
 
+Pi can publish a folder too: its entry file (`index.html` unless Pi names another with `entry`) is the page, and it links the folder's other files, such as its stylesheets, pictures and scripts, by relative path. A script on the page can't fetch them yet. A folder holds up to 200 files, leaving out dotfiles and links, and `artifacts.maxFileBytes` applies to all of them together. Its page and files load from a link made for you that lasts an hour, since a sandboxed page sends no sign-in with its own requests. The header's **Page** and **Files** switch shows the version's files, which it added or edited against the one before, and each file's changes or whole text. **Download** gives a `.zip`, and `read_artifact` copies every file into Pi's folder at its path. Comments and Compare stay on the entry page.
+
 ### Comments and edits
 
 - Click **Comment** to turn on comment mode. Select text, or click part of the page such as a chart bar, and the comment box opens right there. **Comment on the whole page** is beside the list for a comment on all of it. While comment mode is on, a click on the page, or Enter on the part that has focus, picks what to comment on instead of following it; turn it off to use the page. Escape closes the comment box.

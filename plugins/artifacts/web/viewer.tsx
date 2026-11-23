@@ -25,6 +25,7 @@ import {
   Icon,
   Menu,
   type MenuItem,
+  Segmented,
   useConfirm,
 } from "@pipoca/ui";
 import {
@@ -64,12 +65,13 @@ import {
   ReviewBar,
 } from "./doc";
 import { useDock, usePhone } from "./dock";
+import { FolderFiles } from "./folder";
 import { usePresence } from "./presence";
 import { SaveVersionDialog } from "./save-version";
 import { ShareDialog } from "./share";
 import { Compare, Editor } from "./versions";
 
-type Body = "page" | "compare" | "edit";
+type Body = "page" | "files" | "compare" | "edit";
 
 // A link to an artifact that opens it over the page. Opened in a new tab,
 // it shows the artifact alone.
@@ -380,7 +382,13 @@ function Shown({
     setOpened({ body: "page", on: asked });
   }
 
-  const body = opened.on === asked ? opened.body : "page";
+  // A version of one file has no files to show.
+  const files = artifact.history[shown - 1]?.files ?? 1;
+
+  const body =
+    opened.on !== asked || (opened.body === "files" && files === 1)
+      ? "page"
+      : opened.body;
 
   const setBody = (next: Body): void => {
     setOpened({ body: next, on: asked });
@@ -637,10 +645,31 @@ function Shown({
     void acting(async () => api.put(`artifacts/${artifact.id}/${path}`, sent));
   };
 
+  const downloadLabel = files > 1 ? "Download .zip" : "Download";
+
+  // A folder's page or its files. On a phone it sits under the title, which
+  // keeps the header's room.
+  const viewSwitch = (
+    <Segmented
+      label="View"
+      value={body === "files" ? "files" : "page"}
+      options={[
+        { value: "page", label: "Page" },
+        { value: "files", label: `Files ${String(files)}` },
+      ]}
+      onChange={setBody}
+    />
+  );
+
+  // On a phone Download is at the bottom, and the files offer their .zip
+  // beside them.
+  const downloadItem: MenuItem[] =
+    phone || body === "files"
+      ? []
+      : [{ label: downloadLabel, icon: "download", run: download }];
+
   const more: MenuItem[] = [
-    ...(phone
-      ? versions
-      : [{ label: "Download", icon: "download" as const, run: download }]),
+    ...(phone ? versions : downloadItem),
     {
       label: "Copy link",
       icon: "link",
@@ -813,6 +842,7 @@ function Shown({
               ? versionLine
               : [
                   ...(doc === null ? [] : [docLabel(doc)]),
+                  ...(files > 1 ? [`${String(files)} files`] : []),
                   originLine(artifact, mode),
                 ].join(" · ")
           }
@@ -850,30 +880,39 @@ function Shown({
             items={versions}
           />
         )}
-        <Button
-          variant={commenting && canComment ? "primary" : "ghost"}
-          size="sm"
-          aria-pressed={commenting}
-          onClick={() => {
-            setAnchor(undefined);
-            setSheet(true);
+        {files > 1 && !phone && viewSwitch}
+        {body === "files" && !phone && (
+          <Button size="sm" onClick={download}>
+            Download .zip
+          </Button>
+        )}
+        {/* Comments are on the page, so the files offer none. */}
+        {body !== "files" && (
+          <Button
+            variant={commenting && canComment ? "primary" : "ghost"}
+            size="sm"
+            aria-pressed={commenting}
+            onClick={() => {
+              setAnchor(undefined);
+              setSheet(true);
 
-            if (!commenting || sheet || !phone) {
-              setCommenting(!commenting);
-            }
-          }}
-        >
-          <Icon name="chat" className="size-3.5" />
-          <span className={compact ? "sr-only" : ""}>
-            {canComment ? "Comment" : "Comments"}
-          </span>
-          {artifact.openComments > 0 && (
-            <span className={commenting && canComment ? "" : "text-fg-dim"}>
-              {artifact.openComments}
-              <span className="sr-only"> open</span>
+              if (!commenting || sheet || !phone) {
+                setCommenting(!commenting);
+              }
+            }}
+          >
+            <Icon name="chat" className="size-3.5" />
+            <span className={compact ? "sr-only" : ""}>
+              {canComment ? "Comment" : "Comments"}
             </span>
-          )}
-        </Button>
+            {artifact.openComments > 0 && (
+              <span className={commenting && canComment ? "" : "text-fg-dim"}>
+                {artifact.openComments}
+                <span className="sr-only"> open</span>
+              </span>
+            )}
+          </Button>
+        )}
         {steers && !phone && (
           <Button
             size="sm"
@@ -1009,125 +1048,134 @@ function Shown({
           <ErrorText size="caption">{problem}</ErrorText>
         </div>
       )}
-      <div className="flex min-h-0 flex-1 bg-panel">
-        {roomy && (
-          <OutlineNav
-            outline={told}
-            threads={threads}
-            onSection={(section) => {
-              setGoto({ section });
-            }}
-            onQuestions={() => {
-              setListed("questions");
-              setActive(undefined);
-              setSheet(true);
-              setCommenting(true);
-            }}
-          />
-        )}
-        <div
-          ref={measured}
-          className="relative flex min-w-0 flex-1 flex-col overflow-hidden"
-        >
-          <Frame
-            artifact={artifact}
-            version={shown}
-            commenting={commenting && canComment}
-            pins={pins}
-            badges={
-              !(
-                roomy &&
-                commenting &&
-                listed === "open" &&
-                active === undefined
-              )
-            }
-            className="min-h-0 flex-1"
-            onPick={pick}
-            onPin={showPin}
-            onEscape={stopWriting}
-            onScroll={follow}
-            onOutline={(next) => {
-              setOutline({ ...next, on: page });
-            }}
-            goto={goto}
-          />
-          {held !== undefined && anchor !== undefined && (
-            <CommentBox
-              artifact={artifact}
-              version={shown}
-              anchor={anchor}
-              scrolled={held.scrolled}
-              area={area}
-              people={people ?? []}
-              onDone={(done) => {
-                setAnchor(undefined);
-
-                if (done !== undefined) {
-                  setSaved(done.id);
-                  setSaid(savedLine(artifact, done.sentToPi));
-                  reload();
-                }
+      {files > 1 && phone && (
+        <div className="flex border-b border-line px-3 py-2">{viewSwitch}</div>
+      )}
+      {body === "files" ? (
+        <FolderFiles artifact={artifact} version={shown} />
+      ) : (
+        <div className="flex min-h-0 flex-1 bg-panel">
+          {roomy && (
+            <OutlineNav
+              outline={told}
+              threads={threads}
+              onSection={(section) => {
+                setGoto({ section });
+              }}
+              onQuestions={() => {
+                setListed("questions");
+                setActive(undefined);
+                setSheet(true);
+                setCommenting(true);
               }}
             />
           )}
-        </div>
-        {commenting && sheet && phone && (
-          <button
-            type="button"
-            aria-label="Back to the page"
-            className="fixed inset-0 z-10 bg-scrim"
-            onClick={() => {
-              setSheet(false);
-            }}
-          />
-        )}
-        {commenting && (sheet || !phone) && (
-          <aside
-            aria-label="Comments"
-            className={cn(
-              "flex w-[420px] shrink-0 flex-col border-l border-line max-sm:fixed max-sm:inset-x-0 max-sm:bottom-0 max-sm:z-10 max-sm:h-[70dvh] max-sm:w-full max-sm:rounded-t-2xl max-sm:border-t max-sm:border-l-0 max-sm:shadow-pop",
-              roomy ? "bg-panel" : "bg-elevated",
-            )}
+          <div
+            ref={measured}
+            className="relative flex min-w-0 flex-1 flex-col overflow-hidden"
           >
-            {phone && (
-              <span
-                aria-hidden
-                className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-line-strong"
-              />
-            )}
-            <CommentList
+            <Frame
               artifact={artifact}
               version={shown}
-              threads={threads}
-              onPage={
-                told === undefined
-                  ? undefined
-                  : new Set(told.tops.map(({ n }) => n))
+              commenting={commenting && canComment}
+              pins={pins}
+              badges={
+                !(
+                  roomy &&
+                  commenting &&
+                  listed === "open" &&
+                  active === undefined
+                )
               }
-              shown={listed}
-              onShown={setListed}
-              margin={margin}
-              loaded={comments === "failed" ? "failed" : comments !== undefined}
-              anchor={anchor}
-              active={active}
-              saved={saved}
-              onFocused={() => {
-                setSaved(undefined);
+              className="min-h-0 flex-1"
+              onPick={pick}
+              onPin={showPin}
+              onEscape={stopWriting}
+              onScroll={follow}
+              onOutline={(next) => {
+                setOutline({ ...next, on: page });
               }}
-              onSaid={setSaid}
-              onActive={setActive}
-              onWholePage={() => {
-                setAnchor({ page: true });
-              }}
-              onChanged={reload}
-              people={people ?? []}
-              presence={presence.people}
-              onTyping={presence.typing}
+              goto={goto}
             />
-          </aside>
-        )}
-      </div>
+            {held !== undefined && anchor !== undefined && (
+              <CommentBox
+                artifact={artifact}
+                version={shown}
+                anchor={anchor}
+                scrolled={held.scrolled}
+                area={area}
+                people={people ?? []}
+                onDone={(done) => {
+                  setAnchor(undefined);
+
+                  if (done !== undefined) {
+                    setSaved(done.id);
+                    setSaid(savedLine(artifact, done.sentToPi));
+                    reload();
+                  }
+                }}
+              />
+            )}
+          </div>
+          {commenting && sheet && phone && (
+            <button
+              type="button"
+              aria-label="Back to the page"
+              className="fixed inset-0 z-10 bg-scrim"
+              onClick={() => {
+                setSheet(false);
+              }}
+            />
+          )}
+          {commenting && (sheet || !phone) && (
+            <aside
+              aria-label="Comments"
+              className={cn(
+                "flex w-[420px] shrink-0 flex-col border-l border-line max-sm:fixed max-sm:inset-x-0 max-sm:bottom-0 max-sm:z-10 max-sm:h-[70dvh] max-sm:w-full max-sm:rounded-t-2xl max-sm:border-t max-sm:border-l-0 max-sm:shadow-pop",
+                roomy ? "bg-panel" : "bg-elevated",
+              )}
+            >
+              {phone && (
+                <span
+                  aria-hidden
+                  className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-line-strong"
+                />
+              )}
+              <CommentList
+                artifact={artifact}
+                version={shown}
+                threads={threads}
+                onPage={
+                  told === undefined
+                    ? undefined
+                    : new Set(told.tops.map(({ n }) => n))
+                }
+                shown={listed}
+                onShown={setListed}
+                margin={margin}
+                loaded={
+                  comments === "failed" ? "failed" : comments !== undefined
+                }
+                anchor={anchor}
+                active={active}
+                saved={saved}
+                onFocused={() => {
+                  setSaved(undefined);
+                }}
+                onSaid={setSaid}
+                onActive={setActive}
+                onWholePage={() => {
+                  setAnchor({ page: true });
+                }}
+                onChanged={reload}
+                people={people ?? []}
+                presence={presence.people}
+                onTyping={presence.typing}
+              />
+            </aside>
+          )}
+        </div>
+      )}
       {phone && (
         <div
           role="group"
@@ -1145,7 +1193,7 @@ function Shown({
             </Button>
           )}
           <Button className="flex-1" onClick={download}>
-            Download
+            {downloadLabel}
           </Button>
         </div>
       )}

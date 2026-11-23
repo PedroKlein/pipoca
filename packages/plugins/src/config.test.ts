@@ -93,6 +93,18 @@ describe("configOf", () => {
     });
   });
 
+  test("a size may have a most it can be", () => {
+    const sized = Config.object({
+      largest: Config.bytes({ title: "Largest", default: 10, max: 100 }),
+    });
+
+    expect(reading().read(sized, { largest: 100 })).toEqual({ largest: 100 });
+
+    expect(() => reading().read(sized, { largest: 101 })).toThrow(
+      "largest must be <= 100",
+    );
+  });
+
   test("throws naming the field that doesn't fit", () => {
     const { read } = reading();
 

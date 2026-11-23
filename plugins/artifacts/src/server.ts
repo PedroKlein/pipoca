@@ -1,3 +1,4 @@
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import {
   BadRequest,
   defineServer,
@@ -6,6 +7,7 @@ import {
   NotFound,
   owners,
   type PersonCaller,
+  previewAsset,
   type SessionCaller,
   StringEnum,
   Type,
@@ -24,6 +26,11 @@ import {
   type CommentKind,
   type Doc,
   type DocMark,
+  inFolder,
+  maxFiles,
+  textFile,
+  type VersionFile,
+  type VersionFiles,
   docMark,
   type DocStatus,
   docStatuses,
@@ -44,8 +51,10 @@ import {
   type Version,
 } from "./artifacts";
 import { activityLog } from "./activity";
+import { lineDiff } from "./diff";
 import { presences } from "./presence";
 import { rendered } from "./render";
+import { zip } from "./zip";
 
 interface Row {
   readonly id: string;
@@ -67,6 +76,19 @@ interface VersionRow {
   readonly note: string;
   readonly created_at: number;
   readonly label: string | null;
+  readonly files: number;
+}
+
+interface FileRow {
+  readonly path: string;
+  readonly hash: string;
+  readonly size: number;
+}
+
+// What a save holds: its files, one of them the entry that people open.
+interface Saved {
+  readonly entry: string;
+  readonly files: readonly FileRow[];
 }
 
 interface CommentRow {
@@ -107,6 +129,24 @@ const version = Type.Object({
   v: Type.Optional(Type.Integer({ minimum: 1 })),
 });
 
+const versionFile = Type.Object({
+  v: Type.Optional(Type.Integer({ minimum: 1 })),
+  path: Type.Optional(Type.String({ minLength: 1, maxLength: 1024 })),
+});
+
+const uploadedFiles = Type.Optional(
+  Type.Array(
+    Type.Object({
+      path: Type.String({ minLength: 1, maxLength: 1024 }),
+      hash: Type.String({ pattern: blobHash.source }),
+    }),
+    { minItems: 1, maxItems: maxFiles },
+  ),
+);
+
+// How long a link to a folder's files lasts once its page opens.
+const grantMs = 60 * 60 * 1000;
+
 // Artifacts, their versions' bytes in the plugin's blob store (ADR 0078).
 export const server = defineServer(
   artifacts,
@@ -121,8 +161,13 @@ export const server = defineServer(
     sessions,
     store,
     timer,
+    urls,
   }) => {
     const maxFileBytes = (): number => config.get().maxFileBytes;
+
+    // Links to folders' files last an hour, so a key of the process's own
+    // is enough: after a restart a viewer opens the page again.
+    const grantKey = randomBytes(32);
 
     blobs.acceptUploads({ maxBytes: maxFileBytes });
 
@@ -131,9 +176,45 @@ export const server = defineServer(
 
     const versions = (id: string): readonly VersionRow[] =>
       store.all<VersionRow>(
-        "select number, name, hash, size, author, note, created_at, label from artifacts_versions where artifact_id = ? order by number",
+        "select number, name, hash, size, author, note, created_at, label, (select count(*) from artifacts_files f where f.artifact_id = v.artifact_id and f.number = v.number) as files from artifacts_versions v where artifact_id = ? order by number",
         id,
       );
+
+    const filesOf = (id: string, number: number): readonly FileRow[] =>
+      store.all<FileRow>(
+        "select path, hash, size from artifacts_files where artifact_id = ? and number = ? order by path",
+        id,
+        number,
+      );
+
+    const savedOf = (id: string, found: VersionRow): Saved => ({
+      entry: found.name,
+      files: filesOf(id, found.number),
+    });
+
+    // The same files with the entry's text changed, as a person's edit is,
+    // still within the most a version's files may take.
+    const withEntry = (
+      id: string,
+      found: VersionRow,
+      entry: { readonly hash: string; readonly size: number },
+    ): Saved => {
+      const files = filesOf(id, found.number).map((each) =>
+        each.path === found.name ? { ...each, ...entry } : each,
+      );
+
+      const size = files.reduce((sum, file) => sum + file.size, 0);
+
+      if (size > maxFileBytes()) {
+        throw new HttpError(
+          413,
+          `${files.length === 1 ? `${found.name} is` : "its files are"} ${bytes(size)}; artifacts can be up to ${bytes(maxFileBytes())} on this server`,
+          "too_large",
+        );
+      }
+
+      return { entry: found.name, files };
+    };
 
     const shares = (id: string): readonly Share[] =>
       store
@@ -256,7 +337,9 @@ export const server = defineServer(
       return found;
     };
 
-    const content = async (found: VersionRow): Promise<Uint8Array> => {
+    const content = async (
+      found: Pick<VersionRow, "number" | "hash">,
+    ): Promise<Uint8Array> => {
       const kept = await blobs.bytes(found.hash);
 
       if (kept === undefined) {
@@ -266,29 +349,62 @@ export const server = defineServer(
       return kept;
     };
 
+    const fileOf = (
+      id: string,
+      found: VersionRow,
+      path: string | undefined,
+    ): FileRow => {
+      const file =
+        path === undefined
+          ? { path: found.name, hash: found.hash, size: found.size }
+          : filesOf(id, found.number).find((each) => each.path === path);
+
+      if (file === undefined) {
+        throw new NotFound(
+          `version ${String(found.number)} has no ${String(path)}`,
+        );
+      }
+
+      return file;
+    };
+
     const addVersion = (
       id: string,
-      name: string,
-      hash: string,
-      size: number,
+      saved: Saved,
       author: Actor,
       note = "",
     ): number => {
       const now = clock.now();
       const number = versions(id).length + 1;
+      const entry = saved.files.find(({ path }) => path === saved.entry);
+
+      if (entry === undefined) {
+        throw new BadRequest(`the files don't hold ${saved.entry}`);
+      }
 
       store.transaction(() => {
         store.run(
           "insert into artifacts_versions (artifact_id, number, name, hash, size, author, note, created_at) values (?, ?, ?, ?, ?, ?, ?, ?)",
           id,
           number,
-          name,
-          hash,
-          size,
+          entry.path,
+          entry.hash,
+          entry.size,
           author,
           note,
           now,
         );
+
+        for (const each of saved.files) {
+          store.run(
+            "insert into artifacts_files (artifact_id, number, path, hash, size) values (?, ?, ?, ?, ?)",
+            id,
+            number,
+            each.path,
+            each.hash,
+            each.size,
+          );
+        }
 
         store.run(
           "update artifacts_artifacts set updated_at = ? where id = ?",
@@ -340,39 +456,84 @@ export const server = defineServer(
       );
     };
 
-    // The size of a file that can be shown as an artifact, once its bytes
-    // are here.
-    const publishable = async (name: string, hash: string): Promise<number> => {
+    // A file that can be shown as an artifact, or a folder of files with
+    // it as their entry, once their bytes are here.
+    const publishable = async (
+      name: string,
+      hash: string,
+      folder?: readonly { readonly path: string; readonly hash: string }[],
+    ): Promise<Saved> => {
       if (kindOf(name) === undefined) {
         throw new BadRequest(
           `${name} can't be shown as an artifact: publish ${supported}`,
         );
       }
 
-      const size = await blobs.size(hash);
+      const each = folder ?? [{ path: name, hash }];
 
-      if (size === undefined) {
-        throw new HttpError(409, `${name} isn't uploaded yet`, "missing");
+      for (const { path } of each) {
+        if (!inFolder(path)) {
+          throw new BadRequest(`${path} isn't a path inside the folder`);
+        }
       }
+
+      const paths = new Set(each.map(({ path }) => path));
+
+      if (paths.size < each.length) {
+        throw new BadRequest("each file's path is in the folder once");
+      }
+
+      const clash = each.find(({ path }) =>
+        path
+          .split("/")
+          .slice(0, -1)
+          .some((_, at, parts) => paths.has(parts.slice(0, at + 1).join("/"))),
+      );
+
+      if (clash !== undefined) {
+        throw new BadRequest(
+          `${clash.path} is inside a path that is a file in the folder`,
+        );
+      }
+
+      if (!each.some((file) => file.path === name && file.hash === hash)) {
+        throw new BadRequest(`the files don't hold ${name} as uploaded`);
+      }
+
+      const files = await Promise.all(
+        each.map(async (file): Promise<FileRow> => {
+          const size = await blobs.size(file.hash);
+
+          if (size === undefined) {
+            throw new HttpError(
+              409,
+              `${file.path} isn't uploaded yet`,
+              "missing",
+            );
+          }
+
+          return { ...file, size };
+        }),
+      );
+
+      const size = files.reduce((sum, file) => sum + file.size, 0);
 
       if (size > maxFileBytes()) {
         throw new HttpError(
           413,
-          `${name} is ${bytes(size)}; artifacts can be up to ${bytes(maxFileBytes())} on this server`,
+          `${folder === undefined ? `${name} is` : `its files are`} ${bytes(size)}; artifacts can be up to ${bytes(maxFileBytes())} on this server`,
           "too_large",
         );
       }
 
-      return size;
+      return { entry: name, files };
     };
 
     const create = (
       session: string,
       owner: Owner,
       title: string,
-      name: string,
-      hash: string,
-      size: number,
+      saved: Saved,
       author: Actor,
       note?: string,
     ): string => {
@@ -388,7 +549,7 @@ export const server = defineServer(
         clock.now(),
       );
 
-      addVersion(id, name, hash, size, author, note);
+      addVersion(id, saved, author, note);
       log("artifact published", { id, session });
 
       return id;
@@ -534,6 +695,7 @@ export const server = defineServer(
         note: each.note,
         createdAt: each.created_at,
         label: each.label,
+        files: each.files,
       })),
       access: access(artifact, person),
       askable: "session" in listening(artifact, person),
@@ -637,11 +799,77 @@ export const server = defineServer(
       },
     );
 
+    // A link to one version's files for one person, until it expires: a
+    // sandboxed page's own requests carry no cookie.
+    const mac = (id: string, said: string): Buffer =>
+      createHmac("sha256", grantKey).update(`${id}\n${said}`).digest();
+
+    const grantFor = (id: string, number: number, person: string): string => {
+      const said = `${String(number)}.${String(clock.now() + grantMs)}.${person}`;
+
+      return `${said}.${mac(id, said).toString("base64url")}`;
+    };
+
+    const granted = (
+      id: string,
+      grant: string,
+    ): {
+      readonly artifact: Row;
+      readonly found: VersionRow;
+      readonly until: number;
+    } => {
+      const parts = grant.split(".");
+      const signed = Buffer.from(parts.pop() ?? "", "base64url");
+      const said = parts.join(".");
+      const [number, until, ...person] = parts;
+      const artifact = row(id);
+      const expected = mac(id, said);
+
+      if (
+        signed.length !== expected.length ||
+        !timingSafeEqual(signed, expected) ||
+        Number(until) <= clock.now() ||
+        artifact === undefined ||
+        !sees(artifact, person.join("."))
+      ) {
+        throw new NotFound("This link to the artifact's files has expired.");
+      }
+
+      return {
+        artifact,
+        found: versionOf(artifact, Number(number)),
+        until: Number(until),
+      };
+    };
+
+    const pathOf = (encoded: string): string => {
+      try {
+        return encoded.split("/").map(decodeURIComponent).join("/");
+      } catch {
+        throw new NotFound(`no file ${encoded}`);
+      }
+    };
+
+    // A folder's page opens from where its files are, so what it links by
+    // relative path loads beside it.
     routes.get(
       "artifacts/:id/view",
       { auth: "person", query: version },
       async ({ caller, params, query }) => {
-        const found = versionOf(theirs(params.id, caller), query.v);
+        const artifact = theirs(params.id, caller);
+        const found = versionOf(artifact, query.v);
+
+        if (found.files > 1) {
+          const grant = grantFor(artifact.id, found.number, caller.person.id);
+
+          return new Response(null, {
+            status: 302,
+            headers: {
+              location: `files/${grant}/${found.name.split("/").map(encodeURIComponent).join("/")}`,
+              "cache-control": "no-store",
+            },
+          });
+        }
 
         return rendered(
           kindOf(found.name) ?? "html",
@@ -653,15 +881,140 @@ export const server = defineServer(
     );
 
     routes.get(
-      "artifacts/:id/download",
-      { auth: "person", query: version },
-      async ({ caller, params, query }) => {
-        const found = versionOf(theirs(params.id, caller), query.v);
+      "artifacts/:id/files/:grant/*path",
+      { auth: "public" },
+      async ({ params }) => {
+        const { artifact, found, until } = granted(params.id, params.grant);
+        const file = fileOf(artifact.id, found, pathOf(params.path));
+        const kept = await content({ number: found.number, hash: file.hash });
+        const { scriptHosts } = config.get();
 
-        return new Response(await content(found), {
+        const where = new URL(
+          urls.public(`artifacts/${artifact.id}/files/${params.grant}`),
+        );
+
+        const base = `${where.host}${where.pathname}/`;
+
+        const served =
+          file.path === found.name
+            ? rendered(
+                kindOf(found.name) ?? "html",
+                found.name,
+                kept,
+                scriptHosts,
+                base,
+              )
+            : previewAsset(file.path, kept, { scriptHosts, base });
+
+        // Kept no longer than the link opens it.
+        served.headers.set(
+          "cache-control",
+          `private, max-age=${String(Math.floor((until - clock.now()) / 1000))}`,
+        );
+
+        return served;
+      },
+    );
+
+    // Each file of a version, and what it changed against the save before.
+    routes.get(
+      "artifacts/:id/files",
+      { auth: "person", query: version },
+      async ({ caller, params, query }): Promise<VersionFiles> => {
+        const artifact = theirs(params.id, caller);
+        const found = versionOf(artifact, query.v);
+
+        const before = new Map(
+          (found.number === 1
+            ? []
+            : filesOf(artifact.id, found.number - 1)
+          ).map((each) => [each.path, each]),
+        );
+
+        const text = async (file: FileRow): Promise<string> =>
+          new TextDecoder().decode(
+            await content({ number: found.number, hash: file.hash }),
+          );
+
+        const files = filesOf(artifact.id, found.number);
+
+        return {
+          entry: found.name,
+          files: await Promise.all(
+            files.map(async (file): Promise<VersionFile> => {
+              const was = before.get(file.path);
+              const shown = { path: file.path, size: file.size };
+
+              if (was === undefined) {
+                return { ...shown, change: "added", lines: null };
+              }
+
+              if (was.hash === file.hash) {
+                return { ...shown, change: "same", lines: null };
+              }
+
+              const diff = textFile(file.path)
+                ? lineDiff(await text(was), await text(file))
+                : undefined;
+
+              return {
+                ...shown,
+                change: "edited",
+                lines:
+                  diff === undefined
+                    ? null
+                    : {
+                        added: diff.filter(({ kind }) => kind === "added")
+                          .length,
+                        removed: diff.filter(({ kind }) => kind === "removed")
+                          .length,
+                      },
+              };
+            }),
+          ),
+          removed: [...before.keys()].filter(
+            (path) => !files.some((file) => file.path === path),
+          ),
+          maxBytes: maxFileBytes(),
+        };
+      },
+    );
+
+    // One file of a version, or the whole version: a folder as a .zip.
+    routes.get(
+      "artifacts/:id/download",
+      { auth: "person", query: versionFile },
+      async ({ caller, params, query }) => {
+        const artifact = theirs(params.id, caller);
+        const found = versionOf(artifact, query.v);
+
+        if (query.path !== undefined || found.files === 1) {
+          const file = fileOf(artifact.id, found, query.path);
+
+          return new Response(
+            await content({ number: found.number, hash: file.hash }),
+            {
+              headers: {
+                "content-type": "application/octet-stream",
+                "content-disposition": attachment(
+                  file.path.split("/").at(-1) ?? file.path,
+                ),
+              },
+            },
+          );
+        }
+
+        const files = await Promise.all(
+          filesOf(artifact.id, found.number).map(async (file) => ({
+            path: file.path,
+            bytes: await content({ number: found.number, hash: file.hash }),
+          })),
+        );
+
+        return new Response(zip(files, new Date(found.created_at)), {
           headers: {
-            "content-type": "application/octet-stream",
-            "content-disposition": attachment(found.name),
+            "content-type": "application/zip",
+            "content-disposition": attachment(`${artifact.title}.zip`),
           },
         });
       },
@@ -703,9 +1056,7 @@ export const server = defineServer(
 
         const number = addVersion(
           artifact.id,
-          found.name,
-          found.hash,
-          found.size,
+          savedOf(artifact.id, found),
           `user:${caller.person.id}`,
           living(kindOf(found.name) ?? "html")
             ? "restored an earlier text"
@@ -996,14 +1347,19 @@ export const server = defineServer(
           throw new NotFound(`no artifact ${params.id}`);
         }
 
-        const hashes = versions(artifact.id).map(({ hash }) => hash);
+        const hashes = store
+          .all<{ hash: string }>(
+            "select distinct hash from artifacts_files where artifact_id = ?",
+            artifact.id,
+          )
+          .map(({ hash }) => hash);
 
         store.run("delete from artifacts_artifacts where id = ?", artifact.id);
 
-        for (const hash of new Set(hashes)) {
+        for (const hash of hashes) {
           if (
             store.get(
-              "select 1 from artifacts_versions where hash = ? limit 1",
+              "select 1 from artifacts_files where hash = ? limit 1",
               hash,
             ) === undefined
           ) {
@@ -1653,9 +2009,7 @@ export const server = defineServer(
 
         const number = addVersion(
           artifact.id,
-          latest.name,
-          stored.hash,
-          stored.size,
+          withEntry(artifact.id, latest, stored),
           `user:${caller.person.id}`,
           "accepted Pi's suggested edit",
         );
@@ -1898,9 +2252,7 @@ export const server = defineServer(
 
         const number = addVersion(
           artifact.id,
-          latest.name,
-          stored.hash,
-          stored.size,
+          withEntry(artifact.id, latest, stored),
           `user:${caller.person.id}`,
           "edited by hand",
         );
@@ -1945,11 +2297,11 @@ export const server = defineServer(
           );
         }
 
-        const size = await publishable(body.name, body.hash);
+        const saved = await publishable(body.name, body.hash);
 
         // The same file published again is a version of the same artifact.
         const before = store.get<Row>(
-          "select a.* from artifacts_artifacts a join artifacts_versions v on v.artifact_id = a.id where a.session_id = ? and v.name = ? and v.number = (select max(number) from artifacts_versions where artifact_id = a.id) order by a.updated_at desc limit 1",
+          "select a.* from artifacts_artifacts a join artifacts_versions v on v.artifact_id = a.id where a.session_id = ? and v.name = ? and v.number = (select max(number) from artifacts_versions where artifact_id = a.id) and (select count(*) from artifacts_files f where f.artifact_id = a.id and f.number = v.number) = 1 order by a.updated_at desc limit 1",
           session.id,
           body.name,
         );
@@ -1969,9 +2321,7 @@ export const server = defineServer(
 
           const number = addVersion(
             before.id,
-            body.name,
-            body.hash,
-            size,
+            saved,
             `user:${caller.person.id}`,
             "published from a file",
           );
@@ -1991,9 +2341,7 @@ export const server = defineServer(
           session.id,
           session.ownedBy,
           title,
-          body.name,
-          body.hash,
-          size,
+          saved,
           `user:${caller.person.id}`,
           "published from a file",
         );
@@ -2146,6 +2494,8 @@ export const server = defineServer(
         body: Type.Object({
           name: Type.String({ minLength: 1, maxLength: 255 }),
           hash: Type.String({ pattern: blobHash.source }),
+          // A folder's files, the entry, name, among them.
+          files: uploadedFiles,
           title: Type.Optional(Type.String({ minLength: 1, maxLength: 200 })),
           id: Type.Optional(Type.String({ minLength: 1 })),
           note: Type.Optional(Type.String({ maxLength: 200 })),
@@ -2154,7 +2504,7 @@ export const server = defineServer(
         changes: ["artifacts"],
       },
       async ({ caller, body }): Promise<Published> => {
-        const size = await publishable(body.name, body.hash);
+        const saved = await publishable(body.name, body.hash, body.files);
         const author: Actor = `session:${caller.session.id}`;
 
         if (body.id !== undefined) {
@@ -2183,14 +2533,7 @@ export const server = defineServer(
             );
           }
 
-          const number = addVersion(
-            artifact.id,
-            body.name,
-            body.hash,
-            size,
-            author,
-            body.note,
-          );
+          const number = addVersion(artifact.id, saved, author, body.note);
 
           return {
             id: artifact.id,
@@ -2206,9 +2549,7 @@ export const server = defineServer(
           caller.session.id,
           caller.session.ownedBy,
           title,
-          body.name,
-          body.hash,
-          size,
+          saved,
           author,
           body.note,
         );
@@ -2578,18 +2919,42 @@ export const server = defineServer(
     );
 
     routes.get(
-      "session/artifacts/:id/file",
+      "session/artifacts/:id/files",
       { auth: "session", query: version },
-      async ({ caller, params, query }) => {
-        const found = versionOf(sessionArtifact(caller, params.id), query.v);
+      ({ caller, params, query }) => {
+        const artifact = sessionArtifact(caller, params.id);
+        const found = versionOf(artifact, query.v);
 
-        return new Response(await content(found), {
-          headers: {
-            "content-type": "application/octet-stream",
-            "x-artifact-name": encodeURIComponent(found.name),
-            "x-artifact-version": String(found.number),
+        return {
+          version: found.number,
+          entry: found.name,
+          files: filesOf(artifact.id, found.number).map(({ path, size }) => ({
+            path,
+            size,
+          })),
+        };
+      },
+    );
+
+    // The version's entry, or the file of it at path.
+    routes.get(
+      "session/artifacts/:id/file",
+      { auth: "session", query: versionFile },
+      async ({ caller, params, query }) => {
+        const artifact = sessionArtifact(caller, params.id);
+        const found = versionOf(artifact, query.v);
+        const file = fileOf(artifact.id, found, query.path);
+
+        return new Response(
+          await content({ number: found.number, hash: file.hash }),
+          {
+            headers: {
+              "content-type": "application/octet-stream",
+              "x-artifact-name": encodeURIComponent(file.path),
+              "x-artifact-version": String(found.number),
+            },
           },
-        });
+        );
       },
     );
   },

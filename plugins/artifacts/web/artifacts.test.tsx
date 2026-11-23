@@ -5412,3 +5412,275 @@ test("a thread carries over to newer versions, and is Outdated only where its pa
   expect(outdated("Still true?")).toBeNull();
   expect(outdated("On the whole page")).toBeNull();
 });
+
+test("a folder's page switches to its files, which say what the version changed in each, show each file's changes or whole text, and download as a .zip", async () => {
+  const asked: string[] = [];
+  const shown = { ...artifact({ title: "Orders", versions: 2 }), ...viewed(2) };
+
+  const folder = {
+    ...shown,
+    history: shown.history.map((each, at) => ({
+      ...each,
+      name: "index.html",
+      files: at === 0 ? 1 : 5,
+      note: at === 0 ? "" : "moved the numbers into data/orders.json",
+    })),
+  };
+
+  const texts: Readonly<Record<string, string>> = {
+    "1:styles/app.css": ".kpi {\n  color: red;\n}\n",
+    "2:styles/app.css": ".kpi {\n  color: green;\n  font-weight: 600;\n}\n",
+    "1:index.html": "<h1>Order</h1>\n",
+    "2:index.html": "<h1>Orders</h1>\n",
+    "2:img/logo.svg": "<svg/>",
+    "2:img/chart.png": "png",
+    "1:styles/old.css": "p {}\n",
+  };
+
+  const page = renderPart(
+    web,
+    "overlay",
+    {},
+    {
+      hash: "#session-1?artifact=a1",
+      fetch: lively(async (url) => {
+        await Promise.resolve();
+
+        asked.push(url);
+
+        const file = /\/download\?v=(\d+)&path=([^&]+)$/.exec(url);
+
+        if (file !== null) {
+          const text =
+            texts[`${String(file[1])}:${decodeURIComponent(String(file[2]))}`];
+
+          return text === undefined
+            ? new Response(null, { status: 500 })
+            : new Response(text);
+        }
+
+        if (url.endsWith("/files?v=2")) {
+          return Response.json({
+            entry: "index.html",
+            files: [
+              {
+                path: "data/orders.json",
+                size: 6,
+                change: "added",
+                lines: null,
+              },
+              { path: "img/chart.png", size: 3, change: "added", lines: null },
+              { path: "img/logo.svg", size: 40, change: "same", lines: null },
+              {
+                path: "index.html",
+                size: 16,
+                change: "edited",
+                lines: { added: 1, removed: 1 },
+              },
+              {
+                path: "styles/app.css",
+                size: 45,
+                change: "edited",
+                lines: { added: 2, removed: 1 },
+              },
+            ],
+            removed: ["styles/old.css"],
+            maxBytes: 52_428_800,
+          });
+        }
+
+        return Response.json(
+          url.endsWith("/comments") ? { comments: [] } : folder,
+        );
+      }),
+    },
+  );
+
+  const downloads = spyOn(location, "assign").mockImplementation(
+    () => undefined,
+  );
+
+  const lines = (): (string | null)[] =>
+    [...page.querySelectorAll("pre div")].map((each) => each.textContent);
+
+  const reads = (path: string): number =>
+    asked.filter((url) => url.endsWith(`&path=${encodeURIComponent(path)}`))
+      .length;
+
+  try {
+    await drawn(() => named(page, "Files 5") !== undefined);
+
+    expect(page.querySelector("dialog[open]")?.textContent).toContain(
+      "5 files · From “Why did checkout slow down?” · Only you",
+    );
+
+    expect(named(page, "Page")?.getAttribute("aria-pressed")).toBe("true");
+    expect(named(page, "Comment")).toBeDefined();
+
+    act(() => {
+      named(page, "Files 5")?.click();
+    });
+
+    await drawn(
+      () => page.querySelector("nav[aria-label=Files] button") !== null,
+    );
+
+    // Comments are on the page, so the files offer none.
+    expect(named(page, "Comment")).toBeUndefined();
+
+    const nav = page.querySelector("nav[aria-label=Files]");
+    const rows = [...(nav?.querySelectorAll("button") ?? [])];
+
+    expect(
+      rows.map((each) => [
+        each.getAttribute("aria-label"),
+        [...each.querySelectorAll("[aria-hidden]")].map(
+          (tag) => tag.textContent,
+        ),
+        each.getAttribute("aria-current"),
+      ]),
+    ).toEqual([
+      [
+        "index.html, entry file, 1 line added, 1 removed",
+        ["entry", "+1 −1"],
+        "true",
+      ],
+      ["data/orders.json, new", ["new"], null],
+      ["img/chart.png, new", ["new"], null],
+      ["img/logo.svg", [], null],
+      ["styles/app.css, 2 lines added, 1 removed", ["+2 −1"], null],
+      ["styles/old.css, removed", ["removed"], null],
+    ]);
+
+    expect(nav?.textContent).toContain(
+      "2 files edited, 2 added, 1 removed, 1 the same. “moved the numbers into data/orders.json”",
+    );
+
+    expect(nav?.textContent).toContain(
+      "Up to 200 files and 50.0 MB per version. The same file in two versions is stored once.",
+    );
+
+    await drawn(() => lines().length > 0);
+
+    expect(page.querySelector("pre")?.getAttribute("aria-label")).toBe(
+      "Changes",
+    );
+
+    expect(lines()).toEqual([
+      "- removed: <h1>Order</h1>",
+      "+ added: <h1>Orders</h1>",
+      "  ",
+    ]);
+
+    act(() => {
+      named(page, "styles/app.css, 2 lines added, 1 removed")?.click();
+    });
+
+    await drawn(() => lines()[1] === "- removed:   color: red;");
+
+    expect(lines()).toEqual([
+      "  .kpi {",
+      "- removed:   color: red;",
+      "+ added:   color: green;",
+      "+ added:   font-weight: 600;",
+      "  }",
+      "  ",
+    ]);
+
+    const before = reads("styles/app.css");
+
+    // The whole file is the text already read, so it shows at once.
+    act(() => {
+      named(page, "Whole file")?.click();
+    });
+
+    expect(page.querySelector("pre")?.getAttribute("aria-label")).toBe(
+      "Whole file",
+    );
+
+    expect(lines()).toEqual([
+      "  .kpi {",
+      "    color: green;",
+      "    font-weight: 600;",
+      "  }",
+      "  ",
+    ]);
+
+    expect(reads("styles/app.css")).toBe(before);
+
+    // A file the version didn't change has only its whole text.
+    act(() => {
+      rows[3]?.click();
+    });
+
+    await drawn(() => lines()[0] === "  <svg/>");
+
+    expect(named(page, "Whole file")).toBeUndefined();
+
+    // A file the version took out shows what it was.
+    act(() => {
+      rows[5]?.click();
+    });
+
+    await drawn(() => lines()[0] === "- removed: p {}");
+
+    expect(lines()).toEqual(["- removed: p {}"]);
+
+    expect(named(page, "Whole file")).toBeUndefined();
+
+    // A picture shows as itself.
+    act(() => {
+      rows[2]?.click();
+    });
+
+    await drawn(() => page.querySelector("img[alt='img/chart.png']") !== null);
+
+    expect(
+      page.querySelector("img[alt='img/chart.png']")?.getAttribute("src"),
+    ).toStartWith("blob:");
+
+    // A file that doesn't load says which.
+    act(() => {
+      rows[1]?.click();
+    });
+
+    await drawn(() =>
+      page.textContent.includes("data/orders.json didn't load. Try again."),
+    );
+
+    act(() => {
+      named(page, "Download .zip")?.click();
+    });
+
+    expect(downloads).toHaveBeenCalledWith(
+      expect.stringMatching(/\/artifacts\/a1\/download\?v=2$/),
+    );
+
+    // The .zip is offered once, beside the files, not again under More.
+    act(() => {
+      named(page, "More")?.click();
+    });
+
+    expect(item(page, "Download")).toBeUndefined();
+
+    act(() => {
+      named(page, "More")?.click();
+    });
+
+    // A version of one file has no files to switch to.
+    act(() => {
+      versionMenu(page)?.click();
+    });
+
+    act(() => {
+      item(page, "Version 1")?.click();
+    });
+
+    await drawn(() => named(page, "Files 5") === undefined);
+
+    expect(page.querySelector("nav[aria-label=Files]")).toBeNull();
+    expect(named(page, "Page")).toBeUndefined();
+  } finally {
+    downloads.mockRestore();
+  }
+});
