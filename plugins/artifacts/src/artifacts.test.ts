@@ -2773,14 +2773,12 @@ test("Pi publishes a folder as one artifact, whose page loads its files by relat
     "img-src",
     "font-src",
     "media-src",
+    "connect-src",
   ]) {
     expect(
       policy.split("; ").find((each) => each.startsWith(`${directive} `)),
     ).toEndWith(` ${base}`);
   }
-
-  // Fetching its files is undecided, so the page fetches nothing.
-  expect(policy).not.toContain("connect-src");
 
   // Cached no longer than the link lasts.
   expect(page.headers.get("cache-control")).toBe("private, max-age=3600");
@@ -2880,6 +2878,48 @@ test("Pi publishes a folder as one artifact, whose page loads its files by relat
       "utf8",
     ),
   ).toBe(".kpi {\n  color: red;\n}\n");
+});
+
+test("a folder's page fetches its own files from its sandbox, and its opaque origin reaches nothing else", async () => {
+  const { t, cwd, part } = await setUp();
+
+  await dashboard(cwd);
+
+  const published = await part.tool("publish_artifact", {
+    path: "dashboard",
+  });
+
+  const { id } = published.details as { id: string };
+
+  const opened = await t.as("ana").raw(`artifacts/${id}/view`, {
+    method: "GET",
+  });
+
+  const grant = (opened.headers.get("location") ?? "").split("/")[1] ?? "";
+  const fromSandbox = { origin: "null" };
+
+  const fetched = await t
+    .public()
+    .raw(`artifacts/${id}/files/${grant}/styles/app.css`, {
+      method: "GET",
+      headers: fromSandbox,
+    });
+
+  expect(fetched.status).toBe(200);
+  expect(fetched.headers.get("access-control-allow-origin")).toBe("*");
+  expect(fetched.headers.get("access-control-allow-credentials")).toBeNull();
+  expect(await fetched.text()).toBe(".kpi {\n  color: red;\n}\n");
+
+  const status = async (path: string, method: string) =>
+    (await t.as("ana").raw(path, { method, headers: fromSandbox })).status;
+
+  expect(
+    await status(`artifacts/${id}/files/${grant}/styles/app.css`, "POST"),
+  ).toBe(403);
+
+  expect(await status(`artifacts/${id}`, "GET")).toBe(403);
+  expect(await status(`artifacts/${id}/view`, "GET")).toBe(403);
+  expect(await status(`artifacts/${id}/download`, "GET")).toBe(403);
 });
 
 test("a version of a folder says which files it changed, and a living page published again as a folder is an edit", async () => {

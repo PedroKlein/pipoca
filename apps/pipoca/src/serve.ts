@@ -666,7 +666,7 @@ export function serve(options: ServeOptions): {
       return appFile;
     }
 
-    if (!fromThisSite(request, siteHosts)) {
+    if (!fromThisSite(request, siteHosts, api.readBySandbox(request))) {
       return errorReply(
         403,
         "forbidden",
@@ -921,7 +921,11 @@ const wildcards = new Set(["0.0.0.0", "::", "[::]"]);
 // host.docker.internal or a cluster Service's. A browser page sends an Origin.
 // Pages are refused under names the server doesn't go by, so one that rebinds
 // its own name to the server can't even try passwords (ADR 0033).
-function fromThisSite(request: Request, hosts: ReadonlySet<string>): boolean {
+function fromThisSite(
+  request: Request,
+  hosts: ReadonlySet<string>,
+  sandboxed: boolean,
+): boolean {
   const host = request.headers.get("host") ?? "";
   const origin = request.headers.get("origin");
 
@@ -939,7 +943,9 @@ function fromThisSite(request: Request, hosts: ReadonlySet<string>): boolean {
   return (
     URL.canParse(`http://${host}`) &&
     hosts.has(new URL(`http://${host}`).hostname) &&
-    (origin === null || (URL.canParse(origin) && new URL(origin).host === host))
+    (origin === null ||
+      (origin === "null" && sandboxed) ||
+      (URL.canParse(origin) && new URL(origin).host === host))
   );
 }
 

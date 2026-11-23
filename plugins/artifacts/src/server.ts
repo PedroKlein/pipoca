@@ -943,7 +943,7 @@ export const server = defineServer(
 
     routes.get(
       "artifacts/:id/files/:grant/*path",
-      { auth: "public" },
+      { auth: "public", sandboxed: true },
       async ({ params }) => {
         const { artifact, found, until } = granted(params.id, params.grant);
         const file = fileOf(artifact.id, found, pathOf(params.path));

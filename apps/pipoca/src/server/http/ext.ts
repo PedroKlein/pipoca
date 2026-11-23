@@ -151,7 +151,8 @@ function forTeam(caller: AnyCaller): boolean {
 }
 
 function specOf(route: ExtRoute, path: string, auth: Auth): RouteSpec {
-  const { body, query, response, status, changes, long } = route.spec;
+  const { body, query, response, status, changes, long, sandboxed } =
+    route.spec;
 
   return {
     method: route.method,
@@ -165,6 +166,7 @@ function specOf(route: ExtRoute, path: string, auth: Auth): RouteSpec {
       changes: changes.map((name) => `${route.plugin}.${name}`),
     }),
     ...(long !== undefined && { long }),
+    ...(sandboxed !== undefined && { sandboxed }),
   };
 }
 

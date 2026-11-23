@@ -38,6 +38,7 @@ export interface RouteSpec {
   // Takes minutes with nothing sent, such as building a plugin, so no idle
   // timeout ends it.
   readonly long?: boolean;
+  readonly sandboxed?: boolean;
   readonly tool?: RouteToolSpec | readonly RouteToolSpec[];
 }
 
