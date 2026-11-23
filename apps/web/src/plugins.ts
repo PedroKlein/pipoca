@@ -37,6 +37,7 @@ import * as reactDomClient from "react-dom/client";
 import * as jsxRuntime from "react/jsx-runtime";
 import { request } from "./data/client";
 import { composerOpen, prefillComposer } from "./session/composer/prefill";
+import { askNewSession } from "./shell/new-session-text";
 import { EmbeddedSession } from "./session/embedded-session";
 import { PluginBoundary } from "./plugin-boundary";
 import { webRegistry } from "./registry";
@@ -204,6 +205,7 @@ const shell: Omit<Shell, "viewer"> = {
 
     location.hash = to;
   },
+  newSession: askNewSession,
   repositories: searchRepositories,
 };
 

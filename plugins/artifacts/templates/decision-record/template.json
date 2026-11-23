@@ -1,0 +1,7 @@
+{
+  "name": "Decision record",
+  "description": "A design doc for one decision: the context, two to four options in the same shape, open questions, and a Decision section written once someone marks it Decided.",
+  "for": "discuss",
+  "entry": "decision.md",
+  "instructions": "Before you write, ask which decision this records and who reviews it, unless the Session already says. Write Context from evidence in the Session, such as code, issues, metrics or earlier docs, and link each piece. Give two to four real options, one of them doing nothing, each with what it is, what it costs and what it makes easier or harder, in the same shape so they compare. Don't pick one: the reviewers decide. Put what is still unknown under Open questions, each with who can answer it. Leave the Decision section as it is; it is written when someone marks the record Decided. Keep the front matter (doc: design, status: draft)."
+}

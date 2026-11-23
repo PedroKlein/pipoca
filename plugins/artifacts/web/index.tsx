@@ -4,21 +4,30 @@ import {
   type NavItemsProps,
   type NoticeProps,
   type PageProps,
+  type SessionAttachProps,
   type SessionPartProps,
   type ToolCallProps,
   useApi,
   useLoaded,
   useOverlay,
 } from "@pipoca/plugins/web";
-import { cardClass, cn, Icon, type IconName, Page, plural } from "@pipoca/ui";
-import type { ReactElement } from "react";
+import {
+  Button,
+  cardClass,
+  cn,
+  Icon,
+  type IconName,
+  Page,
+  plural,
+} from "@pipoca/ui";
+import { type ReactElement, useState } from "react";
 import { artifacts as plugin } from "../plugin";
 import {
   type ArtifactSummary,
   type ArtifactView,
   type Batch,
-  kindLabel,
   type Published,
+  typeLabel,
   type Version,
 } from "../src/artifacts";
 import { ActivityCount, ActivityPage } from "./activity";
@@ -27,6 +36,7 @@ import { audienceLabel } from "./chrome";
 import { useDock } from "./dock";
 import { Gallery } from "./gallery";
 import { AttachArtifact, PublishFile, SessionArtifacts } from "./files";
+import { StartedCard, StartFromTemplate, TemplatePicker } from "./templates";
 import { ArtifactDock, ArtifactLink, ArtifactOverlay, Viewer } from "./viewer";
 
 export const web = defineWeb(plugin, {
@@ -53,9 +63,10 @@ export const web = defineWeb(plugin, {
     "session.panel": SessionArtifacts,
     "session.composer": Waiting,
     "file.actions": PublishFile,
-    "session.attach": AttachArtifact,
+    "session.attach": Attach,
     "project.artifacts": Gallery,
     "session.toolCall:publish_artifact": PublishedCard,
+    "session.toolCall:start_artifact": StartedCard,
     "notice:artifact_comments": CommentsNotice,
     "notice:artifact_version": VersionNotice,
   },
@@ -91,13 +102,43 @@ function ArtifactsPage({ path }: PageProps): ReactElement {
 }
 
 function ArtifactList(): ReactElement {
+  const [picking, setPicking] = useState(false);
+
   return (
     <Page
       title="Artifacts"
       description="Pages, documents and pictures Pi published. Each keeps one link and every version."
+      actions={
+        <Button
+          variant="primary"
+          onClick={() => {
+            setPicking(true);
+          }}
+        >
+          <Icon name="plus" />
+          New
+        </Button>
+      }
     >
       <Gallery />
+      <TemplatePicker
+        open={picking}
+        onClose={() => {
+          setPicking(false);
+        }}
+      />
     </Page>
+  );
+}
+
+// The composer's + menu rows: an artifact to attach, and a template to
+// start from.
+function Attach(props: SessionAttachProps): ReactElement {
+  return (
+    <>
+      <AttachArtifact {...props} />
+      <StartFromTemplate {...props} />
+    </>
   );
 }
 
@@ -381,7 +422,7 @@ function cardStatus(
   }
 
   return [
-    ...(docked ? ["Open beside the chat"] : [kindLabel(now.kind)]),
+    ...(docked ? ["Open beside the chat"] : [typeLabel(now.type)]),
     now.living ? "edited in place" : `version ${String(now.versions)}`,
     ...(docked ? [] : [audienceLabel(now)]),
   ].join(" · ");

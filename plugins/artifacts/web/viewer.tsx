@@ -17,6 +17,7 @@ import {
 } from "@pipoca/plugins/web";
 import {
   Avatar,
+  Badge,
   Button,
   buttonClass,
   cn,
@@ -68,6 +69,8 @@ import { useDock, usePhone } from "./dock";
 import { FolderFiles } from "./folder";
 import { usePresence } from "./presence";
 import { SaveVersionDialog } from "./save-version";
+import { useSize } from "./size";
+import { SaveTemplateDialog } from "./templates";
 import { ShareDialog } from "./share";
 import { Compare, Editor } from "./versions";
 
@@ -426,6 +429,7 @@ function Shown({
   const [measured, area] = useSize();
   const [sharing, setSharing] = useState(false);
   const [naming, setNaming] = useState(false);
+  const [templating, setTemplating] = useState<"save" | "settings">();
   const [since, setSince] = useState<number>();
   const [problem, setProblem] = useState<string>();
   const [said, setSaid] = useState<string>();
@@ -751,6 +755,25 @@ function Shown({
           },
         ]
       : []),
+    {
+      label: "Save as template…",
+      icon: "file-text",
+      divided: true,
+      run: () => {
+        setTemplating("save");
+      },
+    },
+    ...(steers && artifact.template !== null
+      ? [
+          {
+            label: "Template settings…",
+            icon: "pencil" as const,
+            run: () => {
+              setTemplating("settings");
+            },
+          },
+        ]
+      : []),
     ...(artifact.sessionId === null
       ? []
       : [
@@ -850,6 +873,7 @@ function Shown({
         <span role="status" className="text-caption text-fg-dim">
           {said}
         </span>
+        {artifact.template !== null && <Badge>Template</Badge>}
         {doc !== null && (
           <DocStatusPill
             doc={doc}
@@ -1206,6 +1230,18 @@ function Shown({
           setSharing(false);
         }}
       />
+      <SaveTemplateDialog
+        artifact={artifact}
+        settings={templating === "settings"}
+        open={templating !== undefined}
+        onSaved={(line) => {
+          setTemplating(undefined);
+          setSaid(line);
+        }}
+        onClose={() => {
+          setTemplating(undefined);
+        }}
+      />
       <SaveVersionDialog
         artifact={artifact}
         open={naming}
@@ -1307,37 +1343,4 @@ function savedLine(artifact: ArtifactView, sentToPi: boolean): string {
   }
 
   return artifact.askable ? "Saved as a draft for Pi" : "Comment saved";
-}
-
-// An element's size as it changes, such as the frame the comment box sits
-// in.
-function useSize(): readonly [
-  (element: HTMLDivElement | null) => void,
-  { readonly width: number; readonly height: number },
-] {
-  const [element, setElement] = useState<HTMLDivElement | null>(null);
-  const [size, setSize] = useState({ width: 0, height: 0 });
-
-  useEffect(() => {
-    if (element === null || typeof ResizeObserver === "undefined") {
-      return undefined;
-    }
-
-    const observer = new ResizeObserver(([entry]) => {
-      if (entry !== undefined) {
-        setSize({
-          width: entry.contentRect.width,
-          height: entry.contentRect.height,
-        });
-      }
-    });
-
-    observer.observe(element);
-
-    return () => {
-      observer.disconnect();
-    };
-  }, [element]);
-
-  return [setElement, size] as const;
 }

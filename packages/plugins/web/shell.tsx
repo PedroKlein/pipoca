@@ -35,6 +35,12 @@ export interface Shell {
     text: string,
     attachments?: readonly Attachment[],
   ) => void;
+  // Opens the New session composer with text and attachments in it, for
+  // the person to pick where it runs and start it.
+  readonly newSession: (
+    text: string,
+    attachments?: readonly Attachment[],
+  ) => void;
   // What every plugin's repository search finds for the query.
   readonly repositories: (
     query: string,

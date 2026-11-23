@@ -6,6 +6,7 @@ import {
   HttpError,
   NotFound,
   owners,
+  type Person,
   type PersonCaller,
   previewAsset,
   type SessionCaller,
@@ -43,10 +44,17 @@ import {
   kindOf,
   living,
   type Published,
+  type Purpose,
+  purposes,
   type Role,
   type Share,
   type Suggestion,
   supported,
+  type Template,
+  type TemplateMark,
+  purposeOf,
+  shownTemplates,
+  typeOf,
   type Verdict,
   type Version,
 } from "./artifacts";
@@ -54,6 +62,7 @@ import { activityLog } from "./activity";
 import { lineDiff } from "./diff";
 import { presences } from "./presence";
 import { rendered } from "./render";
+import { type BuiltIn, builtIns } from "./templates";
 import { zip } from "./zip";
 
 interface Row {
@@ -110,6 +119,14 @@ interface CommentRow {
   readonly created_at: number;
 }
 
+interface TemplateRow {
+  readonly purpose: Purpose;
+  readonly description: string;
+  readonly instructions: string;
+  readonly example: number;
+  readonly saved_by: string | null;
+}
+
 interface SuggestionRow {
   readonly comment_id: string;
   readonly version: number;
@@ -134,15 +151,24 @@ const versionFile = Type.Object({
   path: Type.Optional(Type.String({ minLength: 1, maxLength: 1024 })),
 });
 
-const uploadedFiles = Type.Optional(
-  Type.Array(
-    Type.Object({
-      path: Type.String({ minLength: 1, maxLength: 1024 }),
-      hash: Type.String({ pattern: blobHash.source }),
-    }),
-    { minItems: 1, maxItems: maxFiles },
-  ),
+const uploaded = Type.Array(
+  Type.Object({
+    path: Type.String({ minLength: 1, maxLength: 1024 }),
+    hash: Type.String({ pattern: blobHash.source }),
+  }),
+  { minItems: 1, maxItems: maxFiles },
 );
+
+const uploadedFiles = Type.Optional(uploaded);
+
+const savedScopes = ["mine", "server"] as const;
+
+const templateFields = {
+  name: Type.Optional(Type.String({ minLength: 1, maxLength: 200 })),
+  for: Type.Optional(StringEnum(purposes)),
+  description: Type.Optional(Type.String({ maxLength: 500 })),
+  instructions: Type.Optional(Type.String({ maxLength: 20_000 })),
+};
 
 // How long a link to a folder's files lasts once its page opens.
 const grantMs = 60 * 60 * 1000;
@@ -242,10 +268,27 @@ export const server = defineServer(
         person,
       ) !== undefined;
 
-    const steers = (artifact: Row, person: string): boolean =>
-      artifact.session_id === null
-        ? artifact.owner_user_id === null || artifact.owner_user_id === person
-        : sessions.steers(artifact.session_id, person);
+    const templateOf = (id: string): TemplateRow | undefined =>
+      store.get<TemplateRow>(
+        "select * from artifacts_templates where artifact_id = ?",
+        id,
+      );
+
+    // A server template is everyone's to use and only admins' to change.
+    const steers = (artifact: Row, person: string): boolean => {
+      if (artifact.session_id !== null) {
+        return sessions.steers(artifact.session_id, person);
+      }
+
+      if (artifact.owner_user_id !== null) {
+        return artifact.owner_user_id === person;
+      }
+
+      return (
+        templateOf(artifact.id) === undefined ||
+        people.get(person)?.admin === true
+      );
+    };
 
     // Comment access lets a person discuss, never steer the Session: only
     // people who steer it send threads to Pi.
@@ -290,11 +333,28 @@ export const server = defineServer(
       const last = all.at(-1);
       const named = shares(artifact.id);
       const kind = kindOf(last?.name ?? "") ?? "html";
+      const marked = templateOf(artifact.id);
+
+      const template: TemplateMark | null =
+        marked === undefined
+          ? null
+          : {
+              scope: artifact.owner_user_id === null ? "server" : "mine",
+              for: marked.purpose,
+            };
 
       return {
         id: artifact.id,
         title: artifact.title,
         kind,
+        type:
+          last === undefined
+            ? kind
+            : typeOf(
+                last.name,
+                filesOf(artifact.id, last.number).map(({ path }) => path),
+              ),
+        template,
         sessionId: artifact.session_id,
         sessionTitle:
           artifact.session_id === null
@@ -530,7 +590,7 @@ export const server = defineServer(
     };
 
     const create = (
-      session: string,
+      session: string | null,
       owner: Owner,
       title: string,
       saved: Saved,
@@ -699,6 +759,7 @@ export const server = defineServer(
       })),
       access: access(artifact, person),
       askable: "session" in listening(artifact, person),
+      ownSession: "session" in structuring(artifact, person),
       shares: shares(artifact.id),
       pinned:
         store.get(
@@ -1573,6 +1634,31 @@ export const server = defineServer(
       }
 
       return found.session;
+    };
+
+    // The Session whose Pi makes a template of the artifact for the person:
+    // its own, there, not archived, and the person's.
+    const structuring = (
+      artifact: Row,
+      person: string,
+    ): { readonly session: string } | { readonly refused: HttpError } => {
+      const found = listening(artifact, person);
+
+      if ("refused" in found) {
+        return found;
+      }
+
+      const owner = sessions.get(found.session);
+
+      return owner !== undefined && owners.personId(owner.ownedBy) === person
+        ? found
+        : {
+            refused: new HttpError(
+              409,
+              "Pi saves templates for the person whose Session it is, and this one isn't yours. Keep everything as an example instead.",
+              "not_yours",
+            ),
+          };
     };
 
     // Threads sent to Pi that it hasn't heard of yet, as a busy Session
@@ -2957,8 +3043,527 @@ export const server = defineServer(
         );
       },
     );
+
+    const builtInTemplate = (each: BuiltIn): Template => {
+      const files = Object.keys(each.files);
+
+      return {
+        id: each.id,
+        name: each.name,
+        description: each.description,
+        type: typeOf(each.entry, files),
+        for: each.for,
+        scope: "builtin",
+        entry: each.entry,
+        files,
+        instructions: each.instructions,
+        example: false,
+        by: "Pipoca",
+        preview: `templates/${each.id}/files/${each.entry}`,
+      };
+    };
+
+    const savedTemplate = (artifact: Row, marked: TemplateRow): Template => {
+      const head = versionOf(artifact);
+      const files = filesOf(artifact.id, head.number).map(({ path }) => path);
+
+      return {
+        id: artifact.id,
+        name: artifact.title,
+        description: marked.description,
+        type: typeOf(head.name, files),
+        for: marked.purpose,
+        scope: artifact.owner_user_id === null ? "server" : "mine",
+        entry: head.name,
+        files,
+        instructions: marked.instructions,
+        example: marked.example === 1,
+        by: marked.saved_by === null ? "Someone" : nameOf(marked.saved_by),
+        preview: `artifacts/${artifact.id}/view?v=${String(head.number)}`,
+      };
+    };
+
+    // Every template a person starts from: the built-in ones, their own and
+    // the server's; with no person, as in team work, no one's own.
+    const templatesFor = (person: string | null): readonly Template[] => [
+      ...builtIns.map(builtInTemplate),
+      ...store
+        .all<Row & TemplateRow>(
+          `select a.*, t.purpose, t.description, t.instructions, t.example, t.saved_by
+           from artifacts_templates t join artifacts_artifacts a on a.id = t.artifact_id
+           where a.session_id is null and (a.owner_user_id is null or a.owner_user_id = ?)
+           order by a.owner_user_id is null, a.title collate nocase, a.id`,
+          person,
+        )
+        .map((each) => savedTemplate(each, each)),
+    ];
+
+    // By its id, or by its name as people call it.
+    const templateFor = (person: string | null, ref: string): Template => {
+      const all = templatesFor(person);
+      const name = ref.trim().toLowerCase();
+
+      const found =
+        all.find(({ id }) => id === ref) ??
+        all.find((each) => each.name.toLowerCase() === name);
+
+      if (found === undefined) {
+        throw new NotFound(`no template ${ref}`);
+      }
+
+      return found;
+    };
+
+    const templateFile = async (
+      template: Template,
+      path: string,
+    ): Promise<Uint8Array> => {
+      if (template.scope === "builtin") {
+        const files = builtIns.find(({ id }) => id === template.id)?.files;
+
+        const text =
+          files !== undefined && Object.hasOwn(files, path)
+            ? files[path]
+            : undefined;
+
+        if (text === undefined) {
+          throw new NotFound(`template ${template.name} has no ${path}`);
+        }
+
+        return new TextEncoder().encode(text);
+      }
+
+      const artifact = row(template.id);
+
+      if (artifact === undefined) {
+        throw new NotFound(`no template ${template.id}`);
+      }
+
+      const head = versionOf(artifact);
+      const file = fileOf(artifact.id, head, path);
+
+      return content({ number: head.number, hash: file.hash });
+    };
+
+    // A copy of a template's files, never a link to them: a saved one's
+    // blobs, or a built-in one's text stored as blobs.
+    const templateSaved = async (template: Template): Promise<Saved> => {
+      const artifact = row(template.id);
+
+      if (template.scope !== "builtin" && artifact !== undefined) {
+        return savedOf(artifact.id, versionOf(artifact));
+      }
+
+      return {
+        entry: template.entry,
+        files: await Promise.all(
+          template.files.map(async (path) => ({
+            path,
+            ...(await blobs.put(await templateFile(template, path))),
+          })),
+        ),
+      };
+    };
+
+    // A template is a copy of its artifact, with no Session: its owner's,
+    // or for the server no one's.
+    const saveTemplate = (o: {
+      readonly source: Row;
+      readonly saved: Saved;
+      readonly by: Person;
+      readonly scope: "mine" | "server";
+      readonly name: string | undefined;
+      readonly purpose: Purpose | undefined;
+      readonly description: string | undefined;
+      readonly instructions: string | undefined;
+      readonly example: boolean;
+      readonly author: Actor;
+    }): string => {
+      if (o.scope === "server" && !o.by.admin) {
+        throw new Forbidden(
+          "Only admins share a template with everyone on the server. Save it for yourself instead.",
+        );
+      }
+
+      const id = create(
+        null,
+        o.scope === "server" ? "team" : owners.of(o.by),
+        o.name ?? o.source.title,
+        o.saved,
+        o.author,
+        `saved as a template from “${o.source.title}”`,
+      );
+
+      store.run(
+        "insert into artifacts_templates (artifact_id, purpose, description, instructions, example, saved_by, created_at) values (?, ?, ?, ?, ?, ?, ?)",
+        id,
+        o.purpose ??
+          purposeOf(
+            typeOf(
+              o.saved.entry,
+              o.saved.files.map(({ path }) => path),
+            ),
+          ),
+        o.description ?? `From “${o.source.title}”`,
+        o.instructions ?? "",
+        o.example ? 1 : 0,
+        o.by.id,
+        clock.now(),
+      );
+
+      return id;
+    };
+
+    // Whose templates a Session's Pi uses: the person who owns it. Team
+    // work is no one's, so it has only the built-in and server ones, and
+    // saves none.
+    const sessionPerson = (caller: SessionCaller): Person | undefined => {
+      const id = owners.personId(caller.session.ownedBy);
+
+      return id === undefined ? undefined : people.get(id);
+    };
+
+    const sessionPersonId = (caller: SessionCaller): string | null =>
+      sessionPerson(caller)?.id ?? null;
+
+    // With session, the ones its Pi can start from: in team work, no one's
+    // own.
+    routes.get(
+      "templates",
+      {
+        auth: "person",
+        query: Type.Object({
+          session: Type.Optional(Type.String({ minLength: 1 })),
+        }),
+      },
+      ({ caller, query }) => {
+        const found =
+          query.session === undefined ||
+          !sessions.sees(query.session, caller.person.id)
+            ? undefined
+            : sessions.get(query.session);
+
+        const team =
+          found !== undefined && owners.personId(found.ownedBy) === undefined;
+
+        return {
+          templates: templatesFor(team ? null : caller.person.id),
+          own: !team,
+        };
+      },
+    );
+
+    // A built-in template's files for its preview's frame, which sends no
+    // sign-in. They ship with Pipoca, so they're no one's secret.
+    routes.get(
+      "templates/:id/files/*path",
+      { auth: "public" },
+      ({ params }) => {
+        const shipped = builtIns.find(({ id }) => id === params.id);
+        const path = pathOf(params.path);
+
+        const text =
+          shipped !== undefined && Object.hasOwn(shipped.files, path)
+            ? shipped.files[path]
+            : undefined;
+
+        if (shipped === undefined || text === undefined) {
+          throw new NotFound(`no file ${path}`);
+        }
+
+        const encoded = new TextEncoder().encode(text);
+        const { scriptHosts } = config.get();
+        const where = new URL(urls.public(`templates/${shipped.id}/files`));
+        const base = `${where.host}${where.pathname}/`;
+
+        const served =
+          path === shipped.entry
+            ? rendered(kindOf(path) ?? "html", path, encoded, scriptHosts, base)
+            : previewAsset(path, encoded, { scriptHosts, base });
+
+        // A new release may change them.
+        served.headers.set("cache-control", "no-cache");
+
+        return served;
+      },
+    );
+
+    // Starts an artifact of the person's own from a template's files,
+    // without Pi.
+    routes.post(
+      "templates/:id/start",
+      {
+        auth: "person",
+        body: Type.Object({
+          title: Type.Optional(Type.String({ minLength: 1, maxLength: 200 })),
+        }),
+        changes: ["artifacts"],
+      },
+      async ({ caller, params, body }) => {
+        const template = templateFor(caller.person.id, params.id);
+
+        const id = create(
+          null,
+          owners.of(caller.person),
+          body.title ?? template.name,
+          await templateSaved(template),
+          `user:${caller.person.id}`,
+          `started from the template “${template.name}”`,
+        );
+
+        return { id };
+      },
+    );
+
+    // Everything is copied as an example now. The structure is a turn of
+    // the artifact's own Session, whose Pi replaces the content with
+    // placeholders and saves it with save_template.
+    routes.post(
+      "artifacts/:id/template",
+      {
+        auth: "person",
+        body: Type.Object({
+          scope: StringEnum(savedScopes),
+          keeps: StringEnum(["structure", "example"]),
+          ...templateFields,
+        }),
+        changes: ["artifacts"],
+      },
+      ({ caller, params, body }) => {
+        const artifact = theirs(params.id, caller);
+        const person = caller.person.id;
+
+        if (body.scope === "server" && !caller.person.admin) {
+          throw new Forbidden(
+            "Only admins share a template with everyone on the server.",
+          );
+        }
+
+        if (body.keeps === "example") {
+          return {
+            id: saveTemplate({
+              source: artifact,
+              saved: savedOf(artifact.id, versionOf(artifact)),
+              by: caller.person,
+              scope: body.scope,
+              name: body.name,
+              purpose: body.for,
+              description: body.description,
+              instructions: body.instructions,
+              example: true,
+              author: `user:${person}`,
+            }),
+          };
+        }
+
+        if (!steers(artifact, person)) {
+          throw new Forbidden(
+            "Only people who steer its Session ask Pi to make a template of it.",
+          );
+        }
+
+        const found = structuring(artifact, person);
+
+        if ("refused" in found) {
+          throw found.refused;
+        }
+
+        const sent = sessions.send(found.session, {
+          text: structureText(artifact, body),
+          turn: true,
+          as: `user:${person}`,
+        });
+
+        if (sent === "gone") {
+          throw new HttpError(409, "The Session is gone.", "no_session");
+        }
+
+        return { asked: true };
+      },
+    );
+
+    routes.put(
+      "artifacts/:id/template",
+      {
+        auth: "person",
+        body: Type.Object(templateFields),
+        changes: ["artifacts"],
+      },
+      ({ caller, params, body }) => {
+        const artifact = steered(params.id, caller);
+        const marked = templateOf(artifact.id);
+
+        if (marked === undefined) {
+          throw new NotFound(`artifact ${params.id} isn't a template`);
+        }
+
+        store.transaction(() => {
+          store.run(
+            "update artifacts_artifacts set title = ? where id = ?",
+            body.name ?? artifact.title,
+            artifact.id,
+          );
+
+          store.run(
+            "update artifacts_templates set purpose = ?, description = ?, instructions = ? where artifact_id = ?",
+            body.for ?? marked.purpose,
+            body.description ?? marked.description,
+            body.instructions ?? marked.instructions,
+            artifact.id,
+          );
+        });
+
+        return { id: artifact.id };
+      },
+    );
+
+    routes.get(
+      "session/templates",
+      {
+        auth: "session",
+        query: Type.Object({
+          query: Type.Optional(Type.String({ maxLength: 200 })),
+          for: Type.Optional(StringEnum(purposes)),
+        }),
+      },
+      ({ caller, query }) => {
+        const words = (query.query ?? "")
+          .toLowerCase()
+          .split(/\s+/)
+          .filter(Boolean);
+
+        const matches = templatesFor(sessionPersonId(caller)).filter(
+          (each) =>
+            (query.for === undefined || each.for === query.for) &&
+            words.every((word) =>
+              `${each.id} ${each.name} ${each.description}`
+                .toLowerCase()
+                .includes(word),
+            ),
+        );
+
+        return {
+          templates: matches.slice(0, shownTemplates),
+          more: Math.max(0, matches.length - shownTemplates),
+        };
+      },
+    );
+
+    routes.get(
+      "session/templates/:id",
+      { auth: "session" },
+      ({ caller, params }): Template =>
+        templateFor(sessionPersonId(caller), params.id),
+    );
+
+    routes.get(
+      "session/templates/:id/file",
+      {
+        auth: "session",
+        query: Type.Object({
+          path: Type.String({ minLength: 1, maxLength: 1024 }),
+        }),
+      },
+      async ({ caller, params, query }) =>
+        new Response(
+          await templateFile(
+            templateFor(sessionPersonId(caller), params.id),
+            query.path,
+          ),
+          { headers: { "content-type": "application/octet-stream" } },
+        ),
+    );
+
+    // Pi saves from any Session, the assistant's too, as the Session's
+    // person, so the server's templates need an admin's Session.
+    routes.post(
+      "session/templates",
+      {
+        auth: "session",
+        body: Type.Object({
+          artifact: Type.String({ minLength: 1 }),
+          scope: StringEnum(savedScopes),
+          ...templateFields,
+          // A folder of Pi's in place of the artifact's files.
+          folder: Type.Optional(
+            Type.Object({
+              entry: Type.String({ minLength: 1, maxLength: 255 }),
+              hash: Type.String({ pattern: blobHash.source }),
+              files: uploaded,
+            }),
+          ),
+        }),
+        changes: ["artifacts"],
+      },
+      async ({ caller, body }) => {
+        const by = sessionPerson(caller);
+
+        if (by === undefined) {
+          throw new Forbidden(
+            "Team work is no one's, so it saves no templates. Ask in a Session of your own.",
+          );
+        }
+
+        const source = sessionArtifact(caller, body.artifact);
+        const { folder } = body;
+
+        if (
+          source.session_id !== null &&
+          sessions.get(source.session_id)?.archivedAt !== null
+        ) {
+          throw new HttpError(
+            409,
+            "Its Session is archived. Unarchive it to save a template of it.",
+            "archived",
+          );
+        }
+
+        const saved =
+          folder === undefined
+            ? savedOf(source.id, versionOf(source))
+            : await publishable(folder.entry, folder.hash, folder.files);
+
+        const id = saveTemplate({
+          source,
+          saved,
+          by,
+          scope: body.scope,
+          name: body.name,
+          purpose: body.for,
+          description: body.description,
+          instructions: body.instructions,
+          example: folder === undefined,
+          author: `session:${caller.session.id}`,
+        });
+
+        return { id, name: body.name ?? source.title };
+      },
+    );
   },
 );
+
+function structureText(
+  artifact: { readonly id: string; readonly title: string },
+  o: {
+    readonly scope: string;
+    readonly name?: string | undefined;
+    readonly for?: string | undefined;
+    readonly instructions?: string | undefined;
+  },
+): string {
+  return [
+    `Save the artifact ${JSON.stringify(artifact.title)} (${artifact.id}) as a template.`,
+    "Read it with read_artifact and copy its files into a new folder of your own. In the copy, replace its content with short placeholders that say what goes in each part, and keep its headings, sections, layout and styles.",
+    [
+      `Then call save_template with artifact ${artifact.id}, path set to that folder, scope ${o.scope}`,
+      ...(o.name === undefined ? [] : [`name ${JSON.stringify(o.name)}`]),
+      ...(o.for === undefined ? [] : [`for ${o.for}`]),
+      ...(o.instructions === undefined || o.instructions === ""
+        ? []
+        : [`instructions ${JSON.stringify(o.instructions)}`]),
+    ].join(", ") + ".",
+  ].join(" ");
+}
 
 function occurrences(text: string, find: string): number {
   let times = 0;

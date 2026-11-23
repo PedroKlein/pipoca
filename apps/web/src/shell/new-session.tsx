@@ -18,7 +18,13 @@ import {
   Picker,
   Segmented,
 } from "@pipoca/ui";
-import { ModelField, pickerModels, RepositoryField } from "@pipoca/plugins/web";
+import {
+  type Attachment,
+  AttachedCard,
+  ModelField,
+  pickerModels,
+  RepositoryField,
+} from "@pipoca/plugins/web";
 import {
   type ReactElement,
   type ReactNode,
@@ -87,12 +93,17 @@ const steerLabels = {
 export function NewSessionDialog({
   open,
   team = false,
+  text = "",
+  attachments = [],
   onClose,
 }: {
   readonly open: boolean;
   // Starts on team work, on the team's Environments and Profiles
   // (ADR 0064).
   readonly team?: boolean;
+  // What the message box starts with, and what goes with it.
+  readonly text?: string;
+  readonly attachments?: readonly Attachment[];
   readonly onClose: () => void;
 }): ReactElement {
   return (
@@ -104,7 +115,7 @@ export function NewSessionDialog({
       sheet
       initialFocus="textarea"
     >
-      <Starter team={team} onClose={onClose} />
+      <Starter team={team} first={{ text, attachments }} onClose={onClose} />
     </Dialog>
   );
 }
@@ -113,9 +124,11 @@ export function NewSessionDialog({
 // own and the team's, which the team owns (ADR 0064).
 function Starter({
   team,
+  first,
   onClose,
 }: {
   readonly team: boolean;
+  readonly first: First;
   readonly onClose: () => void;
 }): ReactElement {
   const [forTeam, setForTeam] = useState(team);
@@ -151,21 +164,28 @@ function Starter({
   );
 
   return forTeam ? (
-    <TeamForm onStarted={onClose}>{header}</TeamForm>
+    <TeamForm first={first} onStarted={onClose}>
+      {header}
+    </TeamForm>
   ) : (
-    <OwnForm onStarted={onClose}>{header}</OwnForm>
+    <OwnForm first={first} onStarted={onClose}>
+      {header}
+    </OwnForm>
   );
 }
 
 function OwnForm({
+  first,
   onStarted,
   children,
 }: {
+  readonly first: First;
   readonly onStarted: () => void;
   readonly children: ReactNode;
 }): ReactElement {
   return (
     <NewSessionForm
+      first={first}
       placeholder="What should Pi do? Leave it empty to start idle."
       onStarted={onStarted}
     >
@@ -175,15 +195,18 @@ function OwnForm({
 }
 
 function TeamForm({
+  first,
   onStarted,
   children,
 }: {
+  readonly first: First;
   readonly onStarted: () => void;
   readonly children: ReactNode;
 }): ReactElement {
   return (
     <NewSessionForm
       team
+      first={first}
       placeholder="What should the team's Pi do? Anyone on the team can follow it."
       onStarted={onStarted}
     >
@@ -192,15 +215,26 @@ function TeamForm({
   );
 }
 
+// What the message box starts with, and what goes with it, such as a
+// template to start from.
+interface First {
+  readonly text: string;
+  readonly attachments: readonly Attachment[];
+}
+
+const noFirst: First = { text: "", attachments: [] };
+
 // The composer that starts a Session: what Pi should do, where, and with
 // which model and Profile.
 export function NewSessionForm({
   team = false,
+  first = noFirst,
   placeholder,
   onStarted,
   children,
 }: {
   readonly team?: boolean;
+  readonly first?: First;
   readonly placeholder: string;
   readonly onStarted: () => void;
   readonly children?: ReactNode;
@@ -217,7 +251,17 @@ export function NewSessionForm({
 
   const message = useRef<HTMLTextAreaElement>(null);
   const [choices, setChoices] = useState(() => remembered(team));
-  const [text, setText] = useState("");
+  const [text, setText] = useState(first.text);
+
+  // A team Session takes none of the person's own.
+  const [attached, setAttached] = useState(() =>
+    first.attachments.filter((each) => !team || each.personal !== true),
+  );
+
+  const left = team
+    ? first.attachments.filter((each) => each.personal === true)
+    : [];
+
   const [startPoint, setStartPoint] = useState("");
   const branches = useBranches(choices.where, team);
   const [invalid, setInvalid] = useState<string>();
@@ -235,6 +279,7 @@ export function NewSessionForm({
       }
 
       setText("");
+      setAttached([]);
       setStartPoint("");
       onStarted();
       navigate(href("session", { id: started.id }));
@@ -336,6 +381,10 @@ export function NewSessionForm({
 
     const model = choices.model === "" ? null : modelRefOf(choices.model);
 
+    const said = [text.trim(), ...attached.map((each) => each.text)]
+      .filter((each) => each !== "")
+      .join("\n\n");
+
     setInvalid(undefined);
     remember(choices, team);
 
@@ -347,7 +396,7 @@ export function NewSessionForm({
         ...(model && { model }),
         ...(profile && { profile: profile.id }),
         ...(choices.thinking !== "" && { thinking: choices.thinking }),
-        ...(text.trim() !== "" && { firstMessage: text.trim() }),
+        ...(said !== "" && { firstMessage: said }),
       },
       team ? steer : "team",
     );
@@ -377,6 +426,33 @@ export function NewSessionForm({
         }}
         className="max-h-80 min-h-24 resize-none field-sizing-content bg-transparent px-5 py-2 text-prose text-fg placeholder:text-fg-dim focus:outline-none"
       />
+
+      {left.length > 0 && (
+        <p className="px-5 pb-2 text-caption text-fg-dim">
+          {`${left.map(({ title }) => title).join(", ")} ${left.length === 1 ? "is" : "are"} yours alone, so ${left.length === 1 ? "it goes" : "they go"} only with your own work, not the team's.`}
+        </p>
+      )}
+
+      {attached.length > 0 && (
+        <ul aria-label="Attached" className="flex flex-wrap gap-2 px-5 pb-2">
+          {attached.map((each) => (
+            <li key={each.key} className="min-w-0">
+              <AttachedCard
+                icon={each.icon}
+                title={each.title}
+                detail={each.detail}
+                onRemove={() => {
+                  setAttached((now) =>
+                    now.filter(({ key }) => key !== each.key),
+                  );
+
+                  message.current?.focus();
+                }}
+              />
+            </li>
+          ))}
+        </ul>
+      )}
 
       <div className="flex flex-wrap items-center gap-1.5 px-4 pb-3">
         <RepositoryField

@@ -1,5 +1,6 @@
 import { ago, useApi, useLoaded, useNow } from "@pipoca/plugins/web";
 import {
+  Badge,
   Button,
   cn,
   EmptyState,
@@ -13,9 +14,9 @@ import { type ReactElement, useEffect, useRef, useState } from "react";
 import { artifacts as plugin } from "../plugin";
 import {
   type ArtifactSummary,
-  type Kind,
-  kindLabel,
-  kinds,
+  type ArtifactType,
+  typeLabel,
+  types,
   versionTag,
 } from "../src/artifacts";
 import { base } from "./collaborate";
@@ -45,6 +46,9 @@ const emptyShelves: Readonly<Record<Shelf, string>> = {
 
 type Order = "opened" | "changed";
 
+const pressedClass =
+  "aria-pressed:border-line-strong aria-pressed:bg-hover aria-pressed:text-fg-strong";
+
 // Every artifact the person opens as a grid of their first screens, which
 // open in the viewer over the gallery (ADR 0081). sessions narrows it to a
 // Project's.
@@ -57,8 +61,9 @@ export function Gallery({
   const now = useNow();
   const [shelf, setShelf] = useState<Shelf>("yours");
   const [search, setSearch] = useState("");
-  const [kind, setKind] = useState<Kind | "">("");
+  const [type, setType] = useState<ArtifactType | "">("");
   const [commented, setCommented] = useState(false);
+  const [templates, setTemplates] = useState(false);
   const [order, setOrder] = useState<Order>("opened");
 
   const narrowed = sessions?.join(",");
@@ -81,8 +86,9 @@ export function Gallery({
 
   const shown = all
     .filter(narrowed === undefined ? shelves[shelf] : () => true)
-    .filter((each) => kind === "" || each.kind === kind)
+    .filter((each) => type === "" || each.type === type)
     .filter((each) => !commented || each.openComments > 0)
+    .filter((each) => !templates || each.template !== null)
     .filter((each) =>
       words.every((word) =>
         `${each.title} ${each.sessionTitle ?? ""}`.toLowerCase().includes(word),
@@ -94,7 +100,7 @@ export function Gallery({
         : b.updatedAt - a.updatedAt,
     );
 
-  const filtered = words.length > 0 || kind !== "" || commented;
+  const filtered = words.length > 0 || type !== "" || commented || templates;
 
   const empty =
     narrowed === undefined
@@ -143,22 +149,36 @@ export function Gallery({
             <span className="flex-1 max-sm:hidden" />
             <Select
               aria-label="Kind"
-              value={kind}
+              value={type}
               className="w-36"
               onChange={(event) => {
-                setKind(event.target.value as Kind | "");
+                setType(event.target.value as ArtifactType | "");
               }}
             >
               <option value="">All kinds</option>
-              {kinds.map((each) => (
+              {types.map((each) => (
                 <option key={each} value={each}>
-                  {kindLabel(each)}
+                  {typeLabel(each)}
                 </option>
               ))}
             </Select>
             <Button
+              aria-pressed={templates}
+              className={pressedClass}
+              onClick={() => {
+                setTemplates(!templates);
+              }}
+            >
+              {templates ? (
+                <Icon name="check" />
+              ) : (
+                <Icon name="file-text" className="text-fg-dim" />
+              )}
+              Templates
+            </Button>
+            <Button
               aria-pressed={commented}
-              className="aria-pressed:border-line-strong aria-pressed:bg-hover aria-pressed:text-fg-strong"
+              className={pressedClass}
               onClick={() => {
                 setCommented(!commented);
               }}
@@ -209,6 +229,7 @@ function GalleryCard({
           <h2 className="min-w-0 flex-1 truncate text-label font-medium text-fg-strong">
             {artifact.title}
           </h2>
+          {artifact.template !== null && <Badge>Template</Badge>}
           {artifact.openComments > 0 && (
             <span
               title={`${String(artifact.openComments)} open comments`}
@@ -221,7 +242,7 @@ function GalleryCard({
         </div>
         <div className="truncate text-caption text-fg-dim">
           {[
-            kindLabel(artifact.kind),
+            typeLabel(artifact.type),
             ...versionTag(artifact),
             audienceOf(artifact),
             ago(new Date(artifact.updatedAt).toISOString(), now),

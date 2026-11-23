@@ -30,6 +30,9 @@ export interface Attachment {
   readonly title: string;
   readonly detail: string;
   readonly text: string;
+  // Goes only with the person's own work, not the team's, such as their
+  // own template.
+  readonly personal?: boolean;
 }
 
 interface Menu {

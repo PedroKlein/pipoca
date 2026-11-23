@@ -1,0 +1,7 @@
+{
+  "name": "Mockup canvas",
+  "description": "A design canvas with one screen to start, a sticky for open questions, and room for more boards on pages.",
+  "for": "design",
+  "entry": "Main.html",
+  "instructions": "Before you draw, ask which screens or flow to mock and who will use them, unless the Session already says. Each board is a plain HTML file with its own styles, drawn at its frame's size; there is no template language, so write the real markup. List every board in canvas.json under boards with its frame (x, y, w and h in canvas pixels), a title such as B. Checkout: pay, and its page, and add it to order. Lay boards out left to right, 80 pixels apart, one row per flow. Put questions and assumptions in stickies, not on the boards. Use real labels and plausible data from the Session, never filler text. Publish the folder with entry Main.html."
+}

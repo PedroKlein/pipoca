@@ -60,6 +60,7 @@ export {
   useConfig,
   useDraft,
   useFilled,
+  useNewSession,
   useSessionState,
   useToolResults,
   useViewer,

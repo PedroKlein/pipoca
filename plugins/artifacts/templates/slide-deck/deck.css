@@ -1,0 +1,135 @@
+:root {
+  --ink: #1d2433;
+  --dim: #5b6475;
+  --paper: #ffffff;
+  --line: #d9dde5;
+  --accent: #c2410c;
+  --bar: #9db4d8;
+  color-scheme: light;
+  font-family:
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    sans-serif;
+}
+
+body {
+  margin: 0;
+  padding: 24px;
+  background: #eef0f4;
+  color: var(--ink);
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+section {
+  aspect-ratio: 16 / 9;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 6% 7%;
+  background: var(--paper);
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.12);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1.2em;
+  font-size: clamp(14px, 2.2vw, 28px);
+}
+
+section.title,
+section.decision {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+h1 {
+  font-size: 2.4em;
+  line-height: 1.1;
+  margin: 0;
+}
+
+h2 {
+  font-size: 1.6em;
+  margin: 0;
+}
+
+h3 {
+  font-size: 1em;
+  margin: 0 0 0.3em;
+  color: var(--dim);
+}
+
+.sub {
+  color: #c9cfdb;
+  margin: 0;
+}
+
+.point {
+  font-size: 1.3em;
+  margin: 0;
+}
+
+ul,
+ol {
+  margin: 0;
+  padding-left: 1.2em;
+  line-height: 1.6;
+}
+
+.columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2em;
+}
+
+.columns p {
+  margin: 0;
+}
+
+.chart {
+  margin: 0;
+}
+
+.chart svg {
+  width: 100%;
+  max-height: 55vh;
+}
+
+.chart rect {
+  fill: var(--bar);
+}
+
+.chart rect.accent {
+  fill: var(--accent);
+}
+
+.chart .axis {
+  stroke: var(--line);
+  stroke-width: 2;
+}
+
+figcaption {
+  font-size: 0.6em;
+  color: var(--dim);
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+th,
+td {
+  text-align: left;
+  padding: 0.4em 0.6em;
+  border-bottom: 1px solid var(--line);
+}
+
+/* The slides viewer shows the notes under each slide. */
+aside.notes {
+  display: none;
+}

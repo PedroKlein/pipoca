@@ -1,0 +1,7 @@
+{
+  "name": "Incident review",
+  "description": "A blameless review of one incident: impact, a timeline in UTC, what happened, findings that link their evidence, and actions with owners and dates.",
+  "for": "discuss",
+  "entry": "review.md",
+  "instructions": "Before you write, ask which incident or alert this reviews and who reviews it, unless the Session already says. Build the timeline from logs, alerts, deploys and chat, in UTC, one row per event, with where each came from. Every finding links its evidence: a commit, a log query, a dashboard or a message. Write about systems and decisions, never blame a person. Each action has one owner and a due date; write it as something to do, never as we should. Keep the impact in numbers people can check: who was affected, how many and for how long. Keep the front matter (doc: design, status: draft)."
+}

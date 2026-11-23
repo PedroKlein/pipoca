@@ -12,6 +12,98 @@ export function kindOf(name: string): Kind | undefined {
   return kind === "text" ? undefined : kind;
 }
 
+// How the viewer draws an artifact (ADR 0085): a deck, a design canvas or a
+// design system by the files at the top of its folder, else its entry's
+// kind.
+export type ArtifactType = Kind | "slides" | "canvas" | "system";
+
+export function typeOf(entry: string, paths: readonly string[]): ArtifactType {
+  if (paths.includes("canvas.json")) {
+    return "canvas";
+  }
+
+  if (paths.includes("deck.html")) {
+    return "slides";
+  }
+
+  if (paths.includes("tokens.json") && paths.includes("README.md")) {
+    return "system";
+  }
+
+  return kindOf(entry) ?? "html";
+}
+
+const typeLabels: Readonly<Record<ArtifactType, string>> = {
+  html: "Page",
+  markdown: "Markdown",
+  csv: "Table",
+  svg: "SVG",
+  image: "Image",
+  pdf: "PDF",
+  slides: "Slides",
+  canvas: "Design canvas",
+  system: "Design system",
+};
+
+export const types = Object.keys(typeLabels) as readonly ArtifactType[];
+
+export function typeLabel(type: ArtifactType): string {
+  return typeLabels[type];
+}
+
+// What a template is for, which the picker's chips filter by.
+export const purposes = ["present", "discuss", "design", "report"] as const;
+
+export type Purpose = (typeof purposes)[number];
+
+const purposeOfType: Readonly<Record<ArtifactType, Purpose>> = {
+  slides: "present",
+  canvas: "design",
+  system: "design",
+  markdown: "discuss",
+  html: "report",
+  csv: "report",
+  svg: "report",
+  image: "report",
+  pdf: "report",
+};
+
+// What a template of this type is for when its maker doesn't say.
+export function purposeOf(type: ArtifactType): Purpose {
+  return purposeOfType[type];
+}
+
+// Built in ships with Pipoca; server is shared by an admin with everyone;
+// mine is its owner's.
+export type TemplateScope = "builtin" | "server" | "mine";
+
+export interface Template {
+  readonly id: string;
+  readonly name: string;
+  readonly description: string;
+  readonly type: ArtifactType;
+  readonly for: Purpose;
+  readonly scope: TemplateScope;
+  readonly entry: string;
+  readonly files: readonly string[];
+  readonly instructions: string;
+  // Its files are an example Pi writes from, not a structure it fills.
+  readonly example: boolean;
+  // Who made it: Pipoca, or a person's name.
+  readonly by: string;
+  // Its entry's page, from the plugin's routes, for a preview.
+  readonly preview: string;
+}
+
+// list_templates gives at most this many at once.
+export const shownTemplates = 20;
+
+// On an artifact that is a template, what it's for and whose it is.
+export interface TemplateMark {
+  readonly scope: Exclude<TemplateScope, "builtin">;
+  readonly for: Purpose;
+}
+
 export interface Version {
   readonly number: number;
   readonly name: string;
@@ -127,6 +219,8 @@ export interface ArtifactSummary {
   readonly id: string;
   readonly title: string;
   readonly kind: Kind;
+  readonly type: ArtifactType;
+  readonly template: TemplateMark | null;
   readonly sessionId: string | null;
   readonly sessionTitle: string | null;
   // The person whose work it is, or Team.
@@ -163,6 +257,9 @@ export interface ArtifactView extends ArtifactSummary {
   // Whether the viewer can send threads to Pi: they steer its Session, and
   // the Session is there and not archived.
   readonly askable: boolean;
+  // Whether Pi makes a template of it in its Session for the viewer: it's
+  // askable, and the Session is the viewer's own.
+  readonly ownSession: boolean;
   readonly shares: readonly Share[];
   readonly pinned: boolean;
   readonly doc: Doc | null;
@@ -391,19 +488,8 @@ export interface Published {
   readonly kind: Kind;
 }
 
-const kindLabels: Readonly<Record<Kind, string>> = {
-  html: "Page",
-  markdown: "Markdown",
-  csv: "Table",
-  svg: "SVG",
-  image: "Image",
-  pdf: "PDF",
-};
-
-export const kinds = Object.keys(kindLabels) as readonly Kind[];
-
 export function kindLabel(kind: Kind): string {
-  return kindLabels[kind];
+  return typeLabels[kind];
 }
 
 export function bytes(size: number): string {

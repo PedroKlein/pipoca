@@ -1,6 +1,12 @@
 import { expect, spyOn, test } from "bun:test";
-import { AttachMenu } from "@pipoca/plugins/web";
-import { renderPart, resize, sessionWith } from "@pipoca/plugins/web/testing";
+import { AttachMenu, type MountedSession } from "@pipoca/plugins/web";
+import {
+  drafts,
+  newSessions,
+  renderPart,
+  resize,
+  sessionWith,
+} from "@pipoca/plugins/web/testing";
 import { until } from "@pipoca/testing/until";
 import { act, type ReactElement, useState } from "react";
 import type {
@@ -8,6 +14,7 @@ import type {
   ArtifactSummary,
   Comment,
   Presence,
+  Template,
 } from "../src/artifacts";
 import { web } from "./index";
 
@@ -701,6 +708,7 @@ test("an artifact opens over the page with what can be done with it, and closes 
     "Copy link to version 3",
     "Pin to sidebar",
     "Mark as design doc",
+    "Save as template…",
     "Go to the Session",
     "Delete artifact…",
   ]);
@@ -1443,6 +1451,7 @@ test("someone an artifact is shared with to view sees it, and nothing that chang
     "Copy link",
     "Copy link to version 1",
     "Pin to sidebar",
+    "Save as template…",
     "Go to the Session",
   ]);
 });
@@ -1674,6 +1683,8 @@ function artifact(o: Partial<ArtifactSummary> = {}): ArtifactSummary {
     id: "a1",
     title: "Report",
     kind: "html",
+    type: o.kind ?? "html",
+    template: null,
     sessionId: "session-1",
     sessionTitle: "Why did checkout slow down?",
     owner: "Ana",
@@ -1703,6 +1714,7 @@ function viewed(versions: number) {
       label: null,
     })),
     access: "steer",
+    ownSession: false,
     shares: [],
     pinned: false,
     doc: null,
@@ -5683,4 +5695,891 @@ test("a folder's page switches to its files, which say what the version changed 
   } finally {
     downloads.mockRestore();
   }
+});
+
+function template(o: Partial<Template> = {}): Template {
+  return {
+    id: "slide-deck",
+    name: "Slide deck",
+    description: "Seven starting slides.",
+    type: "slides",
+    for: "present",
+    scope: "builtin",
+    entry: "deck.html",
+    files: ["deck.html", "deck.css"],
+    instructions: "Ask who the audience is.",
+    example: false,
+    by: "Pipoca",
+    preview: "templates/slide-deck/files/deck.html",
+    ...o,
+  };
+}
+
+const someTemplates = [
+  template(),
+  template({
+    id: "decision-record",
+    name: "Decision record",
+    description: "Options and a verdict.",
+    type: "markdown",
+    for: "discuss",
+    entry: "decision.md",
+    files: ["decision.md"],
+    instructions: "Ask which decision this records.",
+    preview: "templates/decision-record/files/decision.md",
+  }),
+  template({
+    id: "t1",
+    name: "Our review",
+    description: "Timeline, impact and follow-ups.",
+    type: "markdown",
+    for: "discuss",
+    scope: "server",
+    entry: "review.md",
+    files: ["review.md"],
+    instructions: "",
+    example: true,
+    by: "Ana",
+    preview: "artifacts/t1/view?v=1",
+  }),
+];
+
+function pickerDialog(): HTMLDialogElement | undefined {
+  return [...document.querySelectorAll("dialog")].find((each) =>
+    each.textContent.includes("New artifact"),
+  );
+}
+
+function tileInputs(root: ParentNode): HTMLInputElement[] {
+  return [
+    ...root.querySelectorAll<HTMLInputElement>(
+      "[role=radiogroup][aria-label=Templates] input[type=radio]",
+    ),
+  ];
+}
+
+function tileTexts(root: ParentNode): string[] {
+  return tileInputs(root).map(
+    (each) => each.closest("label")?.textContent ?? "",
+  );
+}
+
+function tabTexts(root: ParentNode): string[] {
+  return [...root.querySelectorAll("[role=tab]")].map(
+    (each) => each.textContent,
+  );
+}
+
+// Types into a field as a person does, so React hears it.
+function typeIn(
+  field: HTMLInputElement | null | undefined,
+  text: string,
+): void {
+  act(() => {
+    if (field === null || field === undefined) {
+      return;
+    }
+
+    Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value",
+    )?.set?.call(field, text);
+
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+
+function templatesPage(
+  fetch: (url: string, init?: RequestInit) => Promise<Response>,
+): HTMLElement {
+  return renderPart(
+    { ...web, slots },
+    "page",
+    { path: "" },
+    { hash: "#plugin/artifacts", fetch },
+  );
+}
+
+function servingTemplates(
+  templates: readonly Template[],
+  asked: Served[] = [],
+  own = true,
+): (url: string, init?: RequestInit) => Promise<Response> {
+  return async (url, init) => {
+    await Promise.resolve();
+
+    asked.push({
+      url,
+      method: init?.method ?? "GET",
+      ...(typeof init?.body === "string" && {
+        body: JSON.parse(init.body) as unknown,
+      }),
+    });
+
+    if (init?.method === "POST") {
+      return Response.json({ id: "a9" });
+    }
+
+    return Response.json(
+      /\/templates(\?|$)/.test(url)
+        ? {
+            templates: own
+              ? templates
+              : templates.filter(({ scope }) => scope !== "mine"),
+            own,
+          }
+        : { artifacts: [] },
+    );
+  };
+}
+
+async function openPicker(page: HTMLElement): Promise<HTMLDialogElement> {
+  act(() => {
+    named(page, "New")?.click();
+  });
+
+  await drawn(() => tileInputs(pickerDialog() ?? page).length > 0);
+
+  const dialog = pickerDialog();
+
+  if (dialog === undefined) {
+    throw new Error("no picker");
+  }
+
+  return dialog;
+}
+
+test("Artifacts › New picks a template by whose it is and what it's for, and starts it with Pi in a new Session in the person's words", async () => {
+  const page = templatesPage(servingTemplates(someTemplates));
+  const dialog = await openPicker(page);
+
+  expect(tabTexts(dialog)).toEqual(["Built in 2", "Server 1", "Mine 0"]);
+
+  // Each tile is a radio of one group, captioned with what it holds, and
+  // the blank one comes last.
+  expect(tileTexts(dialog)).toEqual([
+    "Slide deckSeven starting slides.",
+    "Decision recordOptions and a verdict.",
+    "BlankNothing to start from: tell Pi what to make.",
+  ]);
+
+  expect(new Set(tileInputs(dialog).map(({ name }) => name)).size).toBe(1);
+
+  expect(tileInputs(dialog).map(({ checked }) => checked)).toEqual([
+    true,
+    false,
+    false,
+  ]);
+
+  // Each tile draws its entry small, in the artifacts' sandbox.
+  expect(dialog.querySelector("label iframe")?.getAttribute("src")).toBe(
+    "/api/ext/artifacts/templates/slide-deck/files/deck.html",
+  );
+
+  expect(dialog.querySelector("label iframe")?.getAttribute("sandbox")).toBe(
+    "allow-scripts",
+  );
+
+  act(() => {
+    named(dialog, "Discuss")?.click();
+  });
+
+  expect(tileTexts(dialog)).toEqual(["Decision recordOptions and a verdict."]);
+  expect(tabTexts(dialog)).toEqual(["Built in 1", "Server 1", "Mine 0"]);
+
+  const rail = (): string => dialog.querySelector("aside")?.textContent ?? "";
+
+  expect(rail()).toContain("Decision record");
+  expect(rail()).toContain("Markdown · Discuss");
+  expect(rail()).not.toContain("Design system");
+  expect(rail()).toContain("Pi will be toldAsk which decision this records.");
+  expect(rail()).toContain("Filesdecision.md");
+
+  act(() => {
+    named(dialog, "Start with Pi in a new Session…")?.click();
+  });
+
+  expect(newSessions).toEqual([
+    {
+      text: "Start from the Decision record template.",
+      attachments: [
+        {
+          key: "template:decision-record",
+          icon: "file-text",
+          title: "Decision record",
+          detail: "template · Markdown",
+          text: 'The template "Decision record" (decision-record): start from it with start_artifact, then follow its instructions.',
+        },
+      ],
+    },
+  ]);
+
+  expect(pickerDialog()).toBeUndefined();
+});
+
+test("the picker's search counts each tab's matches, says where the others are, and keeps the rail in place", async () => {
+  const page = templatesPage(servingTemplates(someTemplates));
+  const dialog = await openPicker(page);
+
+  // Descriptions match too.
+  typeIn(
+    dialog.querySelector<HTMLInputElement>("input[type=search]"),
+    "impact",
+  );
+
+  await drawn(() => tabTexts(dialog)[0] === "Built in 0");
+
+  expect(tabTexts(dialog)).toEqual(["Built in 0", "Server 1", "Mine 0"]);
+  expect(tileInputs(dialog)).toEqual([]);
+
+  expect(dialog.textContent).toContain(
+    "Nothing matches here. Server has some.",
+  );
+
+  expect(dialog.querySelector("aside")?.textContent).toContain(
+    "No template picked",
+  );
+
+  act(() => {
+    named(dialog, "Server 1")?.click();
+  });
+
+  expect(tileTexts(dialog)).toEqual([
+    "Our reviewTimeline, impact and follow-ups.",
+  ]);
+
+  expect(dialog.querySelector("aside")?.textContent).toContain("saved by Ana");
+
+  act(() => {
+    named(dialog, "Mine 0")?.click();
+  });
+
+  typeIn(dialog.querySelector<HTMLInputElement>("input[type=search]"), "");
+
+  await drawn(() => tabTexts(dialog)[0] === "Built in 2");
+
+  expect(dialog.textContent).toContain(
+    "Save an artifact as a template from its More menu, and it shows here.",
+  );
+});
+
+test("a template of the person's own goes only with their own work, not the team's", async () => {
+  const page = templatesPage(
+    servingTemplates([
+      ...someTemplates,
+      template({ id: "t2", name: "Rollout", scope: "mine", type: "markdown" }),
+    ]),
+  );
+
+  const dialog = await openPicker(page);
+
+  act(() => {
+    named(dialog, "Mine 1")?.click();
+  });
+
+  expect(dialog.querySelector("aside")?.textContent).toContain(
+    "Yours alone, so it starts your own work, not the team's.",
+  );
+
+  act(() => {
+    named(dialog, "Start with Pi in a new Session…")?.click();
+  });
+
+  expect(newSessions.map(({ attachments }) => attachments)).toMatchObject([
+    [{ key: "template:t2", personal: true }],
+  ]);
+});
+
+test("the blank tile opens the New session composer empty", async () => {
+  const page = templatesPage(servingTemplates(someTemplates));
+  const dialog = await openPicker(page);
+
+  act(() => {
+    tileInputs(dialog).at(-1)?.click();
+  });
+
+  expect(dialog.querySelector("aside")?.getAttribute("aria-label")).toBe(
+    "Blank",
+  );
+
+  act(() => {
+    named(dialog, "Start with Pi in a new Session…")?.click();
+  });
+
+  expect(newSessions).toEqual([{ text: "", attachments: [] }]);
+});
+
+test("the picker says why its templates didn't load, and loads them again on Retry", async () => {
+  let failing = true;
+
+  const page = templatesPage(async (url, init) => {
+    if (url.endsWith("/templates") && failing) {
+      await Promise.resolve();
+
+      return Response.json({ message: "Down for a moment" }, { status: 500 });
+    }
+
+    return servingTemplates(someTemplates)(url, init);
+  });
+
+  act(() => {
+    named(page, "New")?.click();
+  });
+
+  await drawn(() => (pickerDialog()?.textContent ?? "").includes("Retry"));
+
+  const dialog = pickerDialog() ?? page;
+
+  expect(dialog.textContent).toContain("Couldn't load the templates.");
+  expect(named(page, "New")).toBeDefined();
+
+  failing = false;
+
+  act(() => {
+    named(dialog, "Retry")?.click();
+  });
+
+  await drawn(() => tileInputs(dialog).length === 3);
+});
+
+test("what Pi will be told shows whole once asked", async () => {
+  const long = `${"Ask who the audience is. ".repeat(20)}End.`;
+
+  const page = templatesPage(
+    servingTemplates([template({ instructions: long })]),
+  );
+
+  const dialog = await openPicker(page);
+  const showAll = named(dialog, "Show all");
+
+  expect(showAll?.getAttribute("aria-expanded")).toBe("false");
+
+  act(() => {
+    showAll?.click();
+  });
+
+  expect(named(dialog, "Show less")?.getAttribute("aria-expanded")).toBe(
+    "true",
+  );
+
+  expect(dialog.querySelector("aside")?.textContent).toContain(long);
+});
+
+test("Start blank makes the person's own artifact from a Markdown template and opens it, and is off for the others", async () => {
+  const asked: Served[] = [];
+  const page = templatesPage(servingTemplates(someTemplates, asked));
+  const dialog = await openPicker(page);
+
+  expect(named(dialog, "Start blank and edit myself")?.disabled).toBe(true);
+
+  expect(dialog.textContent).toContain(
+    "Only Pi edits pages, slides and canvases",
+  );
+
+  act(() => {
+    named(dialog, "Server 1")?.click();
+  });
+
+  expect(dialog.querySelector("aside")?.textContent).toContain(
+    "Its files are an example to write from.",
+  );
+
+  await act(async () => {
+    named(dialog, "Start blank and edit myself")?.click();
+    await until(() => location.hash.includes("artifact=a9"));
+  });
+
+  expect(asked.at(-1)).toMatchObject({
+    url: "/api/ext/artifacts/templates/t1/start",
+    method: "POST",
+    body: { title: "Our review" },
+  });
+
+  expect(location.hash).toBe("#plugin/artifacts?artifact=a9");
+});
+
+function plusMenu(
+  fetch: (url: string, init?: RequestInit) => Promise<Response>,
+  sent: string[] = [],
+): MountedSession {
+  const Fill = web.slots?.["session.attach"];
+
+  const mounted = {
+    ...sessionWith({}),
+    send: async (text: string) => {
+      await Promise.resolve();
+      sent.push(text);
+    },
+  };
+
+  const attachSlots = {
+    attach: () =>
+      Fill === undefined ? null : (
+        <AttachMenu label="Attach files" onFiles={() => undefined}>
+          <Fill session={mounted} add={() => undefined} />
+        </AttachMenu>
+      ),
+  };
+
+  renderPart({ ...web, slots: attachSlots }, "attach", {}, { fetch });
+
+  act(() => {
+    document
+      .querySelector<HTMLButtonElement>("button[aria-label='Attach files']")
+      ?.click();
+  });
+
+  act(() => {
+    [...document.querySelectorAll<HTMLButtonElement>("[role=group] button")]
+      .find((each) => each.textContent === "Start from template…")
+      ?.click();
+  });
+
+  return mounted;
+}
+
+test("in team work, the + menu's templates leave out the person's own, which its Pi can't start from", async () => {
+  const mine = template({ id: "t2", name: "Mine", scope: "mine" });
+  const asked: Served[] = [];
+
+  const mounted = plusMenu(
+    servingTemplates([...someTemplates, mine], asked, false),
+  );
+
+  await drawn(() => tileInputs(pickerDialog() ?? document).length > 0);
+
+  expect(asked[0]?.url).toBe(
+    `/api/ext/artifacts/templates?session=${mounted.id}`,
+  );
+
+  expect(tabTexts(pickerDialog() ?? document)).toEqual([
+    "Built in 2",
+    "Server 1",
+  ]);
+});
+
+test("the + menu's Start from template puts the picked one in this Session's composer, in the person's words", async () => {
+  const sent: string[] = [];
+  const before = drafts.length;
+  const mounted = plusMenu(servingTemplates(someTemplates), sent);
+
+  await drawn(() => tileInputs(pickerDialog() ?? document).length > 0);
+
+  const dialog = pickerDialog() ?? document.body;
+
+  expect(named(dialog, "Start blank and edit myself")).toBeUndefined();
+  expect(tileTexts(dialog)).toHaveLength(2);
+  expect(tabTexts(dialog)).toEqual(["Built in 2", "Server 1", "Mine 0"]);
+
+  act(() => {
+    named(dialog, "Start with Pi in this Session…")?.click();
+  });
+
+  expect(sent).toEqual([]);
+
+  expect(drafts.slice(before)).toEqual([
+    {
+      sessionId: mounted.id,
+      text: "Start from the Slide deck template.",
+      attachments: [
+        {
+          key: "template:slide-deck",
+          icon: "file-text",
+          title: "Slide deck",
+          detail: "template · Slides",
+          text: 'The template "Slide deck" (slide-deck): start from it with start_artifact, then follow its instructions.',
+        },
+      ],
+    },
+  ]);
+});
+
+async function saveDialog(
+  page: HTMLElement,
+  asked: Served[],
+): Promise<HTMLDialogElement | undefined> {
+  await opened(asked);
+
+  act(() => {
+    named(page, "More")?.click();
+  });
+
+  act(() => {
+    item(page, "Save as template")?.click();
+  });
+
+  return [...page.querySelectorAll("dialog")].find((each) =>
+    each.textContent.includes("What the template keeps"),
+  );
+}
+
+function keepsOf(root: ParentNode): { checked: boolean; disabled: boolean }[] {
+  return [...root.querySelectorAll<HTMLInputElement>("input[name=keeps]")].map(
+    ({ checked, disabled }) => ({ checked, disabled }),
+  );
+}
+
+test("Save as template keeps the structure through Pi or everything as an example, for the person or, by an admin, the server", async () => {
+  for (const admin of [false, true]) {
+    const asked: Served[] = [];
+
+    const page = renderPart(
+      web,
+      "overlay",
+      {},
+      {
+        admin,
+        hash: "#session-1?artifact=a1",
+        fetch: serving(
+          {
+            ...artifact({ title: "Checkout latency", kind: "markdown" }),
+            ...viewed(1),
+            askable: true,
+            ownSession: true,
+          },
+          asked,
+        ),
+      },
+    );
+
+    const dialog = (await saveDialog(page, asked)) ?? page;
+
+    expect(dialog.textContent).toContain("From “Checkout latency” · Markdown");
+
+    expect(keepsOf(dialog)).toEqual([
+      { checked: true, disabled: false },
+      { checked: false, disabled: false },
+    ]);
+
+    // What it's for picks as the New picker filters.
+    expect(
+      [
+        ...dialog.querySelectorAll<HTMLButtonElement>(
+          "[role=group][aria-label=For] button",
+        ),
+      ].map(
+        (each) =>
+          `${each.textContent}${each.getAttribute("aria-pressed") ?? ""}`,
+      ),
+    ).toEqual(["Presentfalse", "Discusstrue", "Designfalse", "Reportfalse"]);
+
+    act(() => {
+      named(dialog, "Report")?.click();
+    });
+
+    expect(named(dialog, "Everyone on the server") !== undefined).toBe(admin);
+
+    if (admin) {
+      act(() => {
+        named(dialog, "Everyone on the server")?.click();
+      });
+    } else {
+      expect(dialog.textContent).toContain(
+        "Only admins share a template with everyone on the server.",
+      );
+    }
+
+    act(() => {
+      dialog
+        .querySelectorAll<HTMLInputElement>("input[name=keeps]")[1]
+        ?.click();
+    });
+
+    await act(async () => {
+      named(dialog, "Save template")?.click();
+      await until(() => asked.some(({ method }) => method === "POST"));
+    });
+
+    expect(asked.find(({ method }) => method === "POST")).toEqual({
+      url: "/api/ext/artifacts/artifacts/a1/template",
+      method: "POST",
+      body: {
+        name: "Checkout latency",
+        for: "report",
+        instructions: "",
+        scope: admin ? "server" : "mine",
+        keeps: "example",
+      },
+    });
+  }
+});
+
+test("Save as template keeps everything when Pi can't make the structure for the person, and says why", async () => {
+  // Gone, and someone else's Session.
+  for (const askable of [false, true]) {
+    const asked: Served[] = [];
+
+    const page = renderPart(
+      web,
+      "overlay",
+      {},
+      {
+        hash: "#session-1?artifact=a1",
+        fetch: serving(
+          {
+            ...artifact({ title: "Plan", kind: "markdown" }),
+            ...viewed(1),
+            askable,
+            ownSession: false,
+          },
+          asked,
+        ),
+      },
+    );
+
+    const dialog = (await saveDialog(page, asked)) ?? page;
+
+    expect(keepsOf(dialog)).toEqual([
+      { checked: false, disabled: true },
+      { checked: true, disabled: false },
+    ]);
+
+    expect(dialog.textContent).toContain("for the person whose Session it is");
+  }
+});
+
+function settingsOf(
+  o: object,
+  templates: readonly Template[] | undefined,
+  asked: Served[],
+): (url: string, init?: RequestInit) => Promise<Response> {
+  const shown = serving(o, asked);
+
+  return async (url, init) => {
+    if (url.endsWith("/templates")) {
+      await Promise.resolve();
+
+      return templates === undefined
+        ? Response.json({ message: "Down" }, { status: 500 })
+        : Response.json({ templates });
+    }
+
+    return shown(url, init);
+  };
+}
+
+test("Template settings change a template its person steers, and aren't offered on others", async () => {
+  const mine = template({
+    id: "a1",
+    name: "Our review",
+    description: "Timeline first.",
+    type: "markdown",
+    for: "discuss",
+    scope: "mine",
+    instructions: "UTC.",
+  });
+
+  const shown = (access: string, marked: boolean) => ({
+    ...artifact({
+      title: "Our review",
+      kind: "markdown",
+      sessionId: null,
+      template: marked ? { scope: "mine", for: "discuss" } : null,
+    }),
+    ...viewed(1),
+    access,
+    askable: false,
+    ownSession: false,
+  });
+
+  for (const [access, marked] of [
+    ["view", true],
+    ["steer", false],
+  ] as const) {
+    const asked: Served[] = [];
+
+    const page = renderPart(
+      web,
+      "overlay",
+      {},
+      {
+        hash: "#session-1?artifact=a1",
+        fetch: settingsOf(shown(access, marked), [mine], asked),
+      },
+    );
+
+    await opened(asked);
+
+    act(() => {
+      named(page, "More")?.click();
+    });
+
+    expect(item(page, "Template settings")).toBeUndefined();
+  }
+
+  const asked: Served[] = [];
+
+  const page = renderPart(
+    web,
+    "overlay",
+    {},
+    {
+      hash: "#session-1?artifact=a1",
+      fetch: settingsOf(shown("steer", true), [mine], asked),
+    },
+  );
+
+  await opened(asked);
+
+  act(() => {
+    named(page, "More")?.click();
+  });
+
+  act(() => {
+    item(page, "Template settings")?.click();
+  });
+
+  await drawn(() => named(page, "Save") !== undefined);
+
+  const dialog =
+    [...page.querySelectorAll("dialog")].find((each) =>
+      each.textContent.includes("Template settings"),
+    ) ?? page;
+
+  expect(dialog.querySelectorAll("input[name=keeps]")).toHaveLength(0);
+
+  typeIn(
+    [...dialog.querySelectorAll<HTMLInputElement>("input")].find(
+      ({ value }) => value === "Timeline first.",
+    ),
+    "",
+  );
+
+  await act(async () => {
+    named(dialog, "Save")?.click();
+    await until(() => asked.some(({ method }) => method === "PUT"));
+  });
+
+  expect(asked.find(({ method }) => method === "PUT")).toEqual({
+    url: "/api/ext/artifacts/artifacts/a1/template",
+    method: "PUT",
+    body: {
+      name: "Our review",
+      for: "discuss",
+      description: "",
+      instructions: "UTC.",
+    },
+  });
+});
+
+test("Template settings say when the template is gone, and offer Retry when the templates don't load", async () => {
+  for (const templates of [[], undefined]) {
+    const asked: Served[] = [];
+
+    const page = renderPart(
+      web,
+      "overlay",
+      {},
+      {
+        hash: "#session-1?artifact=a1",
+        fetch: settingsOf(
+          {
+            ...artifact({
+              kind: "markdown",
+              sessionId: null,
+              template: { scope: "mine", for: "discuss" },
+            }),
+            ...viewed(1),
+            askable: false,
+            ownSession: false,
+          },
+          templates,
+          asked,
+        ),
+      },
+    );
+
+    await opened(asked);
+
+    act(() => {
+      named(page, "More")?.click();
+    });
+
+    act(() => {
+      item(page, "Template settings")?.click();
+    });
+
+    const said =
+      templates === undefined ? "Couldn't load the templates." : "is gone";
+
+    await drawn(() => page.textContent.includes(said));
+
+    expect(named(page, "Retry") !== undefined).toBe(templates === undefined);
+  }
+});
+
+test("a template shows its tag in the gallery, which can show only templates", async () => {
+  const asked: Served[] = [];
+
+  const page = renderPart(
+    { ...web, slots },
+    "page",
+    { path: "" },
+    {
+      hash: "#plugin/artifacts",
+      fetch: async (url) => {
+        await Promise.resolve();
+
+        asked.push({ url, method: "GET" });
+
+        return Response.json({
+          artifacts: [
+            artifact({
+              id: "a1",
+              title: "Our review",
+              kind: "markdown",
+              sessionId: null,
+              template: { scope: "mine", for: "discuss" },
+            }),
+            artifact({ id: "a2", title: "Checkout latency" }),
+          ],
+        });
+      },
+    },
+  );
+
+  await drawn(
+    () => page.querySelectorAll("ul[aria-label=Artifacts] li").length === 2,
+  );
+
+  const cards = (): string[] =>
+    [...page.querySelectorAll("ul[aria-label=Artifacts] li")].map(
+      (each) => each.textContent,
+    );
+
+  expect(cards()[0]).toContain("Our reviewTemplate");
+  expect(cards()[0]).toContain("Markdown · v1 · only you");
+  expect(cards()[1]).not.toContain("Template");
+
+  act(() => {
+    named(page, "Templates")?.click();
+  });
+
+  expect(cards()).toHaveLength(1);
+});
+
+test("Pi starting from a template shows in the chat as one row with what it copied", () => {
+  const page = renderPart(web, "session.toolCall:start_artifact", {
+    session: sessionWith({}),
+    call: {
+      id: "call-1",
+      name: "start_artifact",
+      args: { template: "slide-deck", title: "Webhooks v2" },
+      status: "done",
+      result: {
+        text: "Copied",
+        details: {
+          template: "Slide deck",
+          folder: "/s/plugins/artifacts/webhooks-v2",
+          entry: "deck.html",
+          files: 2,
+        },
+        failed: false,
+      },
+    },
+  });
+
+  expect(page.textContent).toBe(
+    "Started from template Slide deck · 2 files in webhooks-v2",
+  );
 });

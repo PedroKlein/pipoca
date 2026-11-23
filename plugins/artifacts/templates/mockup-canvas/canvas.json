@@ -1,0 +1,25 @@
+{
+  "title": "Mockups",
+  "pages": [{ "id": "main", "name": "Main" }],
+  "boards": {
+    "Main.html": {
+      "x": 0,
+      "y": 0,
+      "w": 1280,
+      "h": 800,
+      "title": "A. The main screen",
+      "page": "main"
+    }
+  },
+  "order": ["Main.html"],
+  "stickies": [
+    {
+      "id": "questions",
+      "x": 0,
+      "y": 880,
+      "w": 320,
+      "text": "Open questions: who uses this screen, and what do they do first?",
+      "page": "main"
+    }
+  ]
+}

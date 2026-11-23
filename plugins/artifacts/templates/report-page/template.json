@@ -1,0 +1,7 @@
+{
+  "name": "Report page",
+  "description": "A one-page report: the answer first, three key numbers, a chart drawn as inline SVG, findings with their evidence, and how the numbers were made.",
+  "for": "report",
+  "entry": "index.html",
+  "instructions": "Before you write, ask what question the report answers and who reads it, unless the Session already says. Put the answer in the headline as a sentence, then the three numbers that support it, each with its unit and the period it covers. Draw each chart as inline SVG from the real data, with labelled axes, units and the source under it; don't load a chart library. Every finding says what it means for the reader and links its evidence. Say how the numbers were made and what they leave out under Method. Keep styles.css and the page's sections; leave out a section rather than fill it with made-up data."
+}
