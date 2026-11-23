@@ -151,11 +151,13 @@ export const Config = {
     readonly description?: string;
     readonly default: number;
     readonly min?: number;
+    readonly max?: number;
   }): TInteger =>
     Type.Integer({
       title: o.title,
       default: o.default,
       minimum: o.min ?? 1,
+      ...(o.max !== undefined && { maximum: o.max }),
       ...(o.description !== undefined && { description: o.description }),
       [annotation]: { bytes: true },
     }),

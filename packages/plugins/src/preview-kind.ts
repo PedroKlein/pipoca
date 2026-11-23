@@ -65,3 +65,42 @@ export function previewKind(name: string): PreviewKind | undefined {
 
 // The biggest file a viewer draws; a bigger one downloads.
 export const previewBytes = 5_000_000;
+
+// A file's media type, from its extension.
+const mimes: Readonly<Record<string, string>> = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  webp: "image/webp",
+  avif: "image/avif",
+  ico: "image/x-icon",
+  svg: "image/svg+xml",
+  pdf: "application/pdf",
+  html: "text/html; charset=utf-8",
+  htm: "text/html; charset=utf-8",
+  css: "text/css; charset=utf-8",
+  js: "text/javascript; charset=utf-8",
+  mjs: "text/javascript; charset=utf-8",
+  json: "application/json",
+  csv: "text/csv; charset=utf-8",
+  md: "text/markdown; charset=utf-8",
+  txt: "text/plain; charset=utf-8",
+  xml: "application/xml",
+  wasm: "application/wasm",
+  woff: "font/woff",
+  woff2: "font/woff2",
+  ttf: "font/ttf",
+  otf: "font/otf",
+  mp3: "audio/mpeg",
+  wav: "audio/wav",
+  mp4: "video/mp4",
+  webm: "video/webm",
+};
+
+export function mimeOf(name: string): string {
+  return (
+    mimes[name.split(".").at(-1)?.toLowerCase() ?? ""] ??
+    "application/octet-stream"
+  );
+}

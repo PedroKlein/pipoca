@@ -1,5 +1,5 @@
-import { stat, writeFile, mkdir } from "node:fs/promises";
-import { basename, join, resolve } from "node:path";
+import { mkdir, readdir, stat, writeFile } from "node:fs/promises";
+import { basename, dirname, join, resolve, sep } from "node:path";
 import { defineSession, ToolError, Type } from "@pipoca/plugins";
 import { artifacts } from "../plugin";
 import {
@@ -9,6 +9,7 @@ import {
   type Suggestion,
   type CommentKind,
   kindOf,
+  maxFiles,
   type Published,
   supported,
 } from "./artifacts";
@@ -21,11 +22,17 @@ export const session = defineSession(artifacts, (s) => {
   s.tools.define({
     name: "publish_artifact",
     label: "Publish artifact",
-    description: `Publishes a file from your workspace as an artifact people open beside the Session, at a link that stays the same. Without id it makes a new artifact; with the id of one this Session published it adds a version. Works for ${supported}. A page loads scripts only from allowed CDNs and nothing else from the network, so keep everything in the one file. A design doc, spec or plan people review starts with front matter in Markdown (doc: design, spec or plan, and status: draft or in review; people decide) or, in HTML, meta tags named pipoca:doc and pipoca:status.`,
+    description: `Publishes a file or a folder from your workspace as an artifact people open beside the Session, at a link that stays the same. Without id it makes a new artifact; with the id of one this Session published it adds a version. Works for ${supported}. A folder of up to ${String(maxFiles)} files opens at its entry file, which links the others, such as its stylesheets, pictures and scripts, by relative path; a script can't fetch them. A page loads scripts only from allowed CDNs, its folder's files and nothing else from the network. A design doc, spec or plan people review starts with front matter in Markdown (doc: design, spec or plan, and status: draft or in review; people decide) or, in HTML, meta tags named pipoca:doc and pipoca:status.`,
     params: Type.Object({
       path: Type.String({
-        description: "The file, from your working directory",
+        description: "The file or folder, from your working directory",
       }),
+      entry: Type.Optional(
+        Type.String({
+          description:
+            "For a folder, the file people open, by its path in the folder. Default: index.html",
+        }),
+      ),
       title: Type.Optional(
         Type.String({
           description: "What people see it as. Default: its name",
@@ -63,14 +70,35 @@ export const session = defineSession(artifacts, (s) => {
     run: async (input, { cwd, signal }) => {
       const path = resolve(cwd, input.path);
       const name = basename(path);
+      const folder = (await stat(path)).isDirectory();
+      const files = folder ? await filesIn(path) : [name];
+      const entry = folder ? (input.entry ?? "index.html") : name;
 
-      if (kindOf(name) === undefined) {
+      if (files.length > maxFiles) {
         throw new ToolError(
-          `${name} can't be an artifact: publish ${supported}`,
+          `${name} has ${String(files.length)} files; an artifact holds up to ${String(maxFiles)}`,
         );
       }
 
-      const size = (await stat(path)).size;
+      if (!files.includes(entry)) {
+        throw new ToolError(
+          `${name} has no ${entry}: name its entry file with entry`,
+        );
+      }
+
+      if (kindOf(entry) === undefined) {
+        throw new ToolError(
+          `${entry} can't be an artifact: publish ${supported}`,
+        );
+      }
+
+      const at = (file: string): string => (folder ? join(path, file) : path);
+
+      const size = (
+        await Promise.all(
+          files.map(async (file) => (await stat(at(file))).size),
+        )
+      ).reduce((sum, each) => sum + each, 0);
 
       if (size > s.config.maxFileBytes) {
         throw new ToolError(
@@ -78,17 +106,27 @@ export const session = defineSession(artifacts, (s) => {
         );
       }
 
-      const { hash } = await s.blobs.upload(
-        path,
-        signal === undefined ? {} : { signal },
-      );
+      const uploaded: { path: string; hash: string }[] = [];
+
+      for (const file of files) {
+        const { hash } = await s.blobs.upload(
+          at(file),
+          signal === undefined ? {} : { signal },
+        );
+
+        uploaded.push({ path: file, hash });
+      }
 
       const published = await s.api.post<Published>(
         "session/artifacts",
         {
-          name,
-          hash,
-          ...(input.title !== undefined && { title: input.title }),
+          name: entry,
+          hash: uploaded.find((file) => file.path === entry)?.hash,
+          ...(folder && { files: uploaded }),
+          // A new folder is named after itself, as a file is.
+          ...(input.title !== undefined
+            ? { title: input.title }
+            : folder && input.id === undefined && { title: name }),
           ...(input.id !== undefined && { id: input.id }),
           ...(input.label !== undefined && {
             note: input.label.slice(0, 200),
@@ -150,38 +188,72 @@ export const session = defineSession(artifacts, (s) => {
     name: "read_artifact",
     label: "Read artifact",
     description:
-      "Copies an artifact's file, its newest version or the one asked for, into your folder and returns its path.",
+      "Copies an artifact's files, of its newest version or the one asked for, into your folder at their paths and returns where its entry file is.",
     params: Type.Object({
       id: Type.String({ description: "The artifact's id" }),
       version: Type.Optional(Type.Integer({ minimum: 1 })),
     }),
     annotations: { readOnly: true },
     run: async ({ id, version }, { signal }) => {
-      const response = await s.api.raw(
-        `session/artifacts/${encodeURIComponent(id)}/file${version === undefined ? "" : `?v=${String(version)}`}`,
-        signal === undefined ? {} : { signal },
-      );
-
-      if (!response.ok) {
-        throw new ToolError(
-          response.status === 404
-            ? `no artifact ${id}${version === undefined ? "" : ` version ${String(version)}`}`
-            : `artifact ${id} couldn't be read: ${String(response.status)}`,
+      const read = async (path: string): Promise<Response> => {
+        const response = await s.api.raw(
+          `session/artifacts/${encodeURIComponent(id)}/${path}`,
+          signal === undefined ? {} : { signal },
         );
+
+        if (!response.ok) {
+          throw new ToolError(
+            response.status === 404
+              ? `no artifact ${id}${version === undefined ? "" : ` version ${String(version)}`}`
+              : `artifact ${id} couldn't be read: ${String(response.status)}`,
+          );
+        }
+
+        return response;
+      };
+
+      const listing = (await (
+        await read(
+          `files${version === undefined ? "" : `?v=${String(version)}`}`,
+        )
+      ).json()) as {
+        version: number;
+        entry: string;
+        files: { path: string }[];
+      };
+
+      const folder = join(s.folder, id, `v${String(listing.version)}`);
+
+      for (const { path } of listing.files) {
+        const to = resolve(folder, path);
+
+        // The server checks paths, and so does Pi's side, before writing.
+        if (!to.startsWith(`${folder}${sep}`)) {
+          throw new ToolError(`artifact ${id} has a file outside its folder`);
+        }
+
+        const response = await read(
+          `file?v=${String(listing.version)}&path=${encodeURIComponent(path)}`,
+        );
+
+        const content = new Uint8Array(await response.arrayBuffer());
+
+        try {
+          await mkdir(dirname(to), { recursive: true });
+          await writeFile(to, content);
+        } catch (error) {
+          throw new ToolError(
+            `artifact ${id} couldn't be written to ${to}: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
       }
 
-      const name = basename(
-        decodeURIComponent(response.headers.get("x-artifact-name") ?? "file"),
-      );
+      const entry = join(folder, listing.entry);
+      const others = listing.files.length - 1;
 
-      const number = response.headers.get("x-artifact-version") ?? "1";
-      const folder = join(s.folder, id, `v${number}`);
-      const path = join(folder, name);
-
-      await mkdir(folder, { recursive: true });
-      await writeFile(path, new Uint8Array(await response.arrayBuffer()));
-
-      return `Wrote version ${number} of artifact ${id} to ${path}.`;
+      return others === 0
+        ? `Wrote version ${String(listing.version)} of artifact ${id} to ${entry}.`
+        : `Wrote version ${String(listing.version)} of artifact ${id} to ${entry}, with its ${String(others)} other ${others === 1 ? "file" : "files"} beside it.`;
     },
   });
 
@@ -448,4 +520,29 @@ function fenced(shown: readonly string[], more: string | undefined): string {
     ...shown,
     ...(more === undefined ? [] : [more]),
   ].join("\n");
+}
+
+// A folder's files by their paths in it, with forward slashes, leaving out
+// dotfiles, what's in dot folders, and links.
+// A folder's files by path, leaving out dotfiles and every link: a linked
+// file or folder may point outside it, or back into it.
+async function filesIn(folder: string, under = ""): Promise<string[]> {
+  const entries = await readdir(join(folder, under), { withFileTypes: true });
+  const found: string[] = [];
+
+  for (const each of entries) {
+    const path = under === "" ? each.name : `${under}/${each.name}`;
+
+    if (each.name.startsWith(".") || each.isSymbolicLink()) {
+      continue;
+    }
+
+    if (each.isDirectory()) {
+      found.push(...(await filesIn(folder, path)));
+    } else if (each.isFile()) {
+      found.push(path);
+    }
+  }
+
+  return found.sort();
 }

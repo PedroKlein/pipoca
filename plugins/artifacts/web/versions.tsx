@@ -40,20 +40,38 @@ import { type DiffLine, lineDiff, type Span, textChanges } from "../src/diff";
 import { audienceLabel, byline, versionChoices } from "./chrome";
 import { base, Frame } from "./collaborate";
 
-async function fetched(
+// A version, or one file of it, as it downloads or shows.
+export async function fetchedBytes(
   id: string,
   version: number,
   as: "download" | "view",
-): Promise<string> {
+  path?: string,
+): Promise<ArrayBuffer> {
   const response = await fetch(
-    `${base}/artifacts/${id}/${as}?v=${String(version)}`,
+    `${base}/artifacts/${id}/${as}?v=${String(version)}${path === undefined ? "" : `&path=${encodeURIComponent(path)}`}`,
   );
 
   if (!response.ok) {
     throw new Error(`version ${String(version)} didn't load`);
   }
 
-  return response.text();
+  return response.arrayBuffer();
+}
+
+export async function fetched(
+  id: string,
+  version: number,
+  as: "download" | "view",
+  path?: string,
+): Promise<string> {
+  return new TextDecoder().decode(await fetchedBytes(id, version, as, path));
+}
+
+// A folder's source is its entry file's; a file's is the version's.
+function entryOf(artifact: ArtifactView, version: number): string | undefined {
+  const save = artifact.history[version - 1];
+
+  return save !== undefined && save.files > 1 ? save.name : undefined;
 }
 
 // A page's text as its frame reads it: every text node outside scripts and
@@ -144,8 +162,8 @@ export function Compare({
     async (): Promise<readonly DiffLine[] | "long" | "failed"> =>
       how === "source"
         ? Promise.all([
-            fetched(artifact.id, from, "download"),
-            fetched(artifact.id, to, "download"),
+            fetched(artifact.id, from, "download", entryOf(artifact, from)),
+            fetched(artifact.id, to, "download", entryOf(artifact, to)),
           ]).then(
             ([before, after]) => lineDiff(before, after) ?? "long",
             () => "failed",
@@ -321,24 +339,37 @@ const signs: Readonly<Record<DiffLine["kind"], string>> = {
   same: " ",
 };
 
-function DiffView({
+// What a diff says when it can't show its lines, and what it's called.
+interface DiffWords {
+  readonly label: string;
+  readonly long: string;
+  readonly failed: string;
+}
+
+const versionWords: DiffWords = {
+  label: "Changes",
+  long: "These versions are too long to compare here. Download both to compare them.",
+  failed: "The versions didn't load. Check your connection and try again.",
+};
+
+export function DiffView({
   lines,
+  words = versionWords,
 }: {
   readonly lines: readonly DiffLine[] | "long" | "failed" | undefined;
+  readonly words?: DiffWords;
 }): ReactElement {
   if (lines === "long" || lines === "failed") {
     return (
       <p className="flex-1 bg-panel p-6 text-fg-dim">
-        {lines === "long"
-          ? "These versions are too long to compare here. Download both to compare them."
-          : "The versions didn't load. Check your connection and try again."}
+        {lines === "long" ? words.long : words.failed}
       </p>
     );
   }
 
   return (
     <pre
-      aria-label="Changes"
+      aria-label={words.label}
       aria-busy={lines === undefined}
       className="min-h-0 flex-1 overflow-auto bg-panel p-4 font-mono text-mono"
     >
@@ -400,9 +431,10 @@ export function Editor({
   const known = latest !== undefined && artifact.versions > editing;
   const stale = refused !== undefined || known;
   const changed = text !== undefined && text !== original;
+  const entry = entryOf(artifact, editing);
 
   useEffect(() => {
-    void fetched(artifact.id, editing, "download").then(
+    void fetched(artifact.id, editing, "download", entry).then(
       (loaded) => {
         setOriginal(loaded);
         setText(loaded);
@@ -411,7 +443,7 @@ export function Editor({
         setUnloaded(true);
       },
     );
-  }, [artifact.id, editing, attempt]);
+  }, [artifact.id, editing, entry, attempt]);
 
   const loaded = original !== undefined;
 

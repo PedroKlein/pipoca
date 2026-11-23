@@ -1,23 +1,21 @@
 import { Type } from "typebox";
 import { marked } from "marked";
 import { HttpError, NotFound } from "./http";
-import { type PreviewKind, previewBytes, previewKind } from "./preview-kind";
-
-const mimes: Readonly<Record<string, string>> = {
-  png: "image/png",
-  jpg: "image/jpeg",
-  jpeg: "image/jpeg",
-  gif: "image/gif",
-  webp: "image/webp",
-  svg: "image/svg+xml",
-  pdf: "application/pdf",
-};
+import {
+  mimeOf,
+  type PreviewKind,
+  previewBytes,
+  previewKind,
+} from "./preview-kind";
 
 interface PreviewOptions {
   readonly kind?: PreviewKind | undefined;
   readonly scriptHosts?: readonly string[];
   // Runs in every page but a picture or PDF.
   readonly script?: string;
+  // Where the page's own files are, as a CSP source such as
+  // host/path/, which it may load from too.
+  readonly base?: string;
 }
 
 // The page a viewer's frame shows for a file, or undefined for one it can't
@@ -43,26 +41,17 @@ export function preview(
     kind = previewKind(name),
     scriptHosts = [],
     script = "",
+    base,
   }: PreviewOptions = {},
 ): Response | undefined {
   if (kind === undefined) {
     return undefined;
   }
 
-  const headers = new Headers({
-    "x-content-type-options": "nosniff",
-    "cache-control": "private, max-age=31536000, immutable",
-    "referrer-policy": "no-referrer",
-  });
-
-  if (kind !== "pdf") {
-    headers.set("content-security-policy", policy(scriptHosts));
-  }
-
-  const ext = name.split(".").at(-1)?.toLowerCase() ?? "";
+  const headers = previewHeaders(kind !== "pdf", scriptHosts, base);
 
   if (kind === "image" || kind === "svg" || kind === "pdf") {
-    headers.set("content-type", mimes[ext] ?? "application/octet-stream");
+    headers.set("content-type", mimeOf(name));
 
     return new Response(new Uint8Array(content), { headers });
   }
@@ -84,8 +73,43 @@ export function preview(
   return new Response(page(name, bodies[kind](), script), { headers });
 }
 
-function policy(scriptHosts: readonly string[]): string {
-  const hosts = scriptHosts.map((host) => `https://${host}`).join(" ");
+// A file a previewed page loads from its base, as it is, in the same
+// sandbox and under the same policy as the page.
+export function previewAsset(
+  name: string,
+  content: Uint8Array,
+  { scriptHosts = [], base }: Pick<PreviewOptions, "scriptHosts" | "base"> = {},
+): Response {
+  const headers = previewHeaders(true, scriptHosts, base);
+
+  headers.set("content-type", mimeOf(name));
+
+  return new Response(new Uint8Array(content), { headers });
+}
+
+function previewHeaders(
+  sandboxed: boolean,
+  scriptHosts: readonly string[],
+  base: string | undefined,
+): Headers {
+  const headers = new Headers({
+    "x-content-type-options": "nosniff",
+    "cache-control": "private, max-age=31536000, immutable",
+    "referrer-policy": "no-referrer",
+  });
+
+  if (sandboxed) {
+    headers.set("content-security-policy", policy(scriptHosts, base));
+  }
+
+  return headers;
+}
+
+function policy(scriptHosts: readonly string[], base?: string): string {
+  const hosts = [
+    ...scriptHosts.map((host) => `https://${host}`),
+    ...(base === undefined ? [] : [base]),
+  ].join(" ");
 
   return [
     "sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox allow-modals allow-forms",
@@ -94,7 +118,7 @@ function policy(scriptHosts: readonly string[]): string {
     `style-src 'unsafe-inline' ${hosts}`,
     `img-src data: blob: ${hosts}`,
     `font-src data: ${hosts}`,
-    "media-src data: blob:",
+    `media-src data: blob:${base === undefined ? "" : ` ${base}`}`,
     "form-action 'none'",
   ].join("; ");
 }

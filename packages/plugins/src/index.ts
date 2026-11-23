@@ -42,10 +42,16 @@ export {
   filePreview,
   frontMatter,
   preview,
+  previewAsset,
   previewed,
   previewQuery,
 } from "./preview";
-export { previewBytes, type PreviewKind, previewKind } from "./preview-kind";
+export {
+  mimeOf,
+  previewBytes,
+  type PreviewKind,
+  previewKind,
+} from "./preview-kind";
 export {
   type ActionCall,
   type Applied,

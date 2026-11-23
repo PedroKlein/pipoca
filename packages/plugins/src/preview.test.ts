@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { preview } from "./preview";
+import { preview, previewAsset } from "./preview";
 
 const bytes = (text: string): Uint8Array => new TextEncoder().encode(text);
 
@@ -51,4 +51,60 @@ test("a script given runs in every page it draws", async () => {
   expect(await preview("a.md", bytes("# Hi"), { script })?.text()).toContain(
     "<h1>Hi</h1>\n<script>told()</script></body>",
   );
+});
+
+test("a page may load its own files from its base, but not fetch them, and they go as they are under the same policy", async () => {
+  const base = "pipoca.example/files/grant/";
+  const page = preview("index.html", bytes("<p>hi</p>"), { base });
+  const policy = page?.headers.get("content-security-policy") ?? "";
+
+  for (const directive of [
+    "script-src",
+    "style-src",
+    "img-src",
+    "font-src",
+    "media-src",
+  ]) {
+    expect(
+      policy.split("; ").find((each) => each.startsWith(`${directive} `)),
+    ).toEndWith(` ${base}`);
+  }
+
+  // Whether a page may fetch its files is undecided, so it fetches nothing.
+  expect(policy).not.toContain("connect-src");
+
+  const style = previewAsset("styles/app.css", bytes("p {}"), { base });
+
+  expect(style.headers.get("content-security-policy")).toBe(policy);
+  expect(style.headers.get("x-content-type-options")).toBe("nosniff");
+  expect(await style.text()).toBe("p {}");
+
+  expect(
+    Object.fromEntries(
+      [
+        "a.css",
+        "a.js",
+        "a.mjs",
+        "a.json",
+        "a.svg",
+        "a.WOFF2",
+        "a.html",
+        "a.wasm",
+        "a.bin",
+      ].map((name) => [
+        name,
+        previewAsset(name, bytes("")).headers.get("content-type"),
+      ]),
+    ),
+  ).toEqual({
+    "a.css": "text/css; charset=utf-8",
+    "a.js": "text/javascript; charset=utf-8",
+    "a.mjs": "text/javascript; charset=utf-8",
+    "a.json": "application/json",
+    "a.svg": "image/svg+xml",
+    "a.WOFF2": "font/woff2",
+    "a.html": "text/html; charset=utf-8",
+    "a.wasm": "application/wasm",
+    "a.bin": "application/octet-stream",
+  });
 });

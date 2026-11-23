@@ -15,6 +15,9 @@ export const artifacts = definePlugin({
         "A larger file is refused with a message that names the limit.",
       default: 52_428_800,
       min: 1,
+      // A folder downloads as a .zip without ZIP64, whose sizes and
+      // offsets stop at 4 GiB.
+      max: 2_147_483_648,
     }),
     // An artifact loads nothing else from the network. A host may end in a
     // path, such as cdn.jsdelivr.net/npm.
@@ -177,6 +180,21 @@ create index artifacts_session_mentions_user on artifacts_session_mentions (user
     // 11: a Markdown artifact is edited in place, and only its labelled
     // saves are versions (ADR 0082).
     `alter table artifacts_versions add column label text;`,
+    // 12: a version is a folder of files, its name and hash being its entry
+    // file's (ADR 0085). Each version so far is a folder of one.
+    `create table artifacts_files (
+  artifact_id text not null,
+  number integer not null,
+  path text not null,
+  hash text not null check (length(hash) = 64),
+  size integer not null check (size >= 0),
+  primary key (artifact_id, number, path),
+  foreign key (artifact_id, number) references artifacts_versions (artifact_id, number) on delete cascade
+) strict, without rowid;
+create index artifacts_files_hash on artifacts_files (hash);
+
+insert into artifacts_files (artifact_id, number, path, hash, size)
+select artifact_id, number, name, hash, size from artifacts_versions;`,
   ],
   events: {
     // ADR 0081: mentions, review requests and replies, for the plugins that

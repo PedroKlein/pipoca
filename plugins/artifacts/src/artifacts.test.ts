@@ -1,7 +1,16 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { crc32, inflateRawSync } from "node:zlib";
 import {
   type PluginTest,
   person,
@@ -15,7 +24,9 @@ import type {
   ArtifactSummary,
   ArtifactView,
   Comment,
+  VersionFiles,
 } from "./artifacts";
+import { artifacts } from "../plugin";
 import { lineDiff, textChanges } from "./diff";
 import { server } from "./server";
 import { session } from "./session";
@@ -2616,5 +2627,721 @@ test("people named with @ in team work hear of it on Activity and elsewhere, if 
   expect(await told("cy")).toMatchObject({
     unread: 0,
     items: [{ read: true }],
+  });
+});
+
+async function dashboard(cwd: string): Promise<string> {
+  const folder = join(cwd, "dashboard");
+
+  await mkdir(join(folder, "styles"), { recursive: true });
+  await mkdir(join(folder, "img"), { recursive: true });
+  await mkdir(join(folder, ".git"), { recursive: true });
+
+  await writeFile(
+    join(folder, "index.html"),
+    '<link rel="stylesheet" href="styles/app.css"><h1>Orders</h1><img src="img/logo.png">',
+  );
+
+  await writeFile(
+    join(folder, "styles", "app.css"),
+    ".kpi {\n  color: red;\n}\n",
+  );
+
+  await writeFile(
+    join(folder, "img", "logo.png"),
+    new Uint8Array([137, 80, 78, 71]),
+  );
+
+  await writeFile(join(folder, ".env"), "SECRET=1");
+  await writeFile(join(folder, ".git", "HEAD"), "ref: main");
+  await symlink(join(cwd, "outside.txt"), join(folder, "linked.txt"));
+  await writeFile(join(cwd, "outside.txt"), "not in the artifact");
+
+  // A linked folder is left out, whether it points outside or back in.
+  await mkdir(join(cwd, "secrets"));
+  await writeFile(join(cwd, "secrets", "key.txt"), "not in the artifact");
+  await symlink(join(cwd, "secrets"), join(folder, "vendor"));
+  await symlink(folder, join(folder, "styles", "loop"));
+
+  return folder;
+}
+
+// What a .zip holds, by path, as text.
+function unzipped(zipped: Uint8Array): Record<string, string> {
+  const view = new DataView(
+    zipped.buffer,
+    zipped.byteOffset,
+    zipped.byteLength,
+  );
+
+  const end = zipped.length - 22;
+  const found: Record<string, string> = {};
+  const count = view.getUint16(end + 10, true);
+  let at = view.getUint32(end + 16, true);
+
+  expect(view.getUint32(end, true)).toBe(0x06054b50);
+  expect(view.getUint16(end + 8, true)).toBe(count);
+  expect(at + view.getUint32(end + 12, true)).toBe(end);
+
+  for (let left = count; left > 0; left--) {
+    const named = view.getUint16(at + 28, true);
+    const local = view.getUint32(at + 42, true);
+
+    const path = new TextDecoder().decode(
+      zipped.subarray(at + 46, at + 46 + named),
+    );
+
+    const start =
+      local +
+      30 +
+      view.getUint16(local + 26, true) +
+      view.getUint16(local + 28, true);
+
+    const packed = zipped.subarray(
+      start,
+      start + view.getUint32(at + 20, true),
+    );
+
+    const bytes =
+      view.getUint16(at + 10, true) === 8 ? inflateRawSync(packed) : packed;
+
+    expect(view.getUint32(at, true)).toBe(0x02014b50);
+    expect(view.getUint32(local, true)).toBe(0x04034b50);
+    expect(view.getUint32(at + 16, true)).toBe(crc32(bytes));
+    expect(view.getUint32(local + 14, true)).toBe(crc32(bytes));
+    expect(view.getUint32(at + 24, true)).toBe(bytes.length);
+
+    found[path] = new TextDecoder().decode(bytes);
+
+    at +=
+      46 +
+      named +
+      view.getUint16(at + 30, true) +
+      view.getUint16(at + 32, true);
+  }
+
+  return found;
+}
+
+test("Pi publishes a folder as one artifact, whose page loads its files by relative path under a link only its viewer holds", async () => {
+  const { t, cwd, part } = await setUp();
+
+  await dashboard(cwd);
+
+  const published = await part.tool("publish_artifact", {
+    path: "dashboard",
+  });
+
+  expect(published).toMatchObject({
+    isError: false,
+    details: { title: "dashboard", version: 1, kind: "html" },
+  });
+
+  const { id } = published.details as { id: string };
+
+  expect(
+    (await t.as("ana").get<ArtifactView>(`artifacts/${id}`)).history,
+  ).toMatchObject([{ name: "index.html", files: 3 }]);
+
+  // Its files carry no cookie from the sandbox, so the page opens under a
+  // link that names the viewer and the version.
+  const opened = await t.as("ana").raw(`artifacts/${id}/view`, {
+    method: "GET",
+  });
+
+  expect(opened.status).toBe(302);
+
+  const at = opened.headers.get("location") ?? "";
+
+  expect(at).toMatch(/^files\/[^/]+\/index\.html$/);
+
+  const anyone = t.public();
+  const page = await anyone.raw(`artifacts/${id}/${at}`, { method: "GET" });
+  const grant = at.split("/")[1] ?? "";
+  const policy = page.headers.get("content-security-policy") ?? "";
+
+  expect(policy).toStartWith("sandbox allow-scripts");
+
+  // The page loads its own files, and nothing else of Pipoca's, from the
+  // server's public address.
+  const base = `${new URL(page.url).host}/api/ext/artifacts/artifacts/${id}/files/${grant}/`;
+
+  for (const directive of [
+    "script-src",
+    "style-src",
+    "img-src",
+    "font-src",
+    "media-src",
+  ]) {
+    expect(
+      policy.split("; ").find((each) => each.startsWith(`${directive} `)),
+    ).toEndWith(` ${base}`);
+  }
+
+  // Fetching its files is undecided, so the page fetches nothing.
+  expect(policy).not.toContain("connect-src");
+
+  // Cached no longer than the link lasts.
+  expect(page.headers.get("cache-control")).toBe("private, max-age=3600");
+  expect(await page.text()).toContain('pipoca: "selection"');
+
+  const style = await anyone.raw(
+    `artifacts/${id}/files/${grant}/styles/app.css`,
+    { method: "GET" },
+  );
+
+  expect(style.headers.get("content-type")).toBe("text/css; charset=utf-8");
+  expect(style.headers.get("content-security-policy")).toStartWith("sandbox");
+  expect(await style.text()).toBe(".kpi {\n  color: red;\n}\n");
+
+  const picture = await anyone.raw(
+    `artifacts/${id}/files/${grant}/img/logo.png`,
+    { method: "GET" },
+  );
+
+  expect(picture.headers.get("content-type")).toBe("image/png");
+
+  const status = async (path: string) =>
+    (await anyone.raw(`artifacts/${id}/files/${path}`, { method: "GET" }))
+      .status;
+
+  expect(await status(`${grant}/.env`)).toBe(404);
+  expect(await status(`${grant}/linked.txt`)).toBe(404);
+  const signature = grant.split(".").at(-1) ?? "";
+  const middle = Math.floor(signature.length / 2);
+
+  const forged = `${grant.slice(0, -signature.length)}${signature.slice(0, middle)}${signature[middle] === "A" ? "B" : "A"}${signature.slice(middle + 1)}`;
+
+  expect(await status(`${forged}/styles/app.css`)).toBe(404);
+
+  // Someone who doesn't see it gets no link, and a link lasts an hour.
+  expect(
+    (await t.as("bo").raw(`artifacts/${id}/view`, { method: "GET" })).status,
+  ).toBe(404);
+
+  await t.clock.advance("59m");
+
+  const late = await anyone.raw(
+    `artifacts/${id}/files/${grant}/styles/app.css`,
+    { method: "GET" },
+  );
+
+  expect(late.status).toBe(200);
+  expect(late.headers.get("cache-control")).toBe("private, max-age=60");
+
+  await t.clock.advance("2m");
+
+  expect(await status(`${grant}/styles/app.css`)).toBe(404);
+
+  expect(
+    await t.as("ana").get<VersionFiles>(`artifacts/${id}/files?v=1`),
+  ).toEqual({
+    entry: "index.html",
+    files: [
+      { path: "img/logo.png", size: 4, change: "added", lines: null },
+      { path: "index.html", size: 84, change: "added", lines: null },
+      { path: "styles/app.css", size: 23, change: "added", lines: null },
+    ],
+    removed: [],
+    maxBytes: 52_428_800,
+  });
+
+  const download = await t.as("ana").raw(`artifacts/${id}/download`, {
+    method: "GET",
+  });
+
+  expect(download.headers.get("content-disposition")).toBe(
+    "attachment; filename*=UTF-8''dashboard.zip",
+  );
+
+  expect(unzipped(new Uint8Array(await download.arrayBuffer()))).toEqual({
+    "img/logo.png": "\uFFFDPNG",
+    "index.html": expect.stringContaining("<h1>Orders</h1>") as string,
+    "styles/app.css": ".kpi {\n  color: red;\n}\n",
+  });
+
+  expect(
+    await (
+      await t.as("ana").raw(`artifacts/${id}/download?path=styles%2Fapp.css`, {
+        method: "GET",
+      })
+    ).text(),
+  ).toBe(".kpi {\n  color: red;\n}\n");
+
+  // Pi reads every file back, at its path.
+  expect(await part.tool("read_artifact", { id })).toMatchObject({
+    text: `Wrote version 1 of artifact ${id} to ${join(cwd, ".artifacts", id, "v1", "index.html")}, with its 2 other files beside it.`,
+  });
+
+  expect(
+    await readFile(
+      join(cwd, ".artifacts", id, "v1", "styles", "app.css"),
+      "utf8",
+    ),
+  ).toBe(".kpi {\n  color: red;\n}\n");
+});
+
+test("a version of a folder says which files it changed, and a living page published again as a folder is an edit", async () => {
+  const { t, cwd, part } = await setUp();
+  const folder = await dashboard(cwd);
+
+  const { details } = await part.tool("publish_artifact", {
+    path: "dashboard",
+    title: "Orders",
+  });
+
+  const { id } = details as { id: string };
+
+  await writeFile(
+    join(folder, "styles", "app.css"),
+    ".kpi {\n  color: green;\n  font-weight: 600;\n}\n",
+  );
+
+  await mkdir(join(folder, "data"));
+  await writeFile(join(folder, "data", "orders.json"), "[1, 2]");
+  await rm(join(folder, "img"), { recursive: true });
+
+  expect(
+    await part.tool("publish_artifact", {
+      path: "dashboard",
+      id,
+      label: "moved the numbers into data/orders.json",
+    }),
+  ).toMatchObject({ details: { id, version: 2, kind: "html" } });
+
+  expect(await t.as("ana").get<ArtifactView>(`artifacts/${id}`)).toMatchObject({
+    title: "Orders",
+    living: true,
+    named: 0,
+    history: [{ files: 3 }, { files: 3, label: null }],
+  });
+
+  expect(
+    await t.as("ana").get<VersionFiles>(`artifacts/${id}/files?v=2`),
+  ).toEqual({
+    entry: "index.html",
+    files: [
+      { path: "data/orders.json", size: 6, change: "added", lines: null },
+      { path: "index.html", size: 84, change: "same", lines: null },
+      {
+        path: "styles/app.css",
+        size: 45,
+        change: "edited",
+        lines: { added: 2, removed: 1 },
+      },
+    ],
+    removed: ["img/logo.png"],
+    maxBytes: 52_428_800,
+  });
+
+  // Restoring brings back every file of the version.
+  await t.as("ana").post(`artifacts/${id}/restore`, { version: 1 });
+
+  expect(
+    (
+      await t.as("ana").get<VersionFiles>(`artifacts/${id}/files?v=3`)
+    ).files.map(({ path }) => path),
+  ).toEqual(["img/logo.png", "index.html", "styles/app.css"]);
+});
+
+test("a folder names its entry, and one with too many files or bytes is refused with the limit", async () => {
+  const { host, cwd, part } = await setUp();
+  const folder = join(cwd, "many");
+
+  await mkdir(folder);
+
+  await Promise.all(
+    Array.from({ length: 201 }, async (_, at) =>
+      writeFile(join(folder, `${String(at)}.txt`), "x"),
+    ),
+  );
+
+  expect(await part.tool("publish_artifact", { path: "many" })).toMatchObject({
+    isError: true,
+    text: "many has 201 files; an artifact holds up to 200",
+  });
+
+  await rm(join(folder, "200.txt"));
+  await rm(join(folder, "199.txt"));
+  await writeFile(join(folder, "notes.md"), "# Notes\n");
+
+  expect(await part.tool("publish_artifact", { path: "many" })).toMatchObject({
+    isError: true,
+    text: "many has no index.html: name its entry file with entry",
+  });
+
+  const small = await testSession(session, {
+    request: host.api.raw,
+    cwd,
+    config: { maxFileBytes: 150 },
+  });
+
+  expect(
+    await small.tool("publish_artifact", { path: "many", entry: "notes.md" }),
+  ).toMatchObject({
+    isError: true,
+    text: "many is 207 B; artifacts can be up to 150 B",
+  });
+
+  expect(
+    await part.tool("publish_artifact", { path: "many", entry: "notes.md" }),
+  ).toMatchObject({ isError: false, details: { kind: "markdown" } });
+});
+
+test("the server takes only paths inside the folder, and the entry among them", async () => {
+  const { t, host } = await setUp();
+  const page = await uploaded(t, "ana", "<h1>Hi</h1>");
+  const style = await uploaded(t, "ana", "h1 { color: red }");
+
+  const status = async (files: readonly { path: string; hash: string }[]) =>
+    (
+      await host.api.raw("session/artifacts", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: "index.html", hash: page, files }),
+      })
+    ).status;
+
+  const entry = { path: "index.html", hash: page };
+
+  for (const path of [
+    "../app.css",
+    "/app.css",
+    "css\\app.css",
+    "css//app.css",
+    "./app.css",
+    "css/",
+  ]) {
+    expect(await status([entry, { path, hash: style }])).toBe(400);
+  }
+
+  expect(await status([{ path: "app.css", hash: style }])).toBe(400);
+  expect(await status([{ path: "index.html", hash: style }])).toBe(400);
+  expect(await status([entry, entry])).toBe(400);
+
+  expect(
+    await status([entry, { path: "css/app.css", hash: "f".repeat(64) }]),
+  ).toBe(409);
+
+  // A path is a file or a folder, and names no control characters.
+  expect(
+    await status([
+      entry,
+      { path: "css", hash: style },
+      { path: "css/app.css", hash: style },
+    ]),
+  ).toBe(400);
+
+  expect(await status([entry, { path: "css/a\u0007.css", hash: style }])).toBe(
+    400,
+  );
+
+  expect(
+    await status([
+      entry,
+      ...Array.from({ length: 200 }, (_, at) => ({
+        path: `${String(at)}.css`,
+        hash: style,
+      })),
+    ]),
+  ).toBe(422);
+
+  await t.editConfig({ maxFileBytes: 20 });
+
+  expect(await status([entry, { path: "css/app.css", hash: style }])).toBe(413);
+
+  await t.editConfig({ maxFileBytes: 52_428_800 });
+
+  expect(await status([entry, { path: "css/app.css", hash: style }])).toBe(200);
+});
+
+test("a Markdown folder's hand edit and accepted suggestion change only its entry", async () => {
+  const { t, cwd, part } = await setUp();
+  const folder = join(cwd, "plan");
+
+  await mkdir(folder);
+  await writeFile(join(folder, "plan.md"), "# Plan\n\nShip Friday.\n");
+  await writeFile(join(folder, "chart.svg"), "<svg/>");
+
+  const { details } = await part.tool("publish_artifact", {
+    path: "plan",
+    entry: "plan.md",
+  });
+
+  const { id } = details as { id: string };
+
+  await t.as("ana").post(`artifacts/${id}/versions`, {
+    text: "# Plan\n\nShip Monday.\n",
+  });
+
+  expect(
+    await t.as("ana").get<VersionFiles>(`artifacts/${id}/files?v=2`),
+  ).toMatchObject({
+    entry: "plan.md",
+    files: [
+      { path: "chart.svg", change: "same" },
+      { path: "plan.md", change: "edited", lines: { added: 1, removed: 1 } },
+    ],
+  });
+
+  expect(
+    await (
+      await t.as("ana").raw(`artifacts/${id}/download?v=2&path=plan.md`, {
+        method: "GET",
+      })
+    ).text(),
+  ).toBe("# Plan\n\nShip Monday.\n");
+
+  // An edit keeps the folder within the most its files may take.
+  await t.editConfig({ maxFileBytes: 30 });
+
+  expect(
+    (
+      await t.as("ana").raw(`artifacts/${id}/versions`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text: "# Plan\n\nShip Monday, and more.\n" }),
+      })
+    ).status,
+  ).toBe(413);
+
+  // A .zip without ZIP64 holds up to 4 GiB, so a setting past 2 GiB takes
+  // the default.
+  await t.editConfig({ maxFileBytes: 2_147_483_649 });
+
+  expect(
+    (await t.as("ana").get<VersionFiles>(`artifacts/${id}/files?v=2`)).maxBytes,
+  ).toBe(52_428_800);
+
+  await t.editConfig({ maxFileBytes: 2_147_483_648 });
+
+  expect(
+    (await t.as("ana").get<VersionFiles>(`artifacts/${id}/files?v=2`)).maxBytes,
+  ).toBe(2_147_483_648);
+});
+
+test("each version already published is a folder of its one file", async () => {
+  const before = {
+    ...artifacts,
+    migrations: artifacts.migrations.slice(0, 11) as readonly string[],
+  };
+
+  await using t = await testPlugin(
+    {
+      plugin: before,
+      register: (context) => {
+        server.register(context);
+      },
+    },
+    { people: [{ id: "ana", name: "Ana" }] },
+  );
+
+  t.store.run(
+    "insert into artifacts_artifacts (id, owner_user_id, title, created_at, updated_at) values ('old', 'ana', 'Old', 1, 1)",
+  );
+
+  t.store.run(
+    `insert into artifacts_versions (artifact_id, number, name, hash, size, author, created_at) values ('old', 1, 'old.md', '${"a".repeat(64)}', 6, 'user:ana', 1)`,
+  );
+
+  before.migrations = artifacts.migrations;
+  await t.restart();
+
+  expect(await t.as("ana").get<ArtifactView>("artifacts/old")).toMatchObject({
+    history: [{ name: "old.md", files: 1 }],
+  });
+
+  expect(await t.as("ana").get<VersionFiles>("artifacts/old/files")).toEqual({
+    entry: "old.md",
+    files: [{ path: "old.md", size: 6, change: "added", lines: null }],
+    removed: [],
+    maxBytes: 52_428_800,
+  });
+});
+
+test("deleting a folder keeps the files another artifact still has", async () => {
+  const { t, host, cwd, part } = await setUp();
+  const folder = await dashboard(cwd);
+
+  const first = await part.tool("publish_artifact", { path: "dashboard" });
+
+  await writeFile(join(folder, "index.html"), "<h1>Second</h1>");
+  await rm(join(folder, "img"), { recursive: true });
+
+  const second = await part.tool("publish_artifact", { path: "dashboard" });
+  const { id } = first.details as { id: string };
+  const kept = (second.details as { id: string }).id;
+
+  const logo = createHash("sha256")
+    .update(new Uint8Array([137, 80, 78, 71]))
+    .digest("hex");
+
+  await t.as("ana").delete(`artifacts/${id}`);
+
+  expect(
+    await (
+      await t
+        .as("ana")
+        .raw(`artifacts/${kept}/download?path=styles%2Fapp.css`, {
+          method: "GET",
+        })
+    ).text(),
+  ).toBe(".kpi {\n  color: red;\n}\n");
+
+  const page = await uploaded(t, "ana", "<h1>Hi</h1>");
+
+  expect(
+    (
+      await host.api.raw("session/artifacts", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: "index.html",
+          hash: page,
+          files: [
+            { path: "index.html", hash: page },
+            { path: "img/logo.png", hash: logo },
+          ],
+        }),
+      })
+    ).status,
+  ).toBe(409);
+});
+
+test("a link to a folder's files opens only its artifact and version, and only while its person sees it", async () => {
+  const { t, cwd, part } = await setUp();
+  const folder = await dashboard(cwd);
+  const first = await part.tool("publish_artifact", { path: "dashboard" });
+  const other = await part.tool("publish_artifact", { path: "dashboard" });
+  const { id } = first.details as { id: string };
+  const elsewhere = (other.details as { id: string }).id;
+
+  await t.as("ana").put(`artifacts/${id}/shares`, {
+    shares: [{ name: "Bo", role: "view" }],
+  });
+
+  const grant =
+    (await t.as("bo").raw(`artifacts/${id}/view`, { method: "GET" })).headers
+      .get("location")
+      ?.split("/")[1] ?? "";
+
+  await writeFile(join(folder, "styles", "app.css"), ".kpi { color: blue }");
+  await part.tool("publish_artifact", { path: "dashboard", id });
+
+  const style = async (artifact: string) => {
+    const response = await t
+      .public()
+      .raw(`artifacts/${artifact}/files/${grant}/styles/app.css`, {
+        method: "GET",
+      });
+
+    return response.ok ? response.text() : response.status;
+  };
+
+  expect(await style(id)).toBe(".kpi {\n  color: red;\n}\n");
+  expect(await style(elsewhere)).toBe(404);
+
+  await t.as("ana").put(`artifacts/${id}/shares`, { shares: [] });
+
+  expect(await style(id)).toBe(404);
+});
+
+test("accepting Pi's suggestion on a Markdown folder keeps its other files", async () => {
+  const { t, host, cwd, part } = await setUp();
+  const folder = join(cwd, "plan");
+
+  await mkdir(folder);
+  await writeFile(join(folder, "plan.md"), "# Plan\n\nShip Friday.\n");
+  await writeFile(join(folder, "chart.svg"), "<svg/>");
+
+  const { details } = await part.tool("publish_artifact", {
+    path: "plan",
+    entry: "plan.md",
+  });
+
+  const { id } = details as { id: string };
+
+  const thread = await t
+    .as("ana")
+    .post<{ id: string }>(`artifacts/${id}/comments`, {
+      version: 1,
+      body: "Friday is too soon",
+      toPi: true,
+    });
+
+  await until(() => host.delivered().length === 1);
+
+  await part.tool("suggest_artifact_edit", {
+    thread: thread.id,
+    find: "Ship Friday.",
+    replace: "Ship Monday.",
+  });
+
+  const { comments } = await t
+    .as("ana")
+    .get<{ comments: Comment[] }>(`artifacts/${id}/comments`);
+
+  const suggested = comments.find(({ byPi }) => byPi)?.id ?? "";
+
+  await t
+    .as("ana")
+    .put(`artifacts/${id}/comments/${suggested}/suggestion`, { accept: true });
+
+  expect(
+    await t.as("ana").get<VersionFiles>(`artifacts/${id}/files?v=2`),
+  ).toMatchObject({
+    entry: "plan.md",
+    files: [
+      { path: "chart.svg", change: "same" },
+      { path: "plan.md", change: "edited" },
+    ],
+  });
+});
+
+test("a person publishing a file never folds it into a folder of the same entry name", async () => {
+  const { t, host, cwd, part } = await setUp();
+
+  await dashboard(cwd);
+
+  const { details } = await part.tool("publish_artifact", {
+    path: "dashboard",
+  });
+
+  const { id } = details as { id: string };
+
+  const published = await t
+    .as("ana")
+    .post<{ id: string; version: number }>("artifacts", {
+      session: host.id,
+      name: "index.html",
+      hash: await uploaded(t, "ana", "<h1>Alone</h1>"),
+    });
+
+  expect(published.id).not.toBe(id);
+  expect(published.version).toBe(1);
+
+  expect(
+    (await t.as("ana").get<ArtifactView>(`artifacts/${id}`)).history,
+  ).toMatchObject([{ files: 3 }]);
+});
+
+test("Pi reading a folder whose paths clash with its own folder hears why, not a file error", async () => {
+  const { cwd, part } = await setUp();
+
+  await dashboard(cwd);
+
+  const { details } = await part.tool("publish_artifact", {
+    path: "dashboard",
+  });
+
+  const { id } = details as { id: string };
+
+  await writeFile(join(cwd, ".artifacts"), "a file where Pi's folder goes");
+
+  expect(await part.tool("read_artifact", { id })).toMatchObject({
+    isError: true,
+    text: expect.stringContaining(
+      `artifact ${id} couldn't be written`,
+    ) as unknown,
   });
 });
