@@ -119,6 +119,7 @@ function policy(scriptHosts: readonly string[], base?: string): string {
     `img-src data: blob: ${hosts}`,
     `font-src data: ${hosts}`,
     `media-src data: blob:${base === undefined ? "" : ` ${base}`}`,
+    ...(base === undefined ? [] : [`connect-src ${base}`]),
     "form-action 'none'",
   ].join("; ");
 }

@@ -81,6 +81,7 @@ export interface Callers {
 export interface Router {
   readonly handle: (request: Request) => Promise<Response>;
   readonly takesLong: (request: Request) => boolean;
+  readonly readBySandbox: (request: Request) => boolean;
 }
 
 type Segment =
@@ -369,6 +370,10 @@ export function createRouter(
         delivered.delete(taken);
       }
 
+      if (spec.sandboxed === true) {
+        response.headers.set("access-control-allow-origin", "*");
+      }
+
       if (request.method !== "GET" && response.ok) {
         for (const topic of spec.changes ?? []) {
           deps.publish(topic);
@@ -402,6 +407,16 @@ export function createRouter(
         found !== undefined &&
         "route" in found &&
         found.route.spec.long === true
+      );
+    },
+    readBySandbox: (request) => {
+      const found = find(request);
+
+      return (
+        request.method === "GET" &&
+        found !== undefined &&
+        "route" in found &&
+        found.route.spec.sandboxed === true
       );
     },
   };

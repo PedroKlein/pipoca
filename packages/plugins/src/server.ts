@@ -226,6 +226,7 @@ export interface RouteSpec<
   readonly team?: A extends "person" ? boolean : never;
   readonly changes?: readonly string[];
   readonly long?: boolean;
+  readonly sandboxed?: boolean;
   readonly tool?: RouteToolSpec;
 }
 

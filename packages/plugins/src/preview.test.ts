@@ -53,7 +53,7 @@ test("a script given runs in every page it draws", async () => {
   );
 });
 
-test("a page may load its own files from its base, but not fetch them, and they go as they are under the same policy", async () => {
+test("a page may load and fetch its own files from its base, and they go as they are under the same policy", async () => {
   const base = "pipoca.example/files/grant/";
   const page = preview("index.html", bytes("<p>hi</p>"), { base });
   const policy = page?.headers.get("content-security-policy") ?? "";
@@ -64,14 +64,12 @@ test("a page may load its own files from its base, but not fetch them, and they 
     "img-src",
     "font-src",
     "media-src",
+    "connect-src",
   ]) {
     expect(
       policy.split("; ").find((each) => each.startsWith(`${directive} `)),
     ).toEndWith(` ${base}`);
   }
-
-  // Whether a page may fetch its files is undecided, so it fetches nothing.
-  expect(policy).not.toContain("connect-src");
 
   const style = previewAsset("styles/app.css", bytes("p {}"), { base });
 
