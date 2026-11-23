@@ -20,6 +20,7 @@ import {
   activityTopics,
   type Access,
   type ArtifactSummary,
+  type ArtifactType,
   type Audience,
   type ArtifactView,
   type Batch,
@@ -60,7 +61,7 @@ import {
 } from "./artifacts";
 import { activityLog } from "./activity";
 import { lineDiff } from "./diff";
-import { presences } from "./presence";
+import { presences, presentations } from "./presence";
 import { rendered } from "./render";
 import { type BuiltIn, builtIns } from "./templates";
 import { zip } from "./zip";
@@ -138,6 +139,7 @@ interface SuggestionRow {
 }
 
 const shownMatches = 20;
+const maxSlides = 1000;
 const shownThreads = 30;
 
 const listed = 500;
@@ -172,6 +174,7 @@ const templateFields = {
 
 // How long a link to a folder's files lasts once its page opens.
 const grantMs = 60 * 60 * 1000;
+const grantStepMs = 10 * 60 * 1000;
 
 // Artifacts, their versions' bytes in the plugin's blob store (ADR 0078).
 export const server = defineServer(
@@ -212,6 +215,18 @@ export const server = defineServer(
         id,
         number,
       );
+
+    const shownOf = (
+      id: string,
+      found: VersionRow,
+    ): { readonly type: ArtifactType; readonly page: string } => {
+      const type = typeOf(
+        found.name,
+        filesOf(id, found.number).map(({ path }) => path),
+      );
+
+      return { type, page: type === "slides" ? "deck.html" : found.name };
+    };
 
     const savedOf = (id: string, found: VersionRow): Saved => ({
       entry: found.name,
@@ -347,13 +362,7 @@ export const server = defineServer(
         id: artifact.id,
         title: artifact.title,
         kind,
-        type:
-          last === undefined
-            ? kind
-            : typeOf(
-                last.name,
-                filesOf(artifact.id, last.number).map(({ path }) => path),
-              ),
+        type: last === undefined ? kind : shownOf(artifact.id, last).type,
         template,
         sessionId: artifact.session_id,
         sessionTitle:
@@ -866,7 +875,10 @@ export const server = defineServer(
       createHmac("sha256", grantKey).update(`${id}\n${said}`).digest();
 
     const grantFor = (id: string, number: number, person: string): string => {
-      const said = `${String(number)}.${String(clock.now() + grantMs)}.${person}`;
+      const until =
+        Math.ceil((clock.now() + grantMs) / grantStepMs) * grantStepMs;
+
+      const said = `${String(number)}.${String(until)}.${person}`;
 
       return `${said}.${mac(id, said).toString("base64url")}`;
     };
@@ -920,13 +932,15 @@ export const server = defineServer(
         const artifact = theirs(params.id, caller);
         const found = versionOf(artifact, query.v);
 
+        const shown = shownOf(artifact.id, found);
+
         if (found.files > 1) {
           const grant = grantFor(artifact.id, found.number, caller.person.id);
 
           return new Response(null, {
             status: 302,
             headers: {
-              location: `files/${grant}/${found.name.split("/").map(encodeURIComponent).join("/")}`,
+              location: `files/${grant}/${shown.page.split("/").map(encodeURIComponent).join("/")}`,
               "cache-control": "no-store",
             },
           });
@@ -937,6 +951,7 @@ export const server = defineServer(
           found.name,
           await content(found),
           config.get().scriptHosts,
+          { slides: shown.type === "slides" },
         );
       },
     );
@@ -956,14 +971,19 @@ export const server = defineServer(
 
         const base = `${where.host}${where.pathname}/`;
 
+        const shown = shownOf(artifact.id, found);
+
         const served =
-          file.path === found.name
+          file.path === shown.page
             ? rendered(
-                kindOf(found.name) ?? "html",
-                found.name,
+                kindOf(file.path) ?? "html",
+                file.path,
                 kept,
                 scriptHosts,
-                base,
+                {
+                  base,
+                  slides: shown.type === "slides",
+                },
               )
             : previewAsset(file.path, kept, { scriptHosts, base });
 
@@ -2157,9 +2177,10 @@ export const server = defineServer(
               ({ person }) =>
                 person !== caller.person.id && sees(artifact, person),
             )
-            .map(({ person, typing }) => ({
+            .map(({ person, typing, following }) => ({
               name: personName(person, null),
               typing,
+              ...(following && { following }),
             })),
         };
       },
@@ -2178,6 +2199,7 @@ export const server = defineServer(
               Type.Null(),
             ]),
           ),
+          following: Type.Optional(Type.Boolean()),
         }),
       },
       ({ caller, params, body }) => {
@@ -2193,6 +2215,115 @@ export const server = defineServer(
         looking.beat(artifact.id, caller.person.id, body);
 
         return { here: body.here };
+      },
+    );
+
+    const presented = presentations({
+      clock,
+      timer,
+      changed: (artifact) => {
+        routes.topic(`presence-${artifact}`);
+      },
+    });
+
+    const presentingOf = (artifact: Row, viewer: string) => {
+      const found = presented.get(artifact.id);
+
+      if (found !== undefined && access(artifact, found.person) === "view") {
+        presented.drop(artifact.id);
+
+        return { presenting: null };
+      }
+
+      return {
+        presenting:
+          found === undefined
+            ? null
+            : {
+                by: personName(found.person, null),
+                yours: found.person === viewer,
+                version: found.version,
+                slide: found.slide,
+                step: found.step,
+                blank: found.blank,
+                since: found.since,
+              },
+      };
+    };
+
+    routes.get(
+      "artifacts/:id/presenting",
+      { auth: "person" },
+      ({ caller, params }) =>
+        presentingOf(theirs(params.id, caller), caller.person.id),
+    );
+
+    routes.put(
+      "artifacts/:id/presenting",
+      {
+        auth: "person",
+        body: Type.Object({
+          page: Type.String({ minLength: 1, maxLength: 64 }),
+          version: Type.Integer({ minimum: 1 }),
+          slide: Type.Integer({ minimum: 0, maximum: maxSlides }),
+          step: Type.Integer({ minimum: 0, maximum: maxSlides }),
+          blank: Type.Boolean(),
+        }),
+      },
+      ({ caller, params, body }) => {
+        const artifact = commenter(params.id, caller);
+
+        if (
+          shownOf(artifact.id, versionOf(artifact, body.version)).type !==
+          "slides"
+        ) {
+          throw new BadRequest("Only a deck is presented.");
+        }
+
+        const by = presentingOf(artifact, caller.person.id).presenting?.by;
+
+        if (
+          !presented.move(
+            artifact.id,
+            { person: caller.person.id, ...body },
+            steers(artifact, caller.person.id),
+          )
+        ) {
+          throw new HttpError(
+            409,
+            `${by ?? "Someone"} is presenting it.`,
+            "presenting",
+          );
+        }
+
+        return presentingOf(artifact, caller.person.id);
+      },
+    );
+
+    routes.delete(
+      "artifacts/:id/presenting",
+      {
+        auth: "person",
+        query: Type.Object({
+          page: Type.String({ minLength: 1, maxLength: 64 }),
+        }),
+      },
+      ({ caller, params, query }) => {
+        const artifact = commenter(params.id, caller);
+
+        presentingOf(artifact, caller.person.id);
+
+        if (
+          !presented.end(
+            artifact.id,
+            { person: caller.person.id, page: query.page },
+            steers(artifact, caller.person.id),
+          )
+        ) {
+          throw new Forbidden("Only whoever presents it ends it.");
+        }
+
+        return { presenting: null };
       },
     );
 
@@ -3278,7 +3409,12 @@ export const server = defineServer(
 
         const served =
           path === shipped.entry
-            ? rendered(kindOf(path) ?? "html", path, encoded, scriptHosts, base)
+            ? rendered(kindOf(path) ?? "html", path, encoded, scriptHosts, {
+                base,
+                slides:
+                  typeOf(shipped.entry, Object.keys(shipped.files)) ===
+                  "slides",
+              })
             : previewAsset(path, encoded, { scriptHosts, base });
 
         // A new release may change them.

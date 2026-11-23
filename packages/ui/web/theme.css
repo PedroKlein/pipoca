@@ -128,7 +128,7 @@
   --scrim: rgb(26 23 18 / 0.32);
 }
 
-@theme {
+@theme inline {
   --color-*: initial;
   --color-bg: var(--bg);
   --color-panel: var(--bg-panel);
@@ -159,6 +159,8 @@
   /* What a browser draws under a page that sets no background of its own,
      in either theme, for artifacts and file previews. */
   --color-canvas: #ffffff;
+  /* What a presenter shows while they blank the screen. */
+  --color-blank: #000000;
   --color-butter: var(--butter);
   --color-on-butter: var(--on-butter);
   --color-transparent: transparent;

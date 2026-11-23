@@ -1,11 +1,18 @@
 import { frameSandbox, href, useDraft } from "@pipoca/plugins/web";
 import { cn } from "@pipoca/ui";
-import { type ReactElement, useCallback, useEffect, useRef } from "react";
+import {
+  type CSSProperties,
+  type ReactElement,
+  useCallback,
+  useEffect,
+  useRef,
+} from "react";
 import { isHttpError, type TypedClient } from "@pipoca/plugins";
 import { artifacts as plugin } from "../plugin";
 import { type ArtifactView, versionOf } from "../src/artifacts";
 import type { Span } from "../src/diff";
 import type { Outline } from "./doc";
+import type { At, Slide } from "./slides";
 
 export const base = "/api/ext/artifacts";
 
@@ -16,6 +23,12 @@ export function artifactHref(id: string, version?: number): string {
     plugin,
     version === undefined ? id : `${id}/v/${String(version)}`,
   );
+}
+
+// The slide alone, following whoever presents the deck, for a second
+// screen.
+export function audienceHref(id: string): string {
+  return href(plugin, `${id}/audience`);
 }
 
 const maxDraft = 4000;
@@ -83,7 +96,13 @@ export function Frame({
   onOutline,
   goto,
   changes,
+  slide,
+  onDeck,
+  onPinned,
+  onKey,
+  unseen = false,
   className,
+  style,
 }: {
   readonly artifact: ArtifactView;
   readonly version: number;
@@ -111,9 +130,21 @@ export function Frame({
         readonly spans: readonly (Span & { readonly text: string })[];
       }
     | undefined;
+  readonly slide?: At | undefined;
+  readonly onDeck?: (deck: {
+    readonly slides: readonly Slide[];
+    readonly duration: string;
+  }) => void;
+  readonly onPinned?: (
+    pins: readonly { readonly n: number; readonly slide: number }[],
+  ) => void;
+  readonly onKey?: (key: string) => void;
+  // Drawn out of sight only to hear what the page reports.
+  readonly unseen?: boolean;
   // Its size and edge, in place of a bordered box three quarters as tall as
   // the window.
   readonly className?: string;
+  readonly style?: CSSProperties;
 }): ReactElement {
   const frame = useRef<HTMLIFrameElement>(null);
   const draft = useDraft();
@@ -138,7 +169,33 @@ export function Frame({
         sections?: unknown;
         tops?: unknown;
         scrolled?: unknown;
+        slides?: unknown;
+        duration?: unknown;
+        pins?: unknown;
+        key?: unknown;
       } | null;
+
+      if (data?.pipoca === "deck") {
+        onDeck?.({
+          slides: slidesOf(data.slides),
+          duration:
+            typeof data.duration === "string" ? data.duration.slice(0, 20) : "",
+        });
+
+        return;
+      }
+
+      if (data?.pipoca === "pinned") {
+        onPinned?.(pinnedOf(data.pins));
+
+        return;
+      }
+
+      if (data?.pipoca === "key" && typeof data.key === "string") {
+        onKey?.(data.key);
+
+        return;
+      }
 
       if (data?.pipoca === "outline") {
         onOutline?.({
@@ -209,7 +266,19 @@ export function Frame({
     return () => {
       removeEventListener("message", heard);
     };
-  }, [draft, onEscape, onOutline, onPick, onPin, onScroll, sessionId, steers]);
+  }, [
+    draft,
+    onDeck,
+    onEscape,
+    onKey,
+    onOutline,
+    onPick,
+    onPin,
+    onPinned,
+    onScroll,
+    sessionId,
+    steers,
+  ]);
 
   useEffect(() => {
     if (goto !== undefined) {
@@ -247,6 +316,17 @@ export function Frame({
 
   useEffect(markChanges, [markChanges]);
 
+  const showSlide = useCallback(() => {
+    if (slide !== undefined) {
+      frame.current?.contentWindow?.postMessage(
+        { pipoca: "slide", slide: slide.slide, step: slide.step },
+        "*",
+      );
+    }
+  }, [slide]);
+
+  useEffect(showSlide, [showSlide]);
+
   return (
     <iframe
       ref={frame}
@@ -254,14 +334,17 @@ export function Frame({
       title={`${artifact.title}, ${frameName(artifact, version)}`}
       src={`${base}/artifacts/${artifact.id}/view?v=${String(version)}`}
       {...(artifact.kind !== "pdf" && { sandbox: frameSandbox })}
+      {...(unseen && { "aria-hidden": true, tabIndex: -1 })}
       onLoad={() => {
         tell();
         markChanges();
+        showSlide();
       }}
       className={cn(
         "w-full shrink-0 bg-canvas",
         className ?? "h-[75vh] rounded-lg border border-line",
       )}
+      style={style}
     />
   );
 }
@@ -308,6 +391,48 @@ function outlineOf(
       },
     ),
   };
+}
+
+const shownSlides = 500;
+
+function slidesOf(value: unknown): Slide[] {
+  return (Array.isArray(value) ? value.slice(0, shownSlides) : []).flatMap(
+    (each: unknown) => {
+      const { selector, title, notes, steps } = (each ?? {}) as Record<
+        string,
+        unknown
+      >;
+
+      return typeof selector === "string" &&
+        typeof title === "string" &&
+        typeof notes === "string" &&
+        finite(steps)
+        ? [
+            {
+              selector: selector.slice(0, 4000),
+              title: title.slice(0, 80),
+              notes: notes.slice(0, 5000),
+              steps: Math.min(shownSlides, Math.max(0, Math.round(steps))),
+            },
+          ]
+        : [];
+    },
+  );
+}
+
+function pinnedOf(value: unknown): { n: number; slide: number }[] {
+  return (Array.isArray(value) ? value.slice(0, shownPins) : []).flatMap(
+    (each: unknown) => {
+      const { n, slide } = (each ?? {}) as Record<string, unknown>;
+
+      return finite(n) &&
+        Number.isInteger(n) &&
+        finite(slide) &&
+        Number.isInteger(slide)
+        ? [{ n, slide }]
+        : [];
+    },
+  );
 }
 
 function boxOf(value: unknown): Box | undefined {
