@@ -6506,6 +6506,60 @@ test("opens an artifact Pi published, in a sandbox, from its card in the chat", 
   await page.locator("#prompt-text:focus").waitFor();
 }, 45_000);
 
+test("shows a published PDF in the viewer's frame", async () => {
+  const folder = join(root, "certificate");
+  await mkdir(folder, { recursive: true });
+
+  await writeFile(
+    join(folder, "certificate.pdf"),
+    "%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[]/Count 0>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n",
+  );
+
+  faux.setResponses([
+    fauxAssistantMessage(
+      [
+        fauxToolCall("publish_artifact", {
+          path: "certificate.pdf",
+          title: "Certificate",
+        }),
+      ],
+      { stopReason: "toolUse" },
+    ),
+    fauxAssistantMessage([fauxText("Published the certificate")]),
+  ]);
+
+  await page.goto(server.url.href);
+  await page.getByRole("button", { name: "New session" }).click();
+  const form = page.locator("form#create");
+
+  await pickWorkspace(form, folder);
+  await form.getByRole("button", { name: "Start session" }).click();
+  await page.locator("#status", { hasText: "idle" }).waitFor();
+
+  const box = page.locator("#prompt-text");
+  await box.fill("make the certificate");
+  await box.press("Enter");
+  await page.getByText("Published the certificate").waitFor();
+
+  const shown = page.waitForResponse((response) =>
+    /\/api\/ext\/artifacts\/artifacts\/[^/]+\/view/.test(response.url()),
+  );
+
+  await page
+    .getByRole("link", { name: /^Certificate/ })
+    .first()
+    .click();
+
+  const response = await shown;
+
+  expect([
+    response.status(),
+    response.headers()["content-type"],
+    response.headers()["x-frame-options"],
+    response.headers()["content-security-policy"],
+  ]).toEqual([200, "application/pdf", "SAMEORIGIN", "frame-ancestors 'self'"]);
+});
+
 test("Pi suggests an edit in a thread, accepting it saves the next version, and Activity tells the person who asked", async () => {
   const folder = join(root, "suggested");
   await mkdir(folder, { recursive: true });
