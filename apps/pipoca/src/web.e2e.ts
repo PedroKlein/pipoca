@@ -9473,7 +9473,8 @@ test("an admin pastes the key of a team runner's extension provider, and Credent
   await agent("/runner/work", joined.token, {
     running: [],
     folders: [],
-    models: [{ provider: "ai-core", id: "claude-on-core" }],
+    models: [],
+    registeredModels: [{ provider: "ai-core", id: "claude-on-core" }],
   });
 
   await page.goto(
