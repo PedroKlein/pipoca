@@ -434,7 +434,7 @@ test("a Session file opens in the viewer with its folder, size and maker, steps 
   );
 
   expect(document.querySelector("dialog iframe")?.getAttribute("src")).toBe(
-    `/api/ext/files/sessions/session-1/files/outputs/view?path=mismatches.csv&v=${"a".repeat(64)}`,
+    `/api/ext/files/sessions/session-1/files/outputs/view?path=mismatches.csv`,
   );
 
   expect(
@@ -448,7 +448,7 @@ test("a Session file opens in the viewer with its folder, size and maker, steps 
   });
 
   expect(document.querySelector("dialog iframe")?.getAttribute("src")).toBe(
-    `/api/ext/files/sessions/session-1/files/outputs/view?path=mismatches.csv&v=${"a".repeat(64)}&as=text`,
+    `/api/ext/files/sessions/session-1/files/outputs/view?path=mismatches.csv&as=text`,
   );
 
   act(() => {
@@ -478,7 +478,7 @@ test("a Session file opens in the viewer with its folder, size and maker, steps 
   await settle(() => heading() === "mismatches.csv");
 
   expect(document.querySelector("dialog iframe")?.getAttribute("src")).toBe(
-    `/api/ext/files/sessions/session-1/files/outputs/view?path=mismatches.csv&v=${"a".repeat(64)}`,
+    `/api/ext/files/sessions/session-1/files/outputs/view?path=mismatches.csv`,
   );
 });
 

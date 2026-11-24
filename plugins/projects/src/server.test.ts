@@ -624,12 +624,12 @@ test("a thread's Files menu lists what it wrote in the Project folder, which ope
   });
 
   const view = await ana.raw(
-    `projects/${s.project.id}/file/view?path=notes%2Fprovider.md&v=${hash}`,
+    `projects/${s.project.id}/file/view?path=notes%2Fprovider.md`,
     { method: "GET" },
   );
 
   expect(await view.text()).toContain("<p>Same p95.</p>");
-  expect(view.headers.get("cache-control")).toContain("immutable");
+  expect(view.headers.get("cache-control")).toBe("private, no-cache");
 
   expect(
     (

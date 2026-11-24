@@ -243,7 +243,7 @@ function ProjectFileViewer({
       name={shown.path}
       line={`project/ · ${bytes(shown.size)} · ${shown.by} changed it ${ago(new Date(shown.updatedAt).toISOString(), now)}`}
       size={shown.size}
-      view={`/api/ext/projects/${base}/file/view${query}&v=${shown.hash}`}
+      view={`/api/ext/projects/${base}/file/view${query}`}
       download={`/api/ext/projects/${base}/file${query}`}
       titleId={titleId}
       {...(value?.[1].steers === true && { session: value[1].coordinatorId })}

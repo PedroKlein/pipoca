@@ -564,7 +564,7 @@ function SessionFileViewer({
       name={shown.path}
       line={`${shown.place}/ · ${size(shown.size)} · ${maker(shown, viewer.person.id)} ${ago(new Date(shown.savedAt).toISOString(), now)}`}
       size={shown.size}
-      view={`${where}/view${query}&v=${shown.hash}`}
+      view={`${where}/view${query}`}
       download={`${where}${query}`}
       titleId={titleId}
       {...(listed?.steers === true && { session: sessionId })}
