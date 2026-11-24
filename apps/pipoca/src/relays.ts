@@ -190,9 +190,18 @@ export function relayBroker(auth: Auth, log: Log): Relays {
       },
       message: (ws, message) => {
         const { tunnel } = ws.data;
-        const pending = tunnel === undefined ? undefined : tunnels.get(tunnel);
 
-        if (tunnel === undefined || pending === undefined) {
+        if (tunnel === undefined) {
+          if (message === "ping") {
+            ws.send("pong");
+          }
+
+          return;
+        }
+
+        const pending = tunnels.get(tunnel);
+
+        if (pending === undefined) {
           return;
         }
 
