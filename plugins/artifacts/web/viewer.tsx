@@ -96,8 +96,15 @@ import { useSize } from "./size";
 import { SaveTemplateDialog } from "./templates";
 import { ShareDialog } from "./share";
 import { Compare, Editor } from "./versions";
+import type { SystemView } from "../src/systems";
+import {
+  SystemBody,
+  SystemButton,
+  SystemCompare,
+  SystemThumb,
+} from "./systems";
 
-type Body = "page" | "files" | "compare" | "edit" | "grid";
+type Body = "page" | "files" | "compare" | "edit" | "grid" | "system";
 
 // A link to an artifact that opens it over the page. Opened in a new tab,
 // it shows the artifact alone.
@@ -413,6 +420,7 @@ function Shown({
 
   const deck = artifact.type === "slides";
   const canvas = artifact.type === "canvas";
+  const system = artifact.type === "system";
 
   const body =
     opened.on !== asked ||
@@ -538,6 +546,22 @@ function Shown({
     drawing === undefined || drawing === null || drawing === "failed"
       ? undefined
       : drawing;
+
+  const { value: styled, reload: restyle } = useLoaded(
+    async (): Promise<SystemView | "failed" | null> =>
+      system
+        ? api
+            .get<SystemView>(`systems/${artifact.id}?v=${String(shown)}`)
+            .catch(() => "failed" as const)
+        : null,
+    `${artifact.id}:${String(shown)}:system`,
+    { changes: ["artifacts"] },
+  );
+
+  const tokens =
+    styled === undefined || styled === null || styled === "failed"
+      ? undefined
+      : styled;
 
   const [boarded, setBoarded] = useState<{ file: string; mode: BoardMode }>();
 
@@ -953,10 +977,16 @@ function Shown({
 
   const downloadLabel = files > 1 ? "Download .zip" : "Download";
 
-  const pageLabels = { slides: "Slides", canvas: "Canvas" } as const;
+  const pageLabels = {
+    slides: "Slides",
+    canvas: "Canvas",
+    system: "System",
+  } as const;
 
   const pageLabel =
-    artifact.type === "slides" || artifact.type === "canvas"
+    artifact.type === "slides" ||
+    artifact.type === "canvas" ||
+    artifact.type === "system"
       ? pageLabels[artifact.type]
       : "Page";
 
@@ -1130,7 +1160,7 @@ function Shown({
         scrolled={held.scrolled}
         area={room}
         people={people ?? []}
-        noun={nounOf(canvas, board !== undefined)}
+        noun={nounOf(canvas, board !== undefined, system)}
         onDone={(done) => {
           setAnchor(undefined);
 
@@ -1266,6 +1296,40 @@ function Shown({
     );
   }
 
+  const used = artifact.designSystem;
+
+  if (body === "system" && used !== undefined && used.latest !== null) {
+    return (
+      <div className={viewerShellClass}>
+        <header className={viewerHeaderClass}>
+          <Button
+            variant="ghost"
+            size="sm"
+            iconOnly
+            autoFocus
+            aria-label="Back to the page"
+            onClick={toPage}
+          >
+            <Icon name="chevron-left" className="size-3.5" />
+          </Button>
+          <ViewerTitle
+            mode={mode}
+            titleId={titleId}
+            title={artifact.title}
+            line={`Comparing ${used.name} v${String(used.version)} and v${String(used.latest)}`}
+          />
+          {mode !== "window" && <ViewerClose onClose={onClose} focus={false} />}
+        </header>
+        <SystemCompare
+          id={used.id}
+          from={used.version}
+          to={used.latest}
+          changed={used.changed}
+        />
+      </div>
+    );
+  }
+
   if (body === "edit") {
     return (
       <div className={viewerShellClass}>
@@ -1293,7 +1357,15 @@ function Shown({
   return (
     <div ref={shell} className={viewerShellClass}>
       <header className={viewerHeaderClass}>
-        <ViewerLead mode={mode} />
+        {system && tokens !== undefined && mode === "modal" ? (
+          <SystemThumb
+            id={artifact.id}
+            thumb={tokens.thumb}
+            className="max-sm:hidden"
+          />
+        ) : (
+          <ViewerLead mode={mode} />
+        )}
         <ViewerTitle
           mode={mode}
           titleId={titleId}
@@ -1324,7 +1396,18 @@ function Shown({
                             ]),
                       ]
                     : []),
-                  ...(files > 1 && !deck && !canvas
+                  ...(system
+                    ? [
+                        "Design system",
+                        ...(tokens?.server === true ? ["Team default"] : []),
+                        ...(tokens === undefined
+                          ? []
+                          : [
+                              `used by ${String(tokens.users.length)} ${tokens.users.length === 1 ? "artifact" : "artifacts"}`,
+                            ]),
+                      ]
+                    : []),
+                  ...(files > 1 && !deck && !canvas && !system
                     ? [`${String(files)} files`]
                     : []),
                   originLine(artifact, mode),
@@ -1345,6 +1428,14 @@ function Shown({
           />
         )}
         <Here people={presence.people.map(({ name }) => name)} />
+        <SystemButton
+          artifact={artifact}
+          onCompare={() => {
+            setBody("system");
+          }}
+          onAsked={setSaid}
+          onFailed={setProblem}
+        />
         {!phone && (
           <Menu
             label={`${versionLine.replace(" · latest", ", the latest")}. Versions`}
@@ -1719,7 +1810,23 @@ function Shown({
               writing={writing}
             />
           )}
-          {!canvas && !deck && (
+          {system && (
+            <div
+              ref={measured}
+              className="relative flex min-w-0 flex-1 flex-col overflow-hidden"
+            >
+              {styled === "failed" && (
+                <p className="p-4.5 text-fg-dim">
+                  The design system didn&apos;t load.
+                </p>
+              )}
+              {tokens !== undefined && (
+                <SystemBody view={tokens} version={shown} onChanged={restyle} />
+              )}
+              {writing(area, 1)}
+            </div>
+          )}
+          {!canvas && !deck && !system && (
             <div
               ref={measured}
               className="relative flex min-w-0 flex-1 flex-col overflow-hidden"
@@ -1798,7 +1905,7 @@ function Shown({
                 }}
                 onSaid={setSaid}
                 onActive={activate}
-                noun={nounOf(canvas, board !== undefined)}
+                noun={nounOf(canvas, board !== undefined, system)}
                 onWholePage={() => {
                   const on = slides[at.slide];
 
@@ -1919,7 +2026,11 @@ function Shown({
   );
 }
 
-function nounOf(canvas: boolean, board: boolean): Noun {
+function nounOf(canvas: boolean, board: boolean, system: boolean): Noun {
+  if (system) {
+    return "design system";
+  }
+
   if (!canvas) {
     return "page";
   }

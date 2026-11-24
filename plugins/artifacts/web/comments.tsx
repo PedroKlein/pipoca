@@ -91,7 +91,7 @@ const kindLabels: Readonly<Record<CommentKind, string>> = {
 };
 
 // What a comment on the whole of what's open is on.
-export type Noun = "page" | "board" | "canvas";
+export type Noun = "page" | "board" | "canvas" | "design system";
 
 function where(anchor: Anchor, noun: Noun): ReactNode {
   if ("page" in anchor) {
@@ -685,6 +685,7 @@ const emptyLines: Readonly<Record<Noun, string>> = {
   board: "Select text or click part of the board to comment on it.",
   canvas:
     "Open a board to comment on part of it, or comment on the whole canvas.",
+  "design system": "Comment on the whole design system.",
 };
 
 function empty(shown: Listed, artifact: ArtifactView, noun: Noun): string {

@@ -1,5 +1,10 @@
 import { expect, spyOn, test } from "bun:test";
-import { AttachMenu, type MountedSession } from "@pipoca/plugins/web";
+import {
+  AttachMenu,
+  frameSandbox,
+  type MountedSession,
+  type SessionPartProps,
+} from "@pipoca/plugins/web";
 import {
   drafts,
   newSessions,
@@ -12,10 +17,12 @@ import { act, type ReactElement, useState } from "react";
 import type {
   ActivityItem,
   ArtifactSummary,
+  ArtifactView,
   Comment,
   Presence,
   Template,
 } from "../src/artifacts";
+import type { Systems, SystemSummary, SystemView } from "../src/systems";
 import { web } from "./index";
 
 // The page's change stream, which tells only what a test says changed.
@@ -4422,8 +4429,10 @@ test("the + menu attaches an artifact as text that names its id and version for 
   await drawn(() => row() !== undefined);
 
   // Only what this Session's Pi can read, saying which Session made it when
-  // another did.
-  expect(asked).toEqual(["/api/ext/artifacts/artifacts?for=session-1"]);
+  // another did. The menu's design system row loads what's picked.
+  expect(asked.filter((url) => !url.includes("/systems?"))).toEqual([
+    "/api/ext/artifacts/artifacts?for=session-1",
+  ]);
 
   expect(
     [
@@ -6684,7 +6693,7 @@ test("in team work, the + menu's templates leave out the person's own, which its
 
   await drawn(() => tileInputs(pickerDialog() ?? document).length > 0);
 
-  expect(asked[0]?.url).toBe(
+  expect(asked.find(({ url }) => url.includes("/templates"))?.url).toBe(
     `/api/ext/artifacts/templates?session=${mounted.id}`,
   );
 
@@ -9976,4 +9985,1001 @@ test("a pointer let go outside the canvas still lets Tab bring a board into view
   });
 
   expect(layer(page)).toBe("translate(-2000px, -450px) scale(1)");
+});
+
+function systemSummary(o: Partial<SystemSummary> = {}): SystemSummary {
+  return {
+    id: "pipoca",
+    name: "Pipoca",
+    scope: "builtin",
+    by: "Pipoca",
+    version: 1,
+    usedBy: 11,
+    thumb: { ground: "rgb(250 247 240)", ink: "rgb(26 23 18)" },
+    ...o,
+  };
+}
+
+const someSystems = [
+  systemSummary({
+    id: "acme",
+    name: "Acme design system",
+    scope: "team",
+    by: "Team",
+    version: 5,
+    usedBy: 6,
+    thumb: { ground: "rgb(29 36 51)", ink: "rgb(243 197 82)" },
+  }),
+  systemSummary(),
+  systemSummary({
+    id: "talk",
+    name: "Conference talk",
+    scope: "mine",
+    by: "Ana",
+    version: 2,
+    usedBy: 1,
+  }),
+];
+
+function systemView(o: Partial<SystemView> = {}): SystemView {
+  return {
+    ...someSystems[0],
+    tokens: {
+      colors: [
+        { name: "ink", value: "rgb(29 36 51)", usage: "Text" },
+        { name: "paper", value: "white", usage: "" },
+        { name: "accent", value: "rgb(194 65 12)", usage: "One per slide" },
+      ],
+      type: [
+        {
+          name: "display",
+          family: "Georgia, serif",
+          size: "34px",
+          lineHeight: "1.15",
+          weight: "400",
+          letterSpacing: "",
+          sample: "Ready to cut over",
+          usage: "Title slides",
+        },
+      ],
+      spacing: [{ name: "space-2", value: "8px", usage: "Rows" }],
+    },
+    problems: [],
+    components: [
+      { name: "Button", file: "components/Button/preview.html" },
+      { name: "KPI", file: "components/KPI/preview.html" },
+    ],
+    files: 9,
+    users: [{ id: "d1", title: "Webhooks v2", type: "slides", version: 5 }],
+    server: true,
+    mine: false,
+    ...o,
+  } as SystemView;
+}
+
+function systemsServed(
+  asked: Served[],
+  answers: Readonly<Record<string, unknown>>,
+  rest: (url: string, init?: RequestInit) => Promise<Response> = async () =>
+    Promise.resolve(Response.json({})),
+): (url: string, init?: RequestInit) => Promise<Response> {
+  return async (url, init) => {
+    await Promise.resolve();
+
+    const path = url.replace("/api/ext/artifacts/", "");
+    const answer = answers[path];
+
+    if (answer === undefined && !path.startsWith("systems")) {
+      return rest(url, init);
+    }
+
+    asked.push({
+      url: path,
+      method: init?.method ?? "GET",
+      ...(typeof init?.body === "string" && {
+        body: JSON.parse(init.body) as unknown,
+      }),
+    });
+
+    if (typeof answer === "object" && answer !== null && "refused" in answer) {
+      const { status, error } = answer.refused as {
+        status: number;
+        error: string;
+      };
+
+      return Response.json({ error }, { status });
+    }
+
+    return answer === undefined
+      ? Response.json({ error: `nothing at ${path}` }, { status: 404 })
+      : Response.json(answer);
+  };
+}
+
+function settingsShown(
+  systems: Partial<Systems>,
+  asked: Served[] = [],
+  admin = false,
+  answers: Readonly<Record<string, unknown>> = {},
+): HTMLElement {
+  return renderPart(
+    web,
+    "settings.general",
+    {},
+    {
+      admin,
+      fetch: systemsServed(asked, {
+        systems: {
+          systems: someSystems,
+          server: "acme",
+          mine: null,
+          unpicked: "default",
+          ...systems,
+        },
+        ...answers,
+      }),
+    },
+  );
+}
+
+function systemRows(page: HTMLElement): (string | null)[] {
+  return [...page.querySelectorAll("ul[aria-label='Design systems'] li")].map(
+    (each) => each.textContent,
+  );
+}
+
+const puts = (asked: readonly Served[]): Served[] =>
+  asked.filter(({ method }) => method === "PUT");
+
+test("Settings › General lists the design systems with the team's default, makes one the person's own and says what Pi does when nothing is picked", async () => {
+  const asked: Served[] = [];
+  const before = newSessions.length;
+  const page = settingsShown({}, asked);
+
+  expect(page.textContent).toContain("Loading the design systems…");
+
+  await drawn(() => systemRows(page).length > 0);
+
+  expect(page.querySelector("h2")?.textContent).toBe("Design systems");
+
+  expect(systemRows(page)).toEqual([
+    "AaAcme design systemTeam · v5 · used by 6Team default",
+    "pPipocaBuilt in · v1 · used by 11Make my default",
+    "AaConference talkMine · v2 · used by 1Make my default",
+  ]);
+
+  expect(page.textContent).not.toContain("Loading");
+  expect(page.querySelector("a[href='#settings/artifacts']")).toBeNull();
+
+  act(() => {
+    named(page, "Make Conference talk my default")?.click();
+  });
+
+  await drawn(() => puts(asked).length === 1);
+
+  expect(puts(asked)).toEqual([
+    { url: "systems/settings", method: "PUT", body: { system: "talk" } },
+  ]);
+
+  const choices = page.querySelector(
+    "[role=group][aria-label='When nothing is picked']",
+  );
+
+  expect(
+    [...(choices?.querySelectorAll("button") ?? [])].map((each) => [
+      each.textContent,
+      each.getAttribute("aria-pressed"),
+    ]),
+  ).toEqual([
+    ["Use the default", "true"],
+    ["Pi asks which", "false"],
+    ["No system", "false"],
+  ]);
+
+  expect(page.textContent).toContain(
+    "When neither the Session nor your own default picks one.",
+  );
+
+  act(() => {
+    named(page, "Pi asks which")?.click();
+  });
+
+  await drawn(() => puts(asked).length === 2);
+  expect(puts(asked).at(-1)?.body).toEqual({ unpicked: "ask" });
+
+  act(() => {
+    named(page, "Ask Pi to make one from a repo")?.click();
+  });
+
+  expect(newSessions.slice(before)).toMatchObject([
+    {
+      text: "Make a design system from this repository's styles.",
+      attachments: [{ key: "design-system:make", title: "Design system" }],
+    },
+  ]);
+
+  expect(newSessions.at(-1)?.attachments[0]?.text).toContain(
+    "components/<Name>/preview.html",
+  );
+
+  act(() => {
+    named(page, "From a screenshot or URL")?.click();
+  });
+
+  expect(newSessions.at(-1)?.text).toBe(
+    "Make a design system from the screenshot or URL I attach: ",
+  );
+});
+
+test("an admin's design systems link to the server's artifact settings, and making the team's default their own clears theirs", async () => {
+  const asked: Served[] = [];
+
+  const page = settingsShown(
+    { server: "pipoca", mine: "talk", unpicked: "none" },
+    asked,
+    true,
+  );
+
+  await drawn(() => systemRows(page).length > 0);
+
+  expect(page.querySelector("a[href='#settings/artifacts']")?.textContent).toBe(
+    "Server settings for artifacts",
+  );
+
+  expect(systemRows(page)).toEqual([
+    "AaAcme design systemTeam · v5 · used by 6Make my default",
+    "pPipocaBuilt in · v1 · used by 11Team defaultMake my default",
+    "AaConference talkMine · v2 · used by 1My default",
+  ]);
+
+  act(() => {
+    named(page, "Make Pipoca my default")?.click();
+  });
+
+  await drawn(() => puts(asked).length === 1);
+  expect(puts(asked)[0]?.body).toEqual({ system: null });
+});
+
+test("Settings › Artifacts, for admins, picks the team's design system above the server's artifact settings", async () => {
+  const asked: Served[] = [];
+
+  const page = renderPart(
+    web,
+    "settings",
+    {},
+    {
+      admin: true,
+      fetch: systemsServed(asked, {
+        systems: {
+          systems: someSystems,
+          server: "acme",
+          mine: null,
+          unpicked: "default",
+        },
+        "systems/server": { server: "talk" },
+      }),
+    },
+  );
+
+  const picker = (): HTMLSelectElement | null =>
+    page.querySelector<HTMLSelectElement>("select");
+
+  await drawn(() => picker()?.disabled === false);
+
+  expect(page.textContent).toContain("Team design system");
+  expect(page.textContent).toContain("Largest artifact");
+  expect(picker()?.value).toBe("acme");
+
+  expect(
+    [...(picker()?.options ?? [])].map((each) => each.textContent),
+  ).toEqual(["Acme design system", "Pipoca", "Conference talk"]);
+
+  act(() => {
+    const select = picker();
+
+    if (select !== null) {
+      Object.getOwnPropertyDescriptor(
+        HTMLSelectElement.prototype,
+        "value",
+      )?.set?.call(select, "talk");
+
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+  });
+
+  await drawn(() => puts(asked).length === 1);
+
+  expect(puts(asked)).toEqual([
+    { url: "systems/server", method: "PUT", body: { system: "talk" } },
+  ]);
+});
+
+test("Settings › General says the team's default once when it's the person's own too", async () => {
+  const page = settingsShown({ server: "acme", mine: "acme" });
+
+  await drawn(() => systemRows(page).length > 0);
+
+  expect(systemRows(page)[0]).toBe(
+    "AaAcme design systemTeam · v5 · used by 6Team default",
+  );
+});
+
+test("Settings opens Pipoca's own system in place, whose team default switch says why it can't be turned off", async () => {
+  const page = settingsShown({ server: "pipoca" }, [], true, {
+    "systems/pipoca": systemView({
+      ...systemSummary(),
+      server: true,
+      users: [],
+    }),
+  });
+
+  await drawn(() => systemRows(page).length > 0);
+
+  act(() => {
+    named(page, "Pipoca")?.click();
+  });
+
+  const preview = (): HTMLDialogElement | undefined =>
+    [...document.querySelectorAll("dialog")].find(
+      (each) => each.querySelector("h2")?.textContent === "Pipoca",
+    );
+
+  await drawn(
+    () => preview()?.querySelector("section[aria-label=Default]") !== null,
+  );
+
+  const team = preview()?.querySelector<HTMLButtonElement>(
+    "section[aria-label=Default] [role=switch]",
+  );
+
+  expect(team?.disabled).toBe(true);
+
+  expect(preview()?.textContent).toContain(
+    "Pipoca's own is the team's default until you turn another system's on.",
+  );
+});
+
+function systemShown(
+  view: Partial<SystemView>,
+  asked: Served[],
+  admin: boolean,
+  extra: Readonly<Record<string, unknown>> = {},
+): HTMLElement {
+  return renderPart(
+    web,
+    "overlay",
+    {},
+    {
+      admin,
+      hash: "#session-1?artifact=acme",
+      fetch: systemsServed(
+        asked,
+        { "systems/acme?v=5": systemView(view), ...extra },
+        lively(
+          serving(
+            {
+              ...artifact({
+                id: "acme",
+                title: "Acme design system",
+                type: "system",
+                versions: 5,
+              }),
+              ...viewed(5),
+            },
+            [],
+          ),
+        ),
+      ),
+    },
+  );
+}
+
+const switches = (page: HTMLElement): HTMLButtonElement[] => [
+  ...page.querySelectorAll<HTMLButtonElement>(
+    "section[aria-label=Default] [role=switch]",
+  ),
+];
+
+const openTab = (page: HTMLElement, label: string): void => {
+  act(() => {
+    [...page.querySelectorAll<HTMLButtonElement>("[role=tab]")]
+      .find((each) => each.textContent === label)
+      ?.click();
+  });
+};
+
+test("a design system opens on its colors, type and components, each component in its own sandboxed frame, and says who uses it", async () => {
+  const asked: Served[] = [];
+
+  const page = systemShown(
+    {
+      users: [
+        { id: "d1", title: "Webhooks v2", type: "slides", version: 5 },
+        { id: "d2", title: "Kickoff", type: "slides", version: 4 },
+      ],
+    },
+    asked,
+    true,
+  );
+
+  await drawn(
+    () => page.querySelector("[role=tablist][aria-label=Sections]") !== null,
+  );
+
+  expect(page.textContent).toContain(
+    "Design system · Team default · used by 2 artifacts",
+  );
+
+  expect(tabTexts(page)).toEqual([
+    "Overview",
+    "Colors 3",
+    "Type 1",
+    "Spacing 1",
+    "Components 2",
+    "Used by 2",
+  ]);
+
+  const panel = page.querySelector("[role=tabpanel]");
+
+  expect(
+    document.getElementById(panel?.getAttribute("aria-labelledby") ?? "")
+      ?.textContent,
+  ).toBe("Overview");
+
+  expect(page.querySelector("section[aria-label=Colors]")?.textContent).toBe(
+    "Colorsinkrgb(29 36 51)paperwhiteaccentrgb(194 65 12)",
+  );
+
+  const tiles = [
+    ...page.querySelectorAll<HTMLButtonElement>(
+      "section[aria-label=Components] button",
+    ),
+  ];
+
+  expect(
+    tiles.map((each) => [
+      each.getAttribute("aria-label"),
+      each.querySelector("iframe")?.getAttribute("src"),
+      each.querySelector("iframe")?.getAttribute("sandbox"),
+    ]),
+  ).toEqual([
+    [
+      "Open Button",
+      "/api/ext/artifacts/artifacts/acme/view?v=5&path=components%2FButton%2Fpreview.html",
+      frameSandbox,
+    ],
+    [
+      "Open KPI",
+      "/api/ext/artifacts/artifacts/acme/view?v=5&path=components%2FKPI%2Fpreview.html",
+      frameSandbox,
+    ],
+  ]);
+
+  act(() => {
+    tiles[1]?.click();
+  });
+
+  expect(
+    [...document.querySelectorAll("dialog")]
+      .find((each) => each.querySelector("h2")?.textContent === "KPI")
+      ?.querySelector("iframe")
+      ?.getAttribute("title"),
+  ).toBe("KPI");
+
+  const [team, mine] = switches(page);
+
+  expect(team?.getAttribute("aria-checked")).toBe("true");
+  expect(mine?.getAttribute("aria-checked")).toBe("false");
+
+  act(() => {
+    mine?.click();
+  });
+
+  await drawn(() => puts(asked).length === 1);
+
+  act(() => {
+    team?.click();
+  });
+
+  await drawn(() => puts(asked).length === 2);
+
+  expect(puts(asked)).toEqual([
+    { url: "systems/settings", method: "PUT", body: { system: "acme" } },
+    { url: "systems/server", method: "PUT", body: { system: null } },
+  ]);
+
+  openTab(page, "Type 1");
+
+  expect(page.querySelector("[role=tabpanel]")?.textContent).toContain(
+    "Ready to cut overdisplay · 34px · line 1.15 · Title slides",
+  );
+
+  openTab(page, "Used by 2");
+
+  expect(
+    [
+      ...(page.querySelector("[role=tabpanel]")?.querySelectorAll("li") ?? []),
+    ].map((each) => each.textContent),
+  ).toEqual([
+    "Webhooks v2Slides · copy of v5",
+    "KickoffSlides · copy of v4 · v5 is newer",
+  ]);
+});
+
+test("someone who isn't an admin turns their own default off, with no team default switch", async () => {
+  const asked: Served[] = [];
+  const page = systemShown({ mine: true, server: false }, asked, false);
+
+  await drawn(() => switches(page).length > 0);
+
+  expect(page.textContent).not.toContain("Team default");
+  expect(switches(page)).toHaveLength(1);
+
+  act(() => {
+    switches(page)[0]?.click();
+  });
+
+  await drawn(() => puts(asked).length === 1);
+
+  expect(puts(asked)).toEqual([
+    { url: "systems/settings", method: "PUT", body: { system: null } },
+  ]);
+});
+
+test("Compare on a design system's own versions shows their tokens side by side and what changed", async () => {
+  const page = systemShown({}, [], false, {
+    "systems/acme?v=4": systemView({
+      version: 4,
+      tokens: {
+        ...systemView().tokens,
+        colors: [{ name: "ink", value: "black", usage: "" }],
+      },
+    }),
+  });
+
+  await drawn(() => versionMenu(page) !== undefined);
+
+  act(() => {
+    versionMenu(page)?.click();
+  });
+
+  act(() => {
+    item(page, "Compare versions…")?.click();
+  });
+
+  await drawn(
+    () => page.querySelector("section[aria-label='Version 4']") !== null,
+  );
+
+  expect(page.textContent).toContain("v5 changed ink, paper and accent.");
+  expect(page.querySelector("section[aria-label='Version 5']")).not.toBeNull();
+});
+
+function usedShown(
+  o: {
+    readonly type?: ArtifactView["type"];
+    readonly askable?: boolean;
+    readonly designSystem?: ArtifactView["designSystem"];
+  },
+  asked: Served[] = [],
+  answers: Readonly<Record<string, unknown>> = {},
+): HTMLElement {
+  return renderPart(
+    web,
+    "overlay",
+    {},
+    {
+      hash: "#session-1?artifact=a1",
+      fetch: systemsServed(
+        asked,
+        {
+          "systems/acme?v=5": systemView(),
+          "systems/acme?v=6": systemView({ version: 6 }),
+          "systems?session=session-1": {
+            systems: someSystems,
+            server: "acme",
+            mine: null,
+            unpicked: "default",
+            session: null,
+          },
+          ...answers,
+        },
+        lively(async (url, init) =>
+          url.includes("/canvas?")
+            ? Response.json({ error: "no canvas here" }, { status: 404 })
+            : serving(
+                {
+                  ...artifact({ title: "Webhooks v2", type: o.type ?? "html" }),
+                  ...viewed(1),
+                  askable: o.askable ?? true,
+                  designSystem: o.designSystem ?? {
+                    id: "acme",
+                    name: "Acme design system",
+                    version: 5,
+                    latest: 6,
+                    changed: ["accent", "KPI"],
+                  },
+                },
+                [],
+              )(url, init),
+        ),
+      ),
+    },
+  );
+}
+
+function systemMenu(page: HTMLElement): HTMLButtonElement | undefined {
+  return buttons(page).find(
+    (each) =>
+      each.getAttribute("aria-label")?.endsWith(". Design system") === true,
+  );
+}
+
+async function systemItems(
+  page: HTMLElement,
+): Promise<(readonly [string, string | null])[]> {
+  await drawn(() => systemMenu(page) !== undefined);
+
+  act(() => {
+    systemMenu(page)?.click();
+  });
+
+  return menuItems(page).map(
+    (each) => [each.textContent, each.getAttribute("aria-disabled")] as const,
+  );
+}
+
+test("an artifact made with a design system says which copy it keeps, and its menu asks Pi to update or switch and compares the versions", async () => {
+  const asked: Served[] = [];
+
+  const page = usedShown({}, asked, {
+    "artifacts/a1/system": { asked: true },
+  });
+
+  expect(await systemItems(page)).toEqual([
+    [
+      "Open Acme design systemThis page has a copy of v5. v6 changed accent and KPI.",
+      "false",
+    ],
+    ["Update to v6 (Pi redraws the page)", null],
+    ["Compare v5 and v6", null],
+    ["Switch to another system…", null],
+  ]);
+
+  expect(systemMenu(page)?.getAttribute("aria-label")).toBe(
+    "Acme v5, v6 is newer. Design system",
+  );
+
+  act(() => {
+    item(page, "Update to v6")?.click();
+  });
+
+  await drawn(() => page.textContent.includes("Pi is redrawing it with v6"));
+
+  expect(asked.find(({ method }) => method === "POST")).toEqual({
+    url: "artifacts/a1/system",
+    method: "POST",
+    body: { system: "acme" },
+  });
+
+  const switching = (): HTMLDialogElement | undefined =>
+    [...document.querySelectorAll("dialog")].find((each) =>
+      each.textContent.includes("Switch to another system"),
+    );
+
+  const radio = (value: string): HTMLInputElement | null | undefined =>
+    switching()?.querySelector<HTMLInputElement>(`input[value=${value}]`);
+
+  act(() => {
+    systemMenu(page)?.click();
+  });
+
+  act(() => {
+    item(page, "Switch to another system")?.click();
+  });
+
+  await drawn(() => radio("talk") !== null);
+
+  // What it may switch to is what its Session's Pi may use.
+  expect(asked.some(({ url }) => url === "systems?session=session-1")).toBe(
+    true,
+  );
+
+  act(() => {
+    radio("talk")?.click();
+  });
+
+  act(() => {
+    named(switching() as HTMLElement, "Cancel")?.click();
+  });
+
+  // Opening it again starts from the system it has.
+  act(() => {
+    systemMenu(page)?.click();
+  });
+
+  act(() => {
+    item(page, "Switch to another system")?.click();
+  });
+
+  await drawn(() => radio("acme")?.checked === true);
+
+  act(() => {
+    radio("talk")?.click();
+  });
+
+  act(() => {
+    named(switching() as HTMLElement, "Ask Pi to switch")?.click();
+  });
+
+  await drawn(
+    () => asked.filter(({ method }) => method === "POST").length === 2,
+  );
+
+  expect(asked.filter(({ method }) => method === "POST").at(-1)?.body).toEqual({
+    system: "talk",
+  });
+
+  act(() => {
+    systemMenu(page)?.click();
+  });
+
+  act(() => {
+    item(page, "Compare v5 and v6")?.click();
+  });
+
+  await drawn(
+    () => page.querySelector("section[aria-label='Version 6']") !== null,
+  );
+
+  expect(page.textContent).toContain("Comparing Acme design system v5 and v6");
+  expect(page.textContent).toContain("v6 changed accent and KPI.");
+  expect(page.querySelector("section[aria-label='Version 5']")).not.toBeNull();
+});
+
+test("asking Pi to redraw says when it fails as an error", async () => {
+  const page = usedShown({}, [], {
+    "artifacts/a1/system": {
+      refused: { status: 409, error: "The Session is gone." },
+    },
+  });
+
+  await systemItems(page);
+
+  act(() => {
+    item(page, "Update to v6")?.click();
+  });
+
+  await drawn(() => page.querySelector("[role=alert]") !== null);
+
+  expect(page.querySelector("[role=alert]")?.textContent).toContain(
+    "The Session is gone.",
+  );
+
+  expect(page.querySelector("[role=status]")?.textContent).toBe("");
+});
+
+test("a deck's or canvas's system menu says Pi redraws its slides or boards, and only people in its Session ask", async () => {
+  expect((await systemItems(usedShown({ type: "slides" })))[1]?.[0]).toBe(
+    "Update to v6 (Pi redraws the slides)",
+  );
+
+  expect(
+    await systemItems(usedShown({ type: "canvas", askable: false })),
+  ).toEqual([
+    [
+      "Open Acme design systemThis canvas has a copy of v5. v6 changed accent and KPI.",
+      "false",
+    ],
+    [
+      "Update to v6 (Pi redraws the boards)Only people in its Session can ask Pi.",
+      "true",
+    ],
+    ["Compare v5 and v6", null],
+    ["Switch to another system…Only people in its Session can ask Pi.", "true"],
+  ]);
+});
+
+test("the system menu opens Pipoca's own in place, and can't open a system its viewer doesn't see", async () => {
+  const pipoca = usedShown(
+    {
+      designSystem: {
+        id: "pipoca",
+        name: "Pipoca",
+        version: 1,
+        latest: 1,
+        changed: [],
+      },
+    },
+    [],
+    { "systems/pipoca": systemView({ ...systemSummary(), users: [] }) },
+  );
+
+  expect((await systemItems(pipoca))[0]).toEqual([
+    "Open PipocaThis page has a copy of v1. It's the latest.",
+    "false",
+  ]);
+
+  act(() => {
+    item(pipoca, "Open Pipoca")?.click();
+  });
+
+  await drawn(() =>
+    [...document.querySelectorAll("dialog")].some(
+      (each) =>
+        each.querySelector("h2")?.textContent === "Pipoca" &&
+        each.querySelector("[role=tablist]") !== null,
+    ),
+  );
+
+  const unseen = usedShown({
+    designSystem: {
+      id: "acme",
+      name: "Acme",
+      version: 5,
+      latest: null,
+      changed: [],
+    },
+  });
+
+  expect((await systemItems(unseen))[0]).toEqual([
+    "Open AcmeThis page has a copy of v5. You don't see the system, so newer versions aren't shown.",
+    "true",
+  ]);
+});
+
+function attachShown(
+  systems: Partial<Systems>,
+  asked: Served[],
+): SessionPartProps["session"] {
+  const Fill = web.slots?.["session.attach"];
+  const mounted = sessionWith({});
+
+  const attachSlots = {
+    attach: () =>
+      Fill === undefined ? null : (
+        <AttachMenu label="Attach files" onFiles={() => undefined}>
+          <Fill session={mounted} add={() => undefined} />
+        </AttachMenu>
+      ),
+  };
+
+  renderPart(
+    { ...web, slots: attachSlots },
+    "attach",
+    {},
+    {
+      fetch: systemsServed(asked, {
+        [`systems?session=${mounted.id}`]: {
+          systems: someSystems,
+          server: "acme",
+          mine: null,
+          unpicked: "default",
+          session: null,
+          ...systems,
+        },
+        "systems/session": { session: null },
+        templates: { templates: [], own: true },
+      }),
+    },
+  );
+
+  act(() => {
+    document
+      .querySelector<HTMLButtonElement>("button[aria-label='Attach files']")
+      ?.click();
+  });
+
+  return mounted;
+}
+
+const attachRow = (): HTMLButtonElement | undefined =>
+  [...document.querySelectorAll<HTMLButtonElement>("[role=group] button")].find(
+    (each) => each.textContent.startsWith("Design system"),
+  );
+
+const pickDialog = (): HTMLDialogElement | undefined =>
+  [...document.querySelectorAll("dialog")].find((each) =>
+    each.textContent.includes("Design system for this Session"),
+  );
+
+const pickRadio = (value: string): HTMLInputElement | null | undefined =>
+  pickDialog()?.querySelector<HTMLInputElement>(`input[value=${value}]`);
+
+test("the + menu's Design system picks the one Pi makes this Session's decks, canvases and pages with", async () => {
+  const asked: Served[] = [];
+  const mounted = attachShown({}, asked);
+
+  act(() => {
+    attachRow()?.click();
+  });
+
+  await drawn(() => pickRadio("talk") !== null);
+
+  expect(pickRadio("default")?.checked).toBe(true);
+
+  expect(pickDialog()?.textContent).toContain(
+    "Use the defaultThe team's: Acme design system",
+  );
+
+  expect(pickDialog()?.textContent).toContain(
+    "None herePi writes its own styles in this Session.",
+  );
+
+  act(() => {
+    pickRadio("none")?.click();
+  });
+
+  act(() => {
+    named(pickDialog() as HTMLElement, "Use it here")?.click();
+  });
+
+  await drawn(() => puts(asked).length === 1);
+
+  act(() => {
+    document
+      .querySelector<HTMLButtonElement>("button[aria-label='Attach files']")
+      ?.click();
+  });
+
+  act(() => {
+    attachRow()?.click();
+  });
+
+  await drawn(() => pickRadio("default") !== null);
+
+  act(() => {
+    pickRadio("default")?.click();
+  });
+
+  act(() => {
+    named(pickDialog() as HTMLElement, "Use it here")?.click();
+  });
+
+  await drawn(() => puts(asked).length === 2);
+
+  expect(puts(asked)).toEqual([
+    {
+      url: "systems/session",
+      method: "PUT",
+      body: { session: mounted.id, system: "none" },
+    },
+    {
+      url: "systems/session",
+      method: "PUT",
+      body: { session: mounted.id, system: null },
+    },
+  ]);
+});
+
+test("the + menu's Design system row names what the Session picked, and nothing picked falls back to the person's own default", async () => {
+  attachShown({ session: "acme", mine: "talk" }, []);
+
+  await drawn(() => attachRow()?.textContent === "Design system: Acme…");
+
+  act(() => {
+    attachRow()?.click();
+  });
+
+  await drawn(() => pickRadio("acme")?.checked === true);
+
+  expect(pickDialog()?.textContent).toContain(
+    "Use the defaultYours: Conference talk",
+  );
+});
+
+test("the + menu's Design system row says when the Session picked none, and nothing picked follows the person's choice", async () => {
+  attachShown({ session: "none", unpicked: "ask" }, []);
+
+  await drawn(() => attachRow()?.textContent === "Design system: none…");
+
+  act(() => {
+    attachRow()?.click();
+  });
+
+  await drawn(() => pickRadio("none")?.checked === true);
+
+  expect(pickDialog()?.textContent).toContain(
+    "Use the defaultPi asks which, as your settings say",
+  );
 });

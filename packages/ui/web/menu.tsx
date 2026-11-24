@@ -5,6 +5,7 @@ import {
   type RefObject,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
 } from "react";
@@ -72,8 +73,11 @@ export function useDismiss(
   }, [box, open, close]);
 }
 
+// The screen's gutter an open menu keeps inside.
+const gutter = 16;
+
 // A button that opens a short list of actions. A click outside or Escape
-// closes it.
+// closes it. It opens beside its button, shifted to stay on the screen.
 export function Menu({
   label,
   heading,
@@ -107,12 +111,56 @@ export function Menu({
 }): ReactElement {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
+  const panel = useRef<HTMLDivElement>(null);
 
   const shut = useCallback(() => {
     setOpen(false);
   }, []);
 
   useDismiss(box, open, shut);
+
+  // Measured from its box, as its opening animation scales it, and again
+  // when the screen or the menu changes size.
+  useLayoutEffect(() => {
+    const element = panel.current;
+    const anchor = box.current;
+
+    if (!open || element === null || anchor === null) {
+      return undefined;
+    }
+
+    const place = (): void => {
+      // Its computed left and width, unlike offsetLeft and offsetWidth,
+      // keep the fractions of a pixel the anchor's box has.
+      const style = getComputedStyle(element);
+      const width = document.documentElement.clientWidth;
+
+      const left =
+        anchor.getBoundingClientRect().left + Number.parseFloat(style.left);
+
+      const right = left + Number.parseFloat(style.width);
+
+      const by =
+        left < gutter ? gutter - left : Math.min(0, width - gutter - right);
+
+      element.style.translate = by === 0 ? "" : `${String(by)}px 0`;
+    };
+
+    place();
+    addEventListener("resize", place);
+
+    const watch =
+      typeof ResizeObserver === "undefined"
+        ? undefined
+        : new ResizeObserver(place);
+
+    watch?.observe(element);
+
+    return () => {
+      removeEventListener("resize", place);
+      watch?.disconnect();
+    };
+  }, [open]);
 
   return (
     <div ref={box} className={cn("relative", className)}>
@@ -132,6 +180,7 @@ export function Menu({
       </Button>
       {open && (
         <div
+          ref={panel}
           role="menu"
           aria-label={label}
           className={cn(

@@ -48,4 +48,4 @@ export { type MarkStatus, StatusMark } from "./status-mark";
 export { Step, Stepper, type StepState } from "./stepper";
 export { Switch } from "./switch";
 export { Cell, Table } from "./table";
-export { type Tab, Tabs } from "./tabs";
+export { type Tab, tabPanelLabel, Tabs } from "./tabs";

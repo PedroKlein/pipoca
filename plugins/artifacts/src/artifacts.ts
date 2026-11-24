@@ -1,4 +1,5 @@
 import { frontMatter, type PreviewKind, previewKind } from "@pipoca/plugins";
+import type { UsedSystem } from "./systems";
 
 // What an artifact is drawn as, from its file's extension (ADR 0078).
 export type Kind = Exclude<PreviewKind, "text">;
@@ -121,6 +122,10 @@ export interface Version {
   // How many files it has: its entry, name, and the ones its page links.
   readonly files: number;
 }
+
+// The folder format, for Pi making a system and for publish_artifact.
+export const systemFormat =
+  'A design system is a folder Pi publishes with publish_artifact and entry README.md: tokens.json holds its colors as {"tokens": [{"name", "value", "usage"}]}, its type as {"families": {"sans": "…"}, "styles": [{"name", "family", "fontSize", "lineHeight", "fontWeight", "sample", "usage"}]} and its spacing as {"tokens": [{"name", "value", "usage"}]}, under color, type and spacing; tokens.css sets each token as a CSS variable on :root; bundle.css styles the elements and the components\' classes from those variables; README.md tells Pi how to use it, in a few rules; and components/<Name>/preview.html is one plain HTML page per component that links ../../tokens.css and ../../bundle.css and shows it.';
 
 // A folder of files holds up to this many (ADR 0085).
 export const maxFiles = 200;
@@ -263,6 +268,8 @@ export interface ArtifactView extends ArtifactSummary {
   readonly shares: readonly Share[];
   readonly pinned: boolean;
   readonly doc: Doc | null;
+  // The design system it keeps a copy of, when it was made with one.
+  readonly designSystem?: UsedSystem;
 }
 
 export const docTypes = ["design", "spec", "plan"] as const;
@@ -684,8 +691,10 @@ export interface Published {
   readonly title: string;
   readonly version: number;
   readonly kind: Kind;
-  // What's wrong with a canvas's canvas.json, for Pi to fix.
+  // What's wrong with a canvas's canvas.json or a design system's
+  // tokens.json, for Pi to fix.
   readonly problems?: readonly string[];
+  readonly problemsIn?: "canvas.json" | "tokens.json";
 }
 
 export function kindLabel(kind: Kind): string {

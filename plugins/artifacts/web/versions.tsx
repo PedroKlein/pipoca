@@ -38,6 +38,7 @@ import {
 } from "../src/artifacts";
 import { type DiffLine, lineDiff, type Span, textChanges } from "../src/diff";
 import { audienceLabel, byline, versionChoices } from "./chrome";
+import { SystemCompare } from "./systems";
 import type { CanvasView } from "../src/canvas";
 import { ChangedBoards } from "./canvas";
 import { base, Frame } from "./collaborate";
@@ -126,7 +127,12 @@ export function Compare({
   const api = useApi(plugin);
   const now = useNow();
   const canvas = artifact.type === "canvas";
-  const text = isText(artifact.kind) && (!canvas || board !== undefined);
+  const system = artifact.type === "system";
+
+  // A design system's versions compare by their tokens and components.
+  const text =
+    isText(artifact.kind) && (!canvas || board !== undefined) && !system;
+
   const [how, setHow] = useState<How>("side");
 
   const [pair, setPair] = useState(() => {
@@ -329,7 +335,10 @@ export function Compare({
           sideName={strip}
         />
       )}
-      {how === "side" && !canvas && (
+      {how === "side" && system && (
+        <SystemCompare id={artifact.id} from={from} to={to} />
+      )}
+      {how === "side" && !canvas && !system && (
         <div className="grid min-h-0 flex-1 grid-cols-2 bg-panel max-md:grid-cols-1">
           {[from, to].map((number, side) => (
             <section

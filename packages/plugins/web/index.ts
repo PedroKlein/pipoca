@@ -34,6 +34,7 @@ export {
   AttachMenu,
   AttachPicker,
   AttachRow,
+  useAttachOpen,
 } from "./attach-menu";
 export { FileCard } from "./file-card";
 export { FilesMenu, FilesMenuHost, FilesRow, FilesSection } from "./files-menu";

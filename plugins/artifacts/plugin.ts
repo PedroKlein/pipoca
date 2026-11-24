@@ -240,6 +240,25 @@ create table artifacts_stickies (
   updated_at integer not null
 ) strict;
 create index artifacts_stickies_artifact on artifacts_stickies (artifact_id, created_at);`,
+    // 16: design systems (ADR 0085). The server's default, which an admin
+    // picks, each person's own and what Pi does when nothing is picked, and
+    // the system a Session picked, none being 'none'. A system is Pipoca's
+    // own, pipoca, or an artifact's id.
+    `create table artifacts_server_system (
+  id integer primary key check (id = 1),
+  system text not null
+) strict;
+
+create table artifacts_system_settings (
+  user_id text primary key references users (id) on delete cascade,
+  system text,
+  unpicked text not null default 'default' check (unpicked in ('default', 'ask', 'none'))
+) strict, without rowid;
+
+create table artifacts_session_systems (
+  session_id text primary key references sessions (id) on delete cascade,
+  system text not null
+) strict, without rowid;`,
   ],
   events: {
     // ADR 0081: mentions, review requests and replies, for the plugins that

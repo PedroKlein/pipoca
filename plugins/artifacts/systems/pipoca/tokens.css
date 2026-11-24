@@ -1,0 +1,29 @@
+:root {
+  --paper: #faf7f0;
+  --surface: #fffdf8;
+  --panel: #f3efe5;
+  --line: #e3ddd0;
+  --ink: #1a1712;
+  --ink-dim: #6b6457;
+  --accent: #f3c552;
+  --good: #17784b;
+  --warn: #9a5800;
+  --bad: #c42f2b;
+  --chart-1: #1a1712;
+  --chart-2: #086a78;
+  --chart-3: #c9a227;
+  --chart-4: #a29a8c;
+  --font-sans:
+    "Hanken Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-serif: Newsreader, Georgia, serif;
+  --font-mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+}

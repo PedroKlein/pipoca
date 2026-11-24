@@ -38,6 +38,7 @@ import { Gallery } from "./gallery";
 import { AttachArtifact, PublishFile, SessionArtifacts } from "./files";
 import { StartedCard, StartFromTemplate, TemplatePicker } from "./templates";
 import { Audience } from "./slides";
+import { PickSystem, ServerSettings, SystemSettings } from "./systems";
 import { ArtifactDock, ArtifactLink, ArtifactOverlay, Viewer } from "./viewer";
 
 export const web = defineWeb(plugin, {
@@ -57,8 +58,9 @@ export const web = defineWeb(plugin, {
       bare: (path) => path !== "",
     },
   ],
-  settings: { group: "server", form: "auto" },
+  settings: { group: "server", Section: ServerSettings },
   slots: {
+    "settings.general": SystemSettings,
     overlay: ArtifactOverlay,
     dock: ArtifactDock,
     "session.panel": SessionArtifacts,
@@ -136,13 +138,14 @@ function ArtifactList(): ReactElement {
   );
 }
 
-// The composer's + menu rows: an artifact to attach, and a template to
-// start from.
+// The composer's + menu rows: an artifact to attach, a template to start
+// from, and the design system Pi makes things with here.
 function Attach(props: SessionAttachProps): ReactElement {
   return (
     <>
       <AttachArtifact {...props} />
       <StartFromTemplate {...props} />
+      <PickSystem {...props} />
     </>
   );
 }
