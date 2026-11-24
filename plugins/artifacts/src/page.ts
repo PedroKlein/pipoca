@@ -2,8 +2,10 @@
 // selected or, in comment mode, clicked, to comment on it. It pins the
 // threads on the text or element they're on, tells its headings and which
 // threads sit under each for a design doc's outline, and when compared marks the
-// words one version changed, by where they sit in the page's text. What it
-// draws is marked data-pipoca-ui and stays out of the way of the page.
+// words one version changed, by where they sit in the page's text. On a
+// decision record it writes a line under headings, such as who voted for an
+// option. What it draws is marked data-pipoca-ui and stays out of the way of
+// the page.
 const selectorOf = `const selectorOf = (element) => {
   const path = [];
   for (let at = element; at !== null && at !== document.body; at = at.parentElement) {
@@ -134,6 +136,27 @@ const outline = (placed) => {
   }
   parent.postMessage({ pipoca: "outline", sections, tops: placed.map(({ n, target }) => ({ n, top: target.getBoundingClientRect().top + scrollY })), scrolled: scrollY }, "*");
 };
+let lines = [];
+const voted = "light-dark(rgb(23, 120, 75), rgb(110, 214, 160))";
+const underline = () => {
+  for (const each of document.querySelectorAll("pipoca-line")) each.remove();
+  const all = [...document.querySelectorAll("h1, h2, h3, h4, h5, h6")].filter((each) => each.closest("[data-pipoca-ui]") === null);
+  for (const { heading, text, strong, badge } of lines) {
+    const at = all.find((each) => (each.textContent ?? "").trim().replace(/\\s+/g, " ").toLowerCase() === String(heading).toLowerCase());
+    if (at === undefined) continue;
+    const line = document.createElement("pipoca-line");
+    line.dataset.pipocaUi = "";
+    line.setAttribute("style", "display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: -0.4em 0 0.6em; font: 600 12px/1.6 system-ui, sans-serif; color: " + (strong === true ? voted : "light-dark(rgb(107, 100, 87), rgb(162, 154, 140))") + ";");
+    line.textContent = String(text);
+    if (typeof badge === "string") {
+      const mark = document.createElement("span");
+      mark.textContent = badge;
+      mark.setAttribute("style", "padding: 0 8px; border-radius: 999px; color: " + voted + "; background: light-dark(rgba(23, 120, 75, 0.12), rgba(110, 214, 160, 0.16));");
+      line.append(mark);
+    }
+    at.after(line);
+  }
+};
 const pinAndShow = () => {
   pin();
   shown = pins.find((each) => each.active)?.n ?? null;
@@ -150,6 +173,10 @@ addEventListener("message", (event) => {
     pins = event.data.pins;
     badges = event.data.badges !== false;
     pinAndShow();
+  } else if (event.data?.pipoca === "lines" && Array.isArray(event.data.lines)) {
+    lines = event.data.lines;
+    underline();
+    pin();
   } else if (event.data?.pipoca === "goto") {
     headings()[event.data.section]?.scrollIntoView({ block: "start", behavior: "smooth" });
   }

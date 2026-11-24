@@ -19,13 +19,14 @@ import {
 } from "@pipoca/testing";
 import { until } from "@pipoca/testing/until";
 import { blobRoutes, type Session } from "@pipoca/protocol";
-import type {
-  ActivityItem,
-  ArtifactSummary,
-  ArtifactView,
-  Comment,
-  Template,
-  VersionFiles,
+import {
+  type ActivityItem,
+  type ArtifactSummary,
+  type ArtifactView,
+  type Comment,
+  decisionOptions,
+  type Template,
+  type VersionFiles,
 } from "./artifacts";
 import { artifacts } from "../plugin";
 import { lineDiff, textChanges } from "./diff";
@@ -2031,6 +2032,744 @@ test("an artifact is a design doc by its front matter, its meta tag or a person'
   expect(
     await marked("crlf.md", `---\r\na: b\r\n${"x\r\n".repeat(200)}`),
   ).toBeNull();
+});
+
+const decisionRecord = (
+  options: string,
+  decision = "Written when it's marked Decided.",
+): string =>
+  `---\ndoc: design\nstatus: in review\n---\n\n# Pick a queue\n\n## Context\n\nRetries live in the request path.\n\n## Options\n\n${options}\n## Open questions\n\n- None yet.\n\n## Decision\n\n${decision}\n`;
+
+const threeOptions = [
+  "### Option A: Postgres table\n\nNo new service. Order per customer by key.\n\n- **Costs:** a week.\n",
+  "### Option B: NATS JetStream\n\nFast, one more thing to run.\n",
+  "### Option C: change nothing\n\nCheapest, loses work on restart.\n",
+].join("\n");
+
+async function decisionOf(setup: Awaited<ReturnType<typeof setUp>>) {
+  const { t, cwd, part } = setup;
+
+  await writeFile(join(cwd, "decision.md"), decisionRecord(threeOptions));
+
+  const { details } = await part.tool("publish_artifact", {
+    path: "decision.md",
+    title: "Pick a queue",
+  });
+
+  const { id } = details as { id: string };
+
+  await t.as("ana").put(`artifacts/${id}/shares`, {
+    shares: [
+      { name: "Bo", role: "comment" },
+      { name: "Cy", role: "view" },
+    ],
+  });
+
+  const sent = async (
+    who: string,
+    path: string,
+    body: unknown,
+    on = id,
+  ): Promise<number> =>
+    (
+      await t.as(who).raw(`artifacts/${on}/${path}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      })
+    ).status;
+
+  const view = async (who = "ana") =>
+    t.as(who).get<ArtifactView>(`artifacts/${id}`);
+
+  const doc = async (who = "ana") => (await view(who)).doc;
+
+  const labels = async () => (await view()).history.map(({ label }) => label);
+
+  const publish = async (text: string) => {
+    await writeFile(join(cwd, "decision.md"), text);
+    await part.tool("publish_artifact", { path: "decision.md", id });
+  };
+
+  const threads = async () =>
+    (await t.as("ana").get<{ comments: Comment[] }>(`artifacts/${id}/comments`))
+      .comments;
+
+  return { id, sent, view, doc, labels, publish, threads };
+}
+
+const decidedRecord = decisionRecord(
+  threeOptions,
+  "Option A: no new service to run.",
+);
+
+test("a decision record's options take one vote or an abstention from each person who comments on it or reviews it", async () => {
+  const setup = await setUp();
+  const { sent, doc } = await decisionOf(setup);
+
+  expect((await doc())?.decision).toEqual({
+    options: [
+      {
+        key: "A",
+        title: "Postgres table",
+        heading: "Option A: Postgres table",
+        summary: "No new service. Order per customer by key.",
+        voters: [],
+      },
+      {
+        key: "B",
+        title: "NATS JetStream",
+        heading: "Option B: NATS JetStream",
+        summary: "Fast, one more thing to run.",
+        voters: [],
+      },
+      {
+        key: "C",
+        title: "change nothing",
+        heading: "Option C: change nothing",
+        summary: "Cheapest, loses work on restart.",
+        voters: [],
+      },
+    ],
+    abstained: [],
+    yours: null,
+    votes: true,
+    votedReviewers: 0,
+    chosen: null,
+    writing: false,
+  });
+
+  expect(await sent("bo", "vote", { option: "A" })).toBe(200);
+  expect(await sent("ana", "vote", { option: "B" })).toBe(200);
+  expect(await sent("ana", "vote", { option: "A" })).toBe(200);
+  expect(await sent("bo", "vote", { option: "D" })).toBe(400);
+
+  // Someone who only views it votes once they're asked to review it.
+  expect(await sent("cy", "vote", { option: "A" })).toBe(403);
+  expect((await doc("cy"))?.decision?.votes).toBe(false);
+
+  await sent("ana", "reviewers", { reviewers: ["Cy"] });
+
+  expect(await sent("cy", "vote", { option: null })).toBe(200);
+
+  expect((await doc("bo"))?.decision).toMatchObject({
+    options: [
+      { key: "A", voters: ["Ana", "You"] },
+      { key: "B", voters: [] },
+      { key: "C", voters: [] },
+    ],
+    abstained: ["Cy"],
+    yours: { option: "A" },
+  });
+
+  expect((await doc("cy"))?.decision).toMatchObject({
+    abstained: ["You"],
+    yours: { option: null },
+    votes: true,
+  });
+});
+
+test("someone who can no longer vote on a decision record no longer counts", async () => {
+  const setup = await setUp();
+  const { t, part } = setup;
+  const { id, sent, doc } = await decisionOf(setup);
+
+  await sent("bo", "vote", { option: "B" });
+  await sent("ana", "vote", { option: "A" });
+
+  // Bo can still see it, but not comment on it any more.
+  await t.as("ana").put(`artifacts/${id}/shares`, {
+    shares: [{ name: "Bo", role: "view" }],
+  });
+
+  expect((await doc())?.decision?.options.map(({ voters }) => voters)).toEqual([
+    ["You"],
+    [],
+    [],
+  ]);
+
+  const read = await part.tool("read_artifact", { id });
+
+  expect(read.text).toContain(
+    "- Option B, <comment_text>NATS JetStream</comment_text>: no votes",
+  );
+});
+
+test("only a design doc with options takes votes", async () => {
+  const setup = await setUp();
+  const { t, cwd, part } = setup;
+  const { sent } = await decisionOf(setup);
+
+  const published = async (name: string, text: string) => {
+    await writeFile(join(cwd, name), text);
+
+    return (
+      (await part.tool("publish_artifact", { path: name })).details as {
+        id: string;
+      }
+    ).id;
+  };
+
+  const plain = await published("plain.md", "---\ndoc: design\n---\n# Plain\n");
+
+  const spec = await published(
+    "spec.md",
+    `---\ndoc: spec\n---\n# Spec\n\n## Options\n\n### Option A: one\n`,
+  );
+
+  for (const each of [plain, spec]) {
+    expect(
+      (await t.as("ana").get<ArtifactView>(`artifacts/${each}`)).doc,
+    ).not.toHaveProperty("decision");
+
+    expect(await sent("ana", "vote", { option: "A" }, each)).toBe(400);
+    expect(await sent("ana", "vote", { option: null }, each)).toBe(400);
+
+    expect(
+      await sent("ana", "status", { status: "decided", option: "A" }, each),
+    ).toBe(400);
+  }
+});
+
+test("votes on a decision record stay through saves, and a vote for an option taken out counts again once it's back", async () => {
+  const setup = await setUp();
+  const { part } = setup;
+  const { id, sent, doc, publish } = await decisionOf(setup);
+
+  await sent("ana", "vote", { option: "A" });
+  await sent("bo", "vote", { option: "C" });
+
+  await publish(
+    decisionRecord(
+      "### Option A: Postgres table + SKIP LOCKED\n\nNo new service.\n\n### Option B: NATS JetStream\n\nFast.\n",
+    ),
+  );
+
+  expect((await doc("bo"))?.decision).toMatchObject({
+    options: [
+      { key: "A", title: "Postgres table + SKIP LOCKED", voters: ["Ana"] },
+      { key: "B", voters: [] },
+    ],
+    yours: null,
+  });
+
+  expect((await part.tool("read_artifact", { id })).text).toContain(
+    "Votes for options no longer in it: <comment_text>C</comment_text>: Bo",
+  );
+
+  // Reading the first version gives its options.
+  expect((await part.tool("read_artifact", { id, version: 1 })).text).toContain(
+    "- Option C, <comment_text>change nothing</comment_text>: Bo",
+  );
+
+  await publish(decisionRecord(threeOptions));
+
+  expect((await doc("bo"))?.decision).toMatchObject({
+    options: [{ voters: ["Ana"] }, { voters: [] }, { voters: ["You"] }],
+    yours: { option: "C" },
+  });
+});
+
+test("Pi reads a decision record's votes and the open Question threads its Open questions section lists", async () => {
+  const setup = await setUp();
+  const { t, part } = setup;
+  const { id, sent } = await decisionOf(setup);
+
+  const read = async () => (await part.tool("read_artifact", { id })).text;
+
+  expect(await read()).toContain(
+    "It has no open Question threads, so its Open questions section lists none.",
+  );
+
+  await sent("ana", "vote", { option: "A" });
+  await sent("bo", "vote", { option: null });
+
+  const comment = async (body: string, kind: string, parent?: string) =>
+    t.as("bo").post<{ id: string }>(`artifacts/${id}/comments`, {
+      version: 1,
+      body,
+      kind,
+      toPi: false,
+      ...(parent !== undefined && { parent }),
+    });
+
+  const open = await comment("Does A hold at 2k events a second?", "question");
+  const done = await comment("Who owns it?", "question");
+
+  await comment("Nice", "comment");
+  await comment("A reply", "comment", open.id);
+
+  await t.as("ana").post(`artifacts/${id}/comments/${done.id}/resolve`, {
+    resolved: true,
+  });
+
+  const text = await read();
+
+  expect(text).toContain("It's a decision record. Votes on its options:");
+
+  expect(text).toContain(
+    "- Option A, <comment_text>Postgres table</comment_text>: Ana",
+  );
+
+  expect(text).toContain(
+    "- Option B, <comment_text>NATS JetStream</comment_text>: no votes",
+  );
+
+  expect(text).toContain("Abstained: Bo");
+
+  expect(text).toEndWith(
+    `Open Question threads, which its Open questions section lists: thread ${open.id}: <comment_text>Does A hold at 2k events a second?</comment_text>`,
+  );
+
+  expect(text).not.toContain("Who owns it?");
+  expect(text).not.toContain("Nice");
+  expect(text).not.toContain("A reply");
+});
+
+test("Pi names an option keyed by its heading's text by that text alone", async () => {
+  const setup = await setUp();
+  const { cwd, part } = setup;
+
+  await writeFile(
+    join(cwd, "keep.md"),
+    decisionRecord("### Keep retries\n\nCheapest.\n"),
+  );
+
+  const { details } = await part.tool("publish_artifact", { path: "keep.md" });
+
+  expect(
+    (await part.tool("read_artifact", { id: (details as { id: string }).id }))
+      .text,
+  ).toContain("- <comment_text>Keep retries</comment_text>: no votes");
+});
+
+test("marking a decision record Decided names one of its options", async () => {
+  const setup = await setUp();
+  const { sent, doc } = await decisionOf(setup);
+
+  expect(await sent("ana", "status", { status: "decided" })).toBe(400);
+
+  expect(await sent("ana", "status", { status: "decided", option: "D" })).toBe(
+    400,
+  );
+
+  expect(await sent("ana", "status", { status: "review", option: "A" })).toBe(
+    400,
+  );
+
+  expect(await sent("bo", "status", { status: "decided", option: "A" })).toBe(
+    404,
+  );
+
+  expect(await sent("ana", "status", { status: "decided", option: "A" })).toBe(
+    200,
+  );
+
+  expect(await doc()).toMatchObject({
+    status: "decided",
+    decision: { chosen: { key: "A", title: "Postgres table" }, writing: true },
+  });
+
+  // Once decided, the votes are in.
+  expect(await sent("bo", "vote", { option: "B" })).toBe(409);
+
+  // Moved back, it names no option.
+  expect(await sent("ana", "status", { status: "review" })).toBe(200);
+
+  expect(await doc()).toMatchObject({
+    status: "review",
+    decision: { chosen: null, writing: false },
+  });
+});
+
+test("Pi is asked to write a decided record's Decision section in a thread, and its saves until it resolves it are the version decided", async () => {
+  const setup = await setUp();
+  const { host, part } = setup;
+  const { id, sent, doc, labels, publish, threads } = await decisionOf(setup);
+
+  await sent("ana", "status", { status: "decided", option: "A" });
+
+  expect(await labels()).toEqual([null]);
+  await until(() => host.delivered().length === 1);
+
+  const [asked] = await threads();
+
+  expect(asked).toMatchObject({
+    kind: "decision",
+    author: "You",
+    sentBy: "You",
+    body: "Decided: Option A, Postgres table. Write the Decision section from it, the votes and the discussion, publish it, and resolve this thread.",
+  });
+
+  expect((await part.tool("read_artifact", { id })).text).toContain(
+    "Ana marked it Decided on Option A, <comment_text>Postgres table</comment_text>: write its Decision section",
+  );
+
+  await publish(decidedRecord);
+
+  expect(await labels()).toEqual([null, "Decided by Ana"]);
+
+  // A second save before Pi resolves the thread is still the decision.
+  await publish(`${decidedRecord}\nMore.\n`);
+
+  expect(await labels()).toEqual([null, "Decided by Ana", "Decided by Ana"]);
+  expect(await doc()).toMatchObject({ status: "decided" });
+
+  await part.tool("resolve_artifact_comment", { thread: asked?.id ?? "" });
+
+  expect(await doc()).toMatchObject({
+    status: "decided",
+    decision: { chosen: { key: "A", title: "Postgres table" }, writing: false },
+  });
+
+  expect((await part.tool("read_artifact", { id })).text).toContain(
+    "It's Decided on Option A, <comment_text>Postgres table</comment_text>.",
+  );
+
+  // Then Pi's next save opens it again.
+  await publish(decisionRecord(threeOptions));
+
+  expect(await doc()).toMatchObject({
+    status: "review",
+    decision: { chosen: null, writing: false },
+  });
+
+  expect(await sent("bo", "vote", { option: "B" })).toBe(200);
+});
+
+test("a save Pi made before it heard of the decision isn't the version decided", async () => {
+  const setup = await setUp();
+  const { host } = setup;
+  const { sent, doc, labels, publish } = await decisionOf(setup);
+
+  await host.report([{ type: "status", status: "running" }]);
+  await sent("ana", "status", { status: "decided", option: "A" });
+  await publish(decidedRecord);
+
+  expect(await labels()).toEqual([null, null]);
+
+  expect(await doc()).toMatchObject({
+    status: "review",
+    decision: { chosen: null, writing: false },
+  });
+});
+
+test("a person's save before Pi's opens a decided record again, without a version", async () => {
+  const setup = await setUp();
+  const { t, host } = setup;
+  const { id, sent, doc, labels, publish } = await decisionOf(setup);
+
+  await sent("ana", "status", { status: "decided", option: "A" });
+  await until(() => host.delivered().length === 1);
+
+  await t.as("ana").post(`artifacts/${id}/versions`, {
+    text: decisionRecord(threeOptions, "Ana's words."),
+  });
+
+  expect(await doc()).toMatchObject({
+    status: "review",
+    decision: { chosen: null, writing: false },
+  });
+
+  await publish(decidedRecord);
+
+  expect(await labels()).toEqual([null, null, null]);
+  expect((await doc())?.status).toBe("review");
+});
+
+test("deciding again while Pi writes asks in the same thread", async () => {
+  const setup = await setUp();
+  const { host } = setup;
+  const { sent, doc, threads } = await decisionOf(setup);
+
+  await sent("ana", "status", { status: "decided", option: "A" });
+  await until(() => host.delivered().length === 1);
+  await sent("ana", "status", { status: "decided", option: "B" });
+
+  expect(await threads()).toMatchObject([
+    { kind: "decision", parent: null },
+    {
+      parent: (await threads())[0]?.id,
+      body: "Decided: Option B, NATS JetStream. Write the Decision section from it, the votes and the discussion, publish it, and resolve this thread.",
+    },
+  ]);
+
+  expect((await doc())?.decision).toMatchObject({
+    chosen: { key: "B", title: "NATS JetStream" },
+    writing: true,
+  });
+
+  await until(() => host.delivered().length === 2);
+});
+
+test("reviewers who voted are counted by who they are, whatever their names", async () => {
+  const setup = await setUp();
+  const { sent, doc } = await decisionOf(setup);
+
+  await sent("ana", "reviewers", { reviewers: ["Bo", "Cy"] });
+  await sent("bo", "vote", { option: "A" });
+
+  expect((await doc())?.decision?.votedReviewers).toBe(1);
+
+  await sent("cy", "vote", { option: null });
+  await sent("ana", "vote", { option: "B" });
+
+  expect((await doc())?.decision?.votedReviewers).toBe(2);
+});
+
+test("Pi resolving the Decision thread before it publishes still makes its next save the version decided", async () => {
+  const setup = await setUp();
+  const { host, part } = setup;
+  const { sent, doc, labels, publish, threads } = await decisionOf(setup);
+
+  await sent("ana", "status", { status: "decided", option: "A" });
+  await until(() => host.delivered().length === 1);
+
+  const [asked] = await threads();
+
+  await part.tool("resolve_artifact_comment", { thread: asked?.id ?? "" });
+
+  // A decided record always has its version.
+  expect(await labels()).toEqual(["Decided by Ana"]);
+
+  await publish(decidedRecord);
+
+  expect(await labels()).toEqual(["Decided by Ana", "Decided by Ana"]);
+
+  expect(await doc()).toMatchObject({
+    status: "decided",
+    decision: { chosen: { key: "A" }, writing: false },
+  });
+
+  // That was the decision's save: the next opens it again.
+  await publish(decisionRecord(threeOptions));
+
+  expect((await doc())?.status).toBe("review");
+});
+
+test("a person resolving the Decision thread makes the text as it is the version decided", async () => {
+  const setup = await setUp();
+  const { t, host } = setup;
+  const { id, sent, doc, labels, publish, threads } = await decisionOf(setup);
+
+  await sent("ana", "status", { status: "decided", option: "A" });
+  await until(() => host.delivered().length === 1);
+
+  const [asked] = await threads();
+
+  await t
+    .as("ana")
+    .post(`artifacts/${id}/comments/${asked?.id ?? ""}/resolve`, {
+      resolved: true,
+    });
+
+  expect(await labels()).toEqual(["Decided by Ana"]);
+
+  expect((await doc())?.decision).toMatchObject({
+    chosen: { key: "A" },
+    writing: false,
+  });
+
+  await publish(decidedRecord);
+
+  expect(await labels()).toEqual(["Decided by Ana", null]);
+  expect((await doc())?.status).toBe("review");
+});
+
+test("a decided record keeps naming its option when Pi's save takes the Options section out, and can still be saved as is", async () => {
+  const setup = await setUp();
+  const { host } = setup;
+  const { sent, doc, labels, publish } = await decisionOf(setup);
+
+  await sent("ana", "status", { status: "decided", option: "A" });
+  await until(() => host.delivered().length === 1);
+
+  await publish(
+    "---\ndoc: design\n---\n# Pick a queue\n\n## Decision\n\nPostgres.\n",
+  );
+
+  expect((await doc())?.decision).toMatchObject({
+    options: [],
+    chosen: { key: "A", title: "Postgres table" },
+    writing: true,
+  });
+
+  expect(
+    await sent("ana", "status", { status: "decided", option: "A", ask: false }),
+  ).toBe(200);
+
+  expect(await labels()).toEqual([null, "Decided by Ana"]);
+
+  expect((await doc())?.decision).toMatchObject({
+    chosen: { key: "A", title: "Postgres table" },
+    writing: false,
+  });
+});
+
+test("Save as is makes the text decided the version while Pi hasn't written, and closes the thread that asked", async () => {
+  const setup = await setUp();
+  const { sent, doc, labels, threads } = await decisionOf(setup);
+
+  await sent("ana", "status", { status: "decided", option: "A" });
+
+  expect(
+    await sent("ana", "status", {
+      status: "decided",
+      option: "A",
+      ask: false,
+    }),
+  ).toBe(200);
+
+  expect(await labels()).toEqual(["Decided by Ana"]);
+
+  expect((await doc())?.decision).toMatchObject({
+    chosen: { key: "A", title: "Postgres table" },
+    writing: false,
+  });
+
+  expect(await threads()).toMatchObject([{ resolved: true }]);
+});
+
+test("with no Pi to ask, the text decided is the version", async () => {
+  const setup = await setUp();
+  const { host } = setup;
+  const { sent, doc, labels } = await decisionOf(setup);
+
+  await host.archive();
+
+  expect(await sent("ana", "status", { status: "decided", option: "B" })).toBe(
+    200,
+  );
+
+  expect(await labels()).toEqual(["Decided by Ana"]);
+
+  expect((await doc())?.decision).toMatchObject({
+    chosen: { key: "B", title: "NATS JetStream" },
+    writing: false,
+  });
+
+  expect(host.delivered()).toEqual([]);
+});
+
+test("only the record's own Session is told to write its Decision section", async () => {
+  const setup = await setUp();
+  const { t } = setup;
+  const { id, sent } = await decisionOf(setup);
+  const other = await sessionOf(t, "ana");
+
+  await sent("ana", "status", { status: "decided", option: "A" });
+
+  const read = (await other.part.tool("read_artifact", { id })).text;
+
+  expect(read).toContain(
+    "It's Decided on Option A, <comment_text>Postgres table</comment_text>.",
+  );
+
+  expect(read).not.toContain("write its Decision section");
+});
+
+test("a decision record's options come from its Options section in Markdown", () => {
+  expect(
+    decisionOptions(
+      "markdown",
+      [
+        "# T",
+        "## OPTIONS",
+        "### A. Postgres",
+        "- Text `here`, [linked](https://x.test).",
+        "#### Not an option",
+        "```",
+        "### not a heading",
+        "```",
+        "~~~",
+        "```",
+        "### nor this",
+        "~~~",
+        "````",
+        "```",
+        "### nor this",
+        "````",
+        "### Option 1 - NATS",
+        "1. First step",
+        "### option b: lowercase",
+        "### A-team approach",
+        "### Option A: again",
+        "## Decision",
+        "### Option D: not an option",
+      ].join("\n\n"),
+    ),
+  ).toEqual([
+    {
+      key: "A",
+      title: "Postgres",
+      heading: "A. Postgres",
+      summary: "Text here, linked.",
+    },
+    {
+      key: "1",
+      title: "NATS",
+      heading: "Option 1 - NATS",
+      summary: "First step",
+    },
+    {
+      key: "B",
+      title: "lowercase",
+      heading: "option b: lowercase",
+      summary: "",
+    },
+    {
+      key: "A-team approach",
+      title: "A-team approach",
+      heading: "A-team approach",
+      summary: "",
+    },
+  ]);
+
+  expect(decisionOptions("markdown", "# T\n\n## Context\n\nNone.\n")).toEqual(
+    [],
+  );
+
+  expect(decisionOptions("csv", "## Options\n\n### A. x\n")).toEqual([]);
+});
+
+test("an option whose heading is long has a short key that stays while the heading does", () => {
+  const long = (end: string) =>
+    decisionOptions(
+      "markdown",
+      `## Options\n\n### ${"Keep every retry in process ".repeat(5)}${end}\n`,
+    )[0]?.key ?? "";
+
+  expect(long("a").length).toBeLessThanOrEqual(80);
+  expect(long("a")).toBe(long("a"));
+  expect(long("a")).not.toBe(long("b"));
+});
+
+test("a decision record's options come from its Options section in HTML, not from comments, scripts or templates", () => {
+  expect(
+    decisionOptions(
+      "html",
+      [
+        "<h1>T</h1>",
+        '<h2 id="o">Options</h2>',
+        "<!-- <h3>Option Z: commented</h3> -->",
+        "<script>'<h3>Option Y: scripted</h3>'</script>",
+        "<style>/* <h3>Option X: styled</h3> */</style>",
+        "<template><h3>Option W: templated</h3></template>",
+        "<h3>Option A: <em>Postgres</em> &amp; &lt;more&gt;</h3><p>No   new\n service, &quot;ever&quot; &#39;now&#39;.</p>",
+        "<h3>Option B: NATS</h3>",
+        "<h2>Decision</h2>",
+        "<h3>Option C: no</h3>",
+      ].join(""),
+    ),
+  ).toEqual([
+    {
+      key: "A",
+      title: "Postgres & <more>",
+      heading: "Option A: Postgres & <more>",
+      summary: "No new service, \"ever\" 'now'.",
+    },
+    { key: "B", title: "NATS", heading: "Option B: NATS", summary: "" },
+  ]);
 });
 
 test("an HTML page is edited in place too, while CSV and images still version on each publish", async () => {

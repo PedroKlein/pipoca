@@ -6,6 +6,8 @@ import {
   type ArtifactSummary,
   bytes,
   type Comment,
+  type Decision,
+  type DecisionOption,
   type Suggestion,
   type CommentKind,
   kindOf,
@@ -91,7 +93,7 @@ export const session = defineSession(artifacts, (s) => {
   s.tools.define({
     name: "publish_artifact",
     label: "Publish artifact",
-    description: `Publishes a file or a folder from your workspace as an artifact people open beside the Session, at a link that stays the same. Without id it makes a new artifact; with the id of one this Session published it adds a version. Works for ${supported}. A folder of up to ${String(maxFiles)} files opens at its entry file, which links the others, such as its stylesheets, pictures and scripts, by relative path, and its scripts can fetch them by relative path too. A folder with a deck.html is a slide deck, which opens at it: one <section> per slide, each with its speaker notes in an <aside class="notes">, drawn one at a time at 1280 by 720, with parts marked data-step appearing one per click. A page loads scripts only from allowed CDNs, its folder's files and nothing else from the network. A design doc, spec or plan people review starts with front matter in Markdown (doc: design, spec or plan, and status: draft or in review; people decide) or, in HTML, meta tags named pipoca:doc and pipoca:status.`,
+    description: `Publishes a file or a folder from your workspace as an artifact people open beside the Session, at a link that stays the same. Without id it makes a new artifact; with the id of one this Session published it adds a version. Works for ${supported}. A folder of up to ${String(maxFiles)} files opens at its entry file, which links the others, such as its stylesheets, pictures and scripts, by relative path, and its scripts can fetch them by relative path too. A folder with a deck.html is a slide deck, which opens at it: one <section> per slide, each with its speaker notes in an <aside class="notes">, drawn one at a time at 1280 by 720, with parts marked data-step appearing one per click. A page loads scripts only from allowed CDNs, its folder's files and nothing else from the network. A design doc, spec or plan people review starts with front matter in Markdown (doc: design, spec or plan, and status: draft or in review; people decide) or, in HTML, meta tags named pipoca:doc and pipoca:status. A design doc with an Options section whose option headings read Option A: …, Option B: … is a decision record people vote on; read_artifact gives its votes and open Question threads.`,
     params: Type.Object({
       path: Type.String({
         description: "The file or folder, from your working directory",
@@ -246,6 +248,11 @@ export const session = defineSession(artifacts, (s) => {
         version: number;
         entry: string;
         files: { path: string }[];
+        decision?: Decision & {
+          orphaned: { option: string; by: string }[];
+          decidedBy: string | null;
+          questions: Comment[];
+        };
       };
 
       const folder = join(s.folder, id, `v${String(listing.version)}`);
@@ -277,9 +284,14 @@ export const session = defineSession(artifacts, (s) => {
       const entry = join(folder, listing.entry);
       const others = listing.files.length - 1;
 
-      return others === 0
-        ? `Wrote version ${String(listing.version)} of artifact ${id} to ${entry}.`
-        : `Wrote version ${String(listing.version)} of artifact ${id} to ${entry}, with its ${String(others)} other ${others === 1 ? "file" : "files"} beside it.`;
+      const wrote =
+        others === 0
+          ? `Wrote version ${String(listing.version)} of artifact ${id} to ${entry}.`
+          : `Wrote version ${String(listing.version)} of artifact ${id} to ${entry}, with its ${String(others)} other ${others === 1 ? "file" : "files"} beside it.`;
+
+      return listing.decision === undefined
+        ? wrote
+        : `${wrote}\n${decisionLines(listing.decision)}`;
     },
   });
 
@@ -729,6 +741,52 @@ async function newFolder(path: string): Promise<string> {
       }
     }
   }
+}
+
+// What Pi keeps a decision record by: the votes on its options, its open
+// Question threads, and the option it was decided on.
+function decisionLines(
+  decision: Decision & {
+    readonly orphaned: readonly { option: string; by: string }[];
+    readonly decidedBy: string | null;
+    readonly questions: readonly Comment[];
+  },
+): string {
+  const named = (option: Pick<DecisionOption, "key" | "title">): string =>
+    option.key === option.title
+      ? fence(option.title)
+      : `Option ${option.key}, ${fence(option.title)}`;
+
+  const { chosen } = decision;
+
+  return fenced(
+    [
+      "It's a decision record. Votes on its options:",
+      ...decision.options.map(
+        (each) =>
+          `- ${named(each)}: ${each.voters.length === 0 ? "no votes" : each.voters.join(", ")}`,
+      ),
+      ...(decision.abstained.length === 0
+        ? []
+        : [`Abstained: ${decision.abstained.join(", ")}`]),
+      ...(decision.orphaned.length === 0
+        ? []
+        : [
+            `Votes for options no longer in it: ${decision.orphaned.map(({ option, by }) => `${fence(option)}: ${by}`).join("; ")}`,
+          ]),
+      decision.questions.length === 0
+        ? "It has no open Question threads, so its Open questions section lists none."
+        : `Open Question threads, which its Open questions section lists: ${decision.questions.map((each) => `thread ${each.id}: ${fence(each.body)}`).join("; ")}`,
+      ...(chosen === null
+        ? []
+        : [
+            decision.decidedBy === null
+              ? `It's Decided on ${named(chosen)}.`
+              : `${decision.decidedBy} marked it Decided on ${named(chosen)}: write its Decision section from that option, the votes and the discussion, then publish it, which saves the version decided.`,
+          ]),
+    ],
+    undefined,
+  );
 }
 
 function threadLines(comments: readonly Comment[]): string[] {

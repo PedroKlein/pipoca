@@ -26,6 +26,10 @@ import {
   type Batch,
   type Comment,
   type CommentKind,
+  type Decision,
+  decisionOptions,
+  type DecisionOption,
+  optionName,
   type Doc,
   type DocMark,
   inFolder,
@@ -75,6 +79,10 @@ interface Row {
   readonly updated_at: number;
   readonly doc_type: DocType | "none" | null;
   readonly doc_status: DocStatus | null;
+  readonly decided_option: string | null;
+  readonly decided_title: string | null;
+  readonly decision_thread_id: string | null;
+  readonly decided_save: number | null;
 }
 
 interface VersionRow {
@@ -117,6 +125,7 @@ interface CommentRow {
   readonly resolved_at: number | null;
   readonly resolved_by_pi: number;
   readonly asked_at: number | null;
+  readonly told_at: number | null;
   readonly created_at: number;
 }
 
@@ -446,6 +455,17 @@ export const server = defineServer(
       const now = clock.now();
       const number = versions(id).length + 1;
       const entry = saved.files.find(({ path }) => path === saved.entry);
+      const before = row(id);
+      const asked = before === undefined ? undefined : decisionThread(before);
+
+      // Pi's save once it heard it was decided writes its Decision section,
+      // and is the version decided: each until it resolves the thread, and
+      // the first after, if it resolved the thread first.
+      const decides =
+        asked !== undefined &&
+        asked.told_at !== null &&
+        (asked.resolved_at === null || before?.decided_save === null) &&
+        author === `session:${String(before?.session_id)}`;
 
       if (entry === undefined) {
         throw new BadRequest(`the files don't hold ${saved.entry}`);
@@ -481,6 +501,16 @@ export const server = defineServer(
           id,
         );
 
+        if (decides) {
+          store.run(
+            "update artifacts_artifacts set decided_save = coalesce(decided_save, ?) where id = ?",
+            number,
+            id,
+          );
+
+          return;
+        }
+
         // A verdict was on what the doc said before, and what was decided
         // is open again.
         store.run(
@@ -492,7 +522,20 @@ export const server = defineServer(
           "update artifacts_artifacts set doc_status = 'review' where id = ? and doc_status = 'decided'",
           id,
         );
+
+        store.run(
+          "update artifacts_artifacts set decided_option = null, decided_title = null, decision_thread_id = null, decided_save = null where id = ?",
+          id,
+        );
       });
+
+      if (decides && before !== undefined) {
+        mark(
+          before,
+          "Decided",
+          nameOf(asked.sent_by_user_id ?? asked.author_user_id),
+        );
+      }
 
       return number;
     };
@@ -647,25 +690,33 @@ export const server = defineServer(
     const byOf = (author: string): string =>
       author.startsWith("user:") ? nameOf(author.slice("user:".length)) : "Pi";
 
-    // What each version's file says it is, read once.
-    const marks = new Map<string, Promise<DocMark | undefined>>();
+    // What each version's file says it is, and the options it gives a
+    // decision, read once.
+    const marks = new Map<
+      string,
+      Promise<{
+        readonly mark: DocMark | undefined;
+        readonly options: readonly DecisionOption[];
+      }>
+    >();
 
-    const markOf = async (latest: VersionRow): Promise<DocMark | undefined> => {
+    const markOf = async (latest: VersionRow) => {
       const kind = kindOf(latest.name);
 
       if (kind === undefined || !isText(kind)) {
-        return undefined;
+        return { mark: undefined, options: [] };
       }
 
       const known =
         marks.get(latest.hash) ??
-        blobs
-          .bytes(latest.hash)
-          .then((kept) =>
-            kept === undefined
-              ? undefined
-              : docMark(kind, new TextDecoder().decode(kept)),
-          );
+        blobs.bytes(latest.hash).then((kept) => {
+          const text = kept === undefined ? "" : new TextDecoder().decode(kept);
+
+          return {
+            mark: kept === undefined ? undefined : docMark(kind, text),
+            options: decisionOptions(kind, text),
+          };
+        });
 
       marks.set(latest.hash, known);
 
@@ -683,26 +734,132 @@ export const server = defineServer(
         )
         .filter(({ user_id }) => sees(artifact, user_id));
 
+    // The thread that asks Pi to write the Decision section, while the
+    // record is Decided.
+    const decisionThread = (artifact: Row): CommentRow | undefined =>
+      artifact.doc_status === "decided" && artifact.decision_thread_id !== null
+        ? store.get<CommentRow>(
+            "select * from artifacts_comments where id = ?",
+            artifact.decision_thread_id,
+          )
+        : undefined;
+
+    // Resolving the thread that asked Pi leaves the record a version
+    // decided: the text as it is, unless Pi saved one. Pi resolving it
+    // first may still publish the decision's save next.
+    const resolvedDecision = (thread: CommentRow, byPi: boolean): void => {
+      const artifact = row(thread.artifact_id);
+
+      if (
+        artifact?.decision_thread_id !== thread.id ||
+        artifact.doc_status !== "decided" ||
+        artifact.decided_save !== null
+      ) {
+        return;
+      }
+
+      mark(
+        artifact,
+        "Decided",
+        nameOf(thread.sent_by_user_id ?? thread.author_user_id),
+      );
+
+      if (!byPi) {
+        store.run(
+          "update artifacts_artifacts set decided_save = ? where id = ?",
+          versionOf(artifact).number,
+          artifact.id,
+        );
+      }
+    };
+
+    // Each vote of someone who may still vote, oldest first.
+    const votesOf = (
+      artifact: Row,
+    ): readonly { user_id: string; option: string | null }[] =>
+      store
+        .all<{ user_id: string; option: string | null }>(
+          "select user_id, option from artifacts_votes where artifact_id = ? order by voted_at, user_id",
+          artifact.id,
+        )
+        .filter(({ user_id }) => voter(artifact, user_id));
+
+    const voter = (artifact: Row, person: string): boolean =>
+      access(artifact, person) !== "view" ||
+      reviewersOf(artifact).some(({ user_id }) => user_id === person);
+
+    const decisionOf = (
+      artifact: Row,
+      status: DocStatus,
+      options: readonly DecisionOption[],
+      reader: string | null,
+    ): Decision => {
+      const votes = votesOf(artifact);
+      const mine = votes.find(({ user_id }) => user_id === reader);
+
+      const counted = (option: string | null) =>
+        option === null || options.some(({ key }) => key === option);
+
+      return {
+        options: options.map((each) => ({
+          ...each,
+          voters: votes
+            .filter(({ option }) => option === each.key)
+            .map(({ user_id }) => personName(user_id, reader)),
+        })),
+        abstained: votes
+          .filter(({ option }) => option === null)
+          .map(({ user_id }) => personName(user_id, reader)),
+        yours:
+          mine === undefined || !counted(mine.option)
+            ? null
+            : { option: mine.option },
+        votes: reader !== null && voter(artifact, reader),
+        votedReviewers: reviewersOf(artifact).filter(({ user_id }) =>
+          votes.some(
+            (each) => each.user_id === user_id && counted(each.option),
+          ),
+        ).length,
+        chosen:
+          status === "decided" && artifact.decided_option !== null
+            ? {
+                key: artifact.decided_option,
+                title: artifact.decided_title ?? artifact.decided_option,
+              }
+            : null,
+        writing: decisionThread(artifact)?.resolved_at === null,
+      };
+    };
+
+    // What it is as of a version, the latest unless asked.
     const docOf = async (
       artifact: Row,
-      person: string,
+      person: string | null,
+      found = versionOf(artifact),
     ): Promise<Doc | null> => {
-      const file = await markOf(versionOf(artifact));
+      const { mark: file, options } = await markOf(found);
       const type = artifact.doc_type ?? file?.type;
 
       if (type === undefined || type === "none") {
         return null;
       }
 
+      const status = artifact.doc_status ?? file?.status ?? "draft";
+
       return {
         type,
-        status: artifact.doc_status ?? file?.status ?? "draft",
+        status,
         marked: artifact.doc_type === null ? "file" : "person",
         reviewers: reviewersOf(artifact).map(({ user_id, verdict }) => ({
           name: nameOf(user_id),
           you: user_id === person,
           verdict,
         })),
+        ...(type === "design" &&
+          (options.length > 0 ||
+            (status === "decided" && artifact.decided_option !== null)) && {
+            decision: decisionOf(artifact, status, options, person),
+          }),
       };
     };
 
@@ -1295,27 +1452,157 @@ export const server = defineServer(
       },
     );
 
+    // A decision record is decided on one of its options, and Pi, asked
+    // in a thread, writes its Decision section. Without a Pi to ask, or
+    // told not to ask, the text decided is the version. Deciding again
+    // while Pi writes asks again in the same thread.
     routes.put(
       "artifacts/:id/status",
       {
         auth: "person",
-        body: Type.Object({ status: StringEnum(docStatuses) }),
+        body: Type.Object({
+          status: StringEnum(docStatuses),
+          option: Type.Optional(Type.String({ minLength: 1, maxLength: 200 })),
+          // false makes the text as it is the version decided, without
+          // asking Pi.
+          ask: Type.Optional(Type.Boolean()),
+        }),
         changes: ["artifacts"],
       },
-      ({ caller, params, body }) => {
+      async ({ caller, params, body }) => {
         const artifact = steered(params.id, caller);
+        const latest = versionOf(artifact);
+        const decision = (await docOf(artifact, null))?.decision;
+        const options = decision?.options ?? [];
 
-        store.run(
-          "update artifacts_artifacts set doc_status = ? where id = ?",
-          body.status,
-          artifact.id,
-        );
+        const kept = decision?.chosen ?? undefined;
 
-        if (body.status === "decided") {
+        const chosen =
+          options.find(({ key }) => key === body.option) ??
+          (kept?.key === body.option ? kept : undefined);
+
+        const deciding = body.status === "decided" && decision !== undefined;
+
+        if (body.option !== undefined && !deciding) {
+          throw new BadRequest(
+            "only a decision record is decided on an option",
+          );
+        }
+
+        if (deciding && chosen === undefined) {
+          throw new BadRequest(
+            `name the option it's decided on: ${options.map(({ key }) => key).join(", ")}`,
+          );
+        }
+
+        const listens = listening(artifact, caller.person.id);
+        const sent = decisionThread(artifact);
+        const open = sent?.resolved_at === null ? sent : undefined;
+
+        const asking =
+          chosen !== undefined && body.ask !== false && "session" in listens;
+
+        const said = `Decided: ${chosen === undefined ? "" : optionName(chosen)}. Write the Decision section from it, the votes and the discussion, publish it, and resolve this thread.`;
+
+        const asked = asking ? (open?.id ?? Bun.randomUUIDv7()) : null;
+
+        store.transaction(() => {
+          if (asked !== null) {
+            store.run(
+              "insert into artifacts_comments (id, artifact_id, version, parent_id, author_user_id, kind, body, created_at) values (?, ?, ?, ?, ?, ?, ?, ?)",
+              open === undefined ? asked : Bun.randomUUIDv7(),
+              artifact.id,
+              latest.number,
+              open?.id ?? null,
+              caller.person.id,
+              open === undefined ? "decision" : "comment",
+              said,
+              clock.now(),
+            );
+          } else if (open !== undefined) {
+            store.run(
+              "update artifacts_comments set resolved_at = ? where id = ?",
+              clock.now(),
+              open.id,
+            );
+          }
+
+          store.run(
+            "update artifacts_artifacts set doc_status = ?, decided_option = ?, decided_title = ?, decision_thread_id = ?, decided_save = ? where id = ?",
+            body.status,
+            chosen?.key ?? null,
+            chosen?.title ?? null,
+            asked,
+            asked === null && body.status === "decided" ? latest.number : null,
+            artifact.id,
+          );
+        });
+
+        if (asked !== null && "session" in listens) {
+          ask(listens.session, [thread(artifact, asked)], caller.person.id);
+        } else if (body.status === "decided") {
           mark(artifact, "Decided", caller.person.name);
         }
 
         return { status: body.status };
+      },
+    );
+
+    // Its people vote while it's open, for an option it has now or to
+    // abstain with null.
+    routes.put(
+      "artifacts/:id/vote",
+      {
+        auth: "person",
+        body: Type.Object({
+          option: Type.Union([
+            Type.String({ minLength: 1, maxLength: 200 }),
+            Type.Null(),
+          ]),
+        }),
+        changes: ["artifacts"],
+      },
+      async ({ caller, params, body }) => {
+        const artifact = theirs(params.id, caller);
+        const doc = await docOf(artifact, caller.person.id);
+        const options = doc?.decision?.options ?? [];
+
+        if (options.length === 0) {
+          throw new BadRequest("only a decision record's options take votes");
+        }
+
+        if (!voter(artifact, caller.person.id)) {
+          throw new Forbidden(
+            "You can view this decision record but not vote on it.",
+          );
+        }
+
+        if (doc?.status === "decided") {
+          throw new HttpError(
+            409,
+            "It's decided, so the votes are in.",
+            "decided",
+          );
+        }
+
+        if (
+          body.option !== null &&
+          !options.some(({ key }) => key === body.option)
+        ) {
+          throw new BadRequest(
+            `vote for one of its options: ${options.map(({ key }) => key).join(", ")}`,
+          );
+        }
+
+        store.run(
+          "insert into artifacts_votes (artifact_id, user_id, option, voted_at) values (?, ?, ?, ?) on conflict (artifact_id, user_id) do update set option = excluded.option, voted_at = excluded.voted_at",
+          artifact.id,
+          caller.person.id,
+          body.option,
+          clock.now(),
+        );
+
+        return { option: body.option };
       },
     );
 
@@ -2380,6 +2667,16 @@ export const server = defineServer(
           artifact.id,
         );
 
+        const resolved = store.get<CommentRow>(
+          "select * from artifacts_comments where id = ? and artifact_id = ?",
+          params.comment,
+          artifact.id,
+        );
+
+        if (body.resolved && resolved !== undefined) {
+          resolvedDecision(resolved, false);
+        }
+
         return { resolved: body.resolved };
       },
     );
@@ -3131,6 +3428,8 @@ export const server = defineServer(
           top.id,
         );
 
+        resolvedDecision(top, true);
+
         return { resolved: top.id };
       },
     );
@@ -3138,9 +3437,11 @@ export const server = defineServer(
     routes.get(
       "session/artifacts/:id/files",
       { auth: "session", query: version },
-      ({ caller, params, query }) => {
+      async ({ caller, params, query }) => {
         const artifact = sessionArtifact(caller, params.id);
         const found = versionOf(artifact, query.v);
+        const decision = (await docOf(artifact, null, found))?.decision;
+        const asked = decisionThread(artifact);
 
         return {
           version: found.number,
@@ -3149,6 +3450,28 @@ export const server = defineServer(
             path,
             size,
           })),
+          ...(decision !== undefined && {
+            decision: {
+              ...decision,
+              orphaned: votesOf(artifact).flatMap(({ user_id, option }) =>
+                option === null ||
+                decision.options.some(({ key }) => key === option)
+                  ? []
+                  : [{ option, by: nameOf(user_id) }],
+              ),
+              decidedBy:
+                asked?.resolved_at !== null ||
+                artifact.session_id !== caller.session.id
+                  ? null
+                  : nameOf(asked.sent_by_user_id ?? asked.author_user_id),
+              questions: comments(artifact.id, null).filter(
+                (each) =>
+                  each.parent === null &&
+                  each.kind === "question" &&
+                  !each.resolved,
+              ),
+            },
+          }),
         };
       },
     );

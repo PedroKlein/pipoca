@@ -8,6 +8,8 @@ const variants = {
   ghost:
     "border-transparent bg-transparent text-fg-dim hover:bg-hover hover:text-fg",
   danger: "border-failed bg-failed-tint text-failed hover:brightness-110",
+  // Leaves its colours to the caller, such as a status pill's.
+  bare: "border-transparent",
 } as const;
 
 const sizes = {

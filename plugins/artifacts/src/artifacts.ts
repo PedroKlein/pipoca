@@ -288,6 +288,200 @@ export interface Doc {
   readonly status: DocStatus;
   readonly marked: "file" | "person";
   readonly reviewers: readonly Reviewer[];
+  readonly decision?: Decision;
+}
+
+// One option of a decision record, by the key its heading gives it, such
+// as A for "Option A: Postgres".
+export interface DecisionOption {
+  readonly key: string;
+  readonly title: string;
+  // Its heading's text, which the page marks with its votes.
+  readonly heading: string;
+  // Its first line of text.
+  readonly summary: string;
+}
+
+// A design doc with an Options section (ADR 0085): each person who can
+// comment on it or reviews it votes for one option or abstains. A vote for
+// an option a later save took out doesn't count while it's gone.
+export interface Decision {
+  readonly options: readonly (DecisionOption & {
+    readonly voters: readonly string[];
+  })[];
+  readonly abstained: readonly string[];
+  // The viewer's vote, its option null when they abstain, or null.
+  readonly yours: { readonly option: string | null } | null;
+  // Whether the viewer may vote.
+  readonly votes: boolean;
+  // How many of its reviewers voted or abstained.
+  readonly votedReviewers: number;
+  // The option it was decided on, while it's Decided, as it was named then.
+  readonly chosen: Pick<DecisionOption, "key" | "title"> | null;
+  // Pi is writing its Decision section, whose save is the version decided.
+  readonly writing: boolean;
+}
+
+// What people call an option: Option A, Postgres, or its heading's text.
+export function optionName(
+  option: Pick<DecisionOption, "key" | "title">,
+): string {
+  return option.key === option.title
+    ? option.title
+    : `Option ${option.key}, ${option.title}`;
+}
+
+const longestKey = 80;
+
+// The options under a decision record's Options heading: the headings one
+// level below it, in Markdown or HTML. Option A: or A. names one by its
+// letter, so a vote outlives a new title.
+export function decisionOptions(
+  kind: Kind,
+  text: string,
+): readonly DecisionOption[] {
+  const readers: Partial<Record<Kind, (text: string) => readonly Heading[]>> = {
+    markdown: (each) => markdownHeadings(frontMatter(each).body),
+    html: htmlHeadings,
+  };
+
+  const headings = readers[kind]?.(text) ?? [];
+
+  const at = headings.findIndex(
+    ({ text: said }) => said.toLowerCase() === "options",
+  );
+
+  const section = headings[at];
+
+  if (section === undefined) {
+    return [];
+  }
+
+  const end = headings.findIndex(
+    ({ level }, index) => index > at && level <= section.level,
+  );
+
+  const found = headings
+    .slice(at + 1, end < 0 ? undefined : end)
+    .filter(({ level }) => level === section.level + 1)
+    .map(({ text: said, after }) => {
+      const named =
+        /^option\s+(\w+)(?:\s*[:.)\-–—]\s*|\s+)(.+)$/i.exec(said) ??
+        /^([a-z])[.):]\s+(.+)$/i.exec(said);
+
+      return {
+        key: named?.[1]?.toUpperCase() ?? textKey(said),
+        title: named?.[2] ?? said,
+        heading: said,
+        summary: after,
+      };
+    });
+
+  return found.filter(
+    ({ key }, index) => found.findIndex((each) => each.key === key) === index,
+  );
+}
+
+// A heading's text, or a long one cut short with a hash of the rest, so it
+// stays the same while the heading does.
+function textKey(said: string): string {
+  if (said.length <= longestKey) {
+    return said;
+  }
+
+  let hash = 0;
+
+  for (const char of said) {
+    hash = (Math.imul(hash, 31) + (char.codePointAt(0) ?? 0)) >>> 0;
+  }
+
+  return `${said.slice(0, longestKey - 8)}… ${hash.toString(36).slice(0, 6)}`;
+}
+
+interface Heading {
+  readonly level: number;
+  readonly text: string;
+  // The first line of text under it.
+  readonly after: string;
+}
+
+function markdownHeadings(text: string): readonly Heading[] {
+  const headings: { level: number; text: string; after: string }[] = [];
+  let fence: string | null = null;
+
+  for (const line of text.split("\n")) {
+    const marks = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+
+    if (marks !== null) {
+      const [, run = "", rest = ""] = marks;
+
+      if (fence === null) {
+        fence = run;
+      } else if (
+        run.startsWith(fence.charAt(0)) &&
+        run.length >= fence.length &&
+        rest.trim() === ""
+      ) {
+        fence = null;
+      }
+
+      continue;
+    }
+
+    if (fence !== null) {
+      continue;
+    }
+
+    const heading = /^(#{1,6})\s+(.+?)\s*#*\s*$/.exec(line);
+    const last = headings.at(-1);
+
+    if (heading !== null) {
+      headings.push({
+        level: heading[1]?.length ?? 1,
+        text: plain(heading[2] ?? ""),
+        after: "",
+      });
+    } else if (last?.after === "" && line.trim() !== "") {
+      last.after = plain(line.trim().replace(/^([-*+]|\d+\.)\s+/, ""));
+    }
+  }
+
+  return headings;
+}
+
+function plain(text: string): string {
+  return text
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/[*_`]/g, "")
+    .trim();
+}
+
+function htmlHeadings(text: string): readonly Heading[] {
+  const shown = text
+    .replace(/<!--[\s\S]*?(?:-->|$)/g, "")
+    .replace(/<(script|style|template)\b[\s\S]*?(?:<\/\1\s*>|$)/gi, "");
+
+  return [
+    ...shown.matchAll(
+      /<h([1-6])\b[^>]*>([\s\S]*?)<\/h\1>((?:(?!<h[1-6]\b)[\s\S])*)/gi,
+    ),
+  ].map(([, level, inner, rest]) => ({
+    level: Number(level),
+    text: htmlText(inner ?? ""),
+    after: htmlText(/<p\b[^>]*>([\s\S]*?)<\/p>/i.exec(rest ?? "")?.[1] ?? ""),
+  }));
+}
+
+function htmlText(html: string): string {
+  return html
+    .replace(/<[^>]*>/g, "")
+    .replace(
+      /&(amp|lt|gt|quot|#39);/g,
+      (_, name: string) =>
+        ({ amp: "&", lt: "<", gt: ">", quot: '"', "#39": "'" })[name] ?? "",
+    )
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 export interface DocMark {
