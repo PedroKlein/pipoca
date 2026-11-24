@@ -20,6 +20,7 @@ import {
   type TemplateScope,
   typeLabel,
 } from "./artifacts";
+import type { CanvasView } from "./canvas";
 
 const shownThreads = 30;
 
@@ -93,7 +94,7 @@ export const session = defineSession(artifacts, (s) => {
   s.tools.define({
     name: "publish_artifact",
     label: "Publish artifact",
-    description: `Publishes a file or a folder from your workspace as an artifact people open beside the Session, at a link that stays the same. Without id it makes a new artifact; with the id of one this Session published it adds a version. Works for ${supported}. A folder of up to ${String(maxFiles)} files opens at its entry file, which links the others, such as its stylesheets, pictures and scripts, by relative path, and its scripts can fetch them by relative path too. A folder with a deck.html is a slide deck, which opens at it: one <section> per slide, each with its speaker notes in an <aside class="notes">, drawn one at a time at 1280 by 720, with parts marked data-step appearing one per click. A page loads scripts only from allowed CDNs, its folder's files and nothing else from the network. A design doc, spec or plan people review starts with front matter in Markdown (doc: design, spec or plan, and status: draft or in review; people decide) or, in HTML, meta tags named pipoca:doc and pipoca:status. A design doc with an Options section whose option headings read Option A: …, Option B: … is a decision record people vote on; read_artifact gives its votes and open Question threads.`,
+    description: `Publishes a file or a folder from your workspace as an artifact people open beside the Session, at a link that stays the same. Without id it makes a new artifact; with the id of one this Session published it adds a version. Works for ${supported}. A folder of up to ${String(maxFiles)} files opens at its entry file, which links the others, such as its stylesheets, pictures and scripts, by relative path, and its scripts can fetch them by relative path too. A folder with a deck.html is a slide deck, which opens at it: one <section> per slide, each with its speaker notes in an <aside class="notes">, drawn one at a time at 1280 by 720, with parts marked data-step appearing one per click. A folder with a canvas.json is a design canvas: canvas.json holds a title, pages as [{"id", "name"}], boards keyed by their file as {"x", "y", "w", "h", "title", "page"} in canvas pixels, order as the list of board files, and notes keyed by id as {"x", "y", "text", "page"}, with "kind": "title1" for a heading; each board is a plain HTML file drawn at its frame's size, with no template language, that links the other boards by relative path, and people add stickies of their own, which read_artifact gives. A page loads scripts only from allowed CDNs, its folder's files and nothing else from the network. A design doc, spec or plan people review starts with front matter in Markdown (doc: design, spec or plan, and status: draft or in review; people decide) or, in HTML, meta tags named pipoca:doc and pipoca:status. A design doc with an Options section whose option headings read Option A: …, Option B: … is a decision record people vote on; read_artifact gives its votes and open Question threads.`,
     params: Type.Object({
       path: Type.String({
         description: "The file or folder, from your working directory",
@@ -165,7 +166,15 @@ export const session = defineSession(artifacts, (s) => {
       );
 
       return {
-        text: `Published “${published.title}” as version ${String(published.version)} of artifact ${published.id}.`,
+        text: [
+          `Published “${published.title}” as version ${String(published.version)} of artifact ${published.id}.`,
+          ...(published.problems === undefined
+            ? []
+            : [
+                "People see the canvas, but fix its canvas.json and publish again:",
+                ...published.problems.map((each) => `- ${each}`),
+              ]),
+        ].join("\n"),
         details: published,
       };
     },
@@ -253,6 +262,7 @@ export const session = defineSession(artifacts, (s) => {
           decidedBy: string | null;
           questions: Comment[];
         };
+        canvas?: Pick<CanvasView, "canvas" | "error" | "stickies">;
       };
 
       const folder = join(s.folder, id, `v${String(listing.version)}`);
@@ -289,9 +299,15 @@ export const session = defineSession(artifacts, (s) => {
           ? `Wrote version ${String(listing.version)} of artifact ${id} to ${entry}.`
           : `Wrote version ${String(listing.version)} of artifact ${id} to ${entry}, with its ${String(others)} other ${others === 1 ? "file" : "files"} beside it.`;
 
-      return listing.decision === undefined
-        ? wrote
-        : `${wrote}\n${decisionLines(listing.decision)}`;
+      return [
+        wrote,
+        ...(listing.decision === undefined
+          ? []
+          : [decisionLines(listing.decision)]),
+        ...(listing.canvas === undefined
+          ? []
+          : [canvasLines(listing.canvas, folder)]),
+      ].join("\n");
     },
   });
 
@@ -456,6 +472,12 @@ export const session = defineSession(artifacts, (s) => {
             "The passage it's on, copied exactly from the latest version. Leave it out for the whole page",
         }),
       ),
+      board: Type.Optional(
+        Type.String({
+          description:
+            "On a design canvas, the board's file it's on, such as Pay.html, as read_artifact lists it",
+        }),
+      ),
       kind: Type.Optional(
         Type.Union(
           [
@@ -474,17 +496,51 @@ export const session = defineSession(artifacts, (s) => {
         "To ask people about or flag a passage of an artifact, start a thread on it with add_artifact_comment rather than asking in the chat.",
       ],
     },
-    run: async ({ id, text, quote, kind }) => {
+    run: async ({ id, text, quote, board, kind }) => {
       const { id: thread } = await s.api.post<{ id: string }>(
         `session/artifacts/${encodeURIComponent(id)}/comments`,
         {
           text,
           ...(quote !== undefined && { quote }),
+          ...(board !== undefined && { file: board }),
           ...(kind !== undefined && { kind }),
         },
       );
 
       return `Started thread ${thread}.`;
+    },
+  });
+
+  s.tools.define({
+    name: "update_canvas_sticky",
+    label: "Update canvas sticky",
+    description:
+      "Moves or removes a sticky a person put on a design canvas, by its id from read_artifact. In the artifact's own Session you may move or remove anyone's; elsewhere only what the person who started this Session may. Never rewrite a person's words: answer them with a note of your own in canvas.json, and publish.",
+    params: Type.Object({
+      id: Type.String({ description: "The canvas artifact's id" }),
+      sticky: Type.String({ description: "The sticky's id" }),
+      x: Type.Optional(Type.Number({ description: "Its new left edge" })),
+      y: Type.Optional(Type.Number({ description: "Its new top edge" })),
+      remove: Type.Optional(
+        Type.Boolean({ description: "Take it off the canvas" }),
+      ),
+    }),
+    annotations: { destructive: true },
+    run: async ({ id, sticky, x, y, remove = false }) => {
+      const path = `session/artifacts/${encodeURIComponent(id)}/stickies/${encodeURIComponent(sticky)}`;
+
+      if (remove) {
+        await s.api.delete(path);
+
+        return `Removed sticky ${sticky}.`;
+      }
+
+      await s.api.put(path, {
+        ...(x !== undefined && { x }),
+        ...(y !== undefined && { y }),
+      });
+
+      return `Updated sticky ${sticky}.`;
     },
   });
 
@@ -789,12 +845,55 @@ function decisionLines(
   );
 }
 
+function canvasLines(
+  {
+    canvas,
+    error,
+    stickies,
+  }: Pick<CanvasView, "canvas" | "error" | "stickies">,
+  folder: string,
+): string {
+  const pageName = (id: string): string =>
+    canvas?.pages.find((page) => page.id === id)?.name ?? id;
+
+  return [
+    "It's a design canvas: canvas.json lists its pages, its boards, each a plain HTML file drawn at its frame's size, and your notes. Edit the boards and the notes in canvas.json, then publish the folder again.",
+    ...(error === null ? [] : [`Its canvas.json is broken: ${error}`]),
+    ...(canvas === null
+      ? []
+      : [
+          "Boards:",
+          ...canvas.boards.map(
+            (each) =>
+              `- ${each.file}: ${each.title}, ${String(each.w)}×${String(each.h)} on page ${pageName(each.page)}`,
+          ),
+          ...canvas.problems.map((each) => `Problem: ${each}`),
+        ]),
+    `To check what you built against a board, open the board's file from ${folder} in your Environment's browser at its frame's size and take a screenshot, take one of the same screen in the running app, and compare the two. Without a browser, compare the board's HTML with the app's code.`,
+    ...(stickies.length === 0
+      ? []
+      : [
+          fenced(
+            [
+              "Stickies people put on it: move or remove one with update_canvas_sticky, or answer it with a note of your own beside it.",
+              ...stickies.map(
+                (each) =>
+                  `- sticky ${each.id} by ${each.author}, ${canvas?.pages.some(({ id }) => id === each.page) === true ? `on page ${fence(pageName(each.page))}` : "on a page that no longer exists"} at ${String(Math.round(each.x))}, ${String(Math.round(each.y))}: ${fence(each.text)}`,
+              ),
+            ],
+            undefined,
+          ),
+        ]),
+  ].join("\n");
+}
+
 function threadLines(comments: readonly Comment[]): string[] {
   return comments
     .filter((each) => each.parent === null)
     .flatMap((thread) => [
       [
         `${thread.byPi ? `You${saidByYou[thread.kind]}` : `${thread.author}${said[thread.kind]}`} on version ${String(thread.version)}, thread ${thread.id}`,
+        thread.file === "" ? "" : `, on the board ${thread.file}`,
         thread.quote === ""
           ? ""
           : `, about ${thread.element === "" ? "" : "the element "}“${fence(thread.quote)}”`,

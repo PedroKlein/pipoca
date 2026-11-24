@@ -12,14 +12,13 @@
     }
   },
   "order": ["Main.html"],
-  "stickies": [
-    {
-      "id": "questions",
+  "notes": {
+    "questions": {
       "x": 0,
       "y": 880,
       "w": 320,
       "text": "Open questions: who uses this screen, and what do they do first?",
       "page": "main"
     }
-  ]
+  }
 }

@@ -223,6 +223,23 @@ alter table artifacts_artifacts add column decided_option text;
 alter table artifacts_artifacts add column decided_title text;
 alter table artifacts_artifacts add column decision_thread_id text references artifacts_comments (id) on delete set null;
 alter table artifacts_artifacts add column decided_save integer;`,
+    // 15: design canvases (ADR 0085). The board a comment is on, and the
+    // stickies people put on a canvas; Pi's are in its canvas.json.
+    `alter table artifacts_comments add column file text not null default '';
+
+create table artifacts_stickies (
+  id text primary key,
+  artifact_id text not null references artifacts_artifacts (id) on delete cascade,
+  author_user_id text references users (id) on delete set null,
+  page text not null,
+  x real not null,
+  y real not null,
+  text text not null,
+  color text not null default 'yellow' check (color in ('yellow', 'pink', 'green')),
+  created_at integer not null,
+  updated_at integer not null
+) strict;
+create index artifacts_stickies_artifact on artifacts_stickies (artifact_id, created_at);`,
   ],
   events: {
     // ADR 0081: mentions, review requests and replies, for the plugins that
