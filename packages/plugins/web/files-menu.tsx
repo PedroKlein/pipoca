@@ -11,7 +11,7 @@ import {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
-import { SessionSection } from "./session-panel";
+import { SessionSection, useShowSection } from "./session-panel";
 
 interface Section {
   readonly name: string;
@@ -228,6 +228,7 @@ export function FilesSection({
   const menu = useContext(MenuContext);
   const add = menu?.add;
   const acts = action !== undefined;
+  const show = useShowSection();
 
   useEffect(
     () => add?.({ name, order, title, count, acts }),
@@ -253,7 +254,13 @@ export function FilesSection({
         )}
       {summary !== undefined &&
         createPortal(
-          <Rows title={title} limit={summaryRows}>
+          <Rows
+            title={title}
+            limit={summaryRows}
+            onMore={() => {
+              show?.("files");
+            }}
+          >
             {children("")}
           </Rows>,
           summary,
@@ -266,10 +273,12 @@ export function FilesSection({
 function Rows({
   title,
   limit,
+  onMore,
   children,
 }: {
   readonly title: string | undefined;
   readonly limit?: number;
+  readonly onMore?: () => void;
   readonly children: ReactNode;
 }): ReactElement | null {
   const rows = Children.toArray(children);
@@ -290,7 +299,11 @@ function Rows({
       )}
       {shown}
       {more > 0 && (
-        <p className="px-1 text-caption text-fg-dim">{`${String(more)} more`}</p>
+        <button
+          type="button"
+          className="self-start rounded-md px-1 text-caption text-fg-dim hover:text-fg-strong focus-visible:ring-4 focus-visible:ring-focus focus-visible:outline-none"
+          onClick={onMore}
+        >{`${String(more)} more`}</button>
       )}
     </>
   );
