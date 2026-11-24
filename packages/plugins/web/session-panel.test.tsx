@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { act, type ReactElement } from "react";
+import { act, type ReactElement, useState } from "react";
 import { definePlugin } from "../src/definition";
 import {
   defineWeb,
@@ -144,18 +144,27 @@ function Pane({ name }: { readonly name: string }): ReactElement {
   );
 }
 
-const panes = defineWeb(sections, {
-  slots: {
-    "session.panel": () => (
-      <SessionPanelGroup>
-        <Pane name="coordinator" />
-        <Pane name="thread" />
-      </SessionPanelGroup>
-    ),
-  },
-});
+function Beside(): ReactElement {
+  const [thread, setThread] = useState(false);
 
-test("Sessions side by side share one panel, which shows the one last used", () => {
+  return (
+    <SessionPanelGroup>
+      <Pane name="coordinator" />
+      <button
+        type="button"
+        aria-label="Open the thread"
+        onClick={() => {
+          setThread(!thread);
+        }}
+      />
+      {thread && <Pane name="thread" />}
+    </SessionPanelGroup>
+  );
+}
+
+const panes = defineWeb(sections, { slots: { "session.panel": Beside } });
+
+test("Sessions side by side share one panel, which shows the one opened or used last", () => {
   const page = renderPart(panes, "session.panel", {});
 
   const railed = (): (string | null)[] =>
@@ -165,9 +174,24 @@ test("Sessions side by side share one panel, which shows the one last used", () 
 
   expect(railed()).toEqual(["Open panel", "coordinator things"]);
 
-  act(() => {
-    page.querySelector<HTMLButtonElement>("[data-pane=thread] button")?.focus();
-  });
+  click(page, "Open the thread");
 
   expect(railed()).toEqual(["Open panel", "thread things"]);
+
+  act(() => {
+    page
+      .querySelector<HTMLButtonElement>("[data-pane=coordinator] button")
+      ?.focus();
+  });
+
+  expect(railed()).toEqual(["Open panel", "coordinator things"]);
+
+  click(page, "Open the thread");
+  click(page, "Open the thread");
+
+  expect(railed()).toEqual(["Open panel", "thread things"]);
+
+  click(page, "Open the thread");
+
+  expect(railed()).toEqual(["Open panel", "coordinator things"]);
 });
