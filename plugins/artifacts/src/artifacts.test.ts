@@ -155,6 +155,10 @@ test("Pi publishes a file as an artifact and adds versions at the same link", as
 
   expect(latest.headers.get("x-frame-options")).toBe("SAMEORIGIN");
 
+  // Its headers may change with a release or the admins' script hosts, so
+  // the browser asks again each time instead of keeping an old answer.
+  expect(latest.headers.get("cache-control")).toBe("private, no-cache");
+
   expect(await latest.text()).toContain("<h1>Sales</h1>\n<p>Up 5%.</p>");
 
   expect(
