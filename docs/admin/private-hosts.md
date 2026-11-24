@@ -27,7 +27,7 @@ Each person who works on the host connects a VM or laptop on that network as one
 curl -fsSL https://pipoca.dev/install.sh | PIPOCA_VERSION=0.1.4 PIPOCA_KEY=pck_… sh -s -- service install agent --server https://pipoca.example.com --reach github.acme.internal
 ```
 
-`--reach` is the machine owner's consent. The machine relays only to the hosts named there, and the server can't add more. Names are exact, with no wildcards, IP addresses or `localhost`. A name that resolves to a loopback or link-local address counts as not reached. The agent checks each one with a TLS connection at start and every 5 minutes.
+`--reach` is the machine owner's consent. The machine relays only to the hosts named there, and the server can't add more. Names are exact, with no wildcards, IP addresses or `localhost`. A name that resolves to a loopback or link-local address counts as not reached. The agent checks each one with a TLS connection at start and every 5 minutes. It keeps one socket open to the server for its relays, pings it every 30 seconds, and opens it again when a ping goes unanswered, as after the server restarts behind a load balancer.
 
 Setup lists, for a machine that names private hosts, whether it joined, whether it reached each host, and whether Pipoca has confirmed it. Pipoca confirms a host with its own TLS handshake through the machine, on the first call that needs it.
 

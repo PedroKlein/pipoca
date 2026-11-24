@@ -83,14 +83,24 @@ export function networkRouter(deps: {
         })),
     );
 
-    const ready = reaching.filter((each) => each.online && relays.ready(each));
+    const online = reaching.filter((each) => each.online);
+    const ready = online.filter((each) => relays.ready(each));
+
+    if (reaching.length === 0) {
+      throw new Unreachable(
+        to.host,
+        `no ${owner === "team" ? "team Environment" : "Environment of yours"} reaches it`,
+      );
+    }
+
+    if (online.length === 0) {
+      throw new Unreachable(to.host, "the runners that reach it are offline");
+    }
 
     if (ready.length === 0) {
       throw new Unreachable(
         to.host,
-        reaching.length === 0
-          ? `no ${owner === "team" ? "team Environment" : "Environment of yours"} reaches it`
-          : "the runners that reach it are offline",
+        "the runners that reach it have no relay open",
       );
     }
 

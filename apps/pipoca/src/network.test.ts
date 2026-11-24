@@ -161,6 +161,10 @@ async function joinRelay(runner: string): Promise<void> {
   relays.push(control);
 
   control.addEventListener("message", (event: MessageEvent) => {
+    if (event.data === "pong") {
+      return;
+    }
+
     const { id } = JSON.parse(String(event.data)) as { id: string };
 
     const tunnel = new WebSocket(socketUrl(`/runner/relay/${id}`), {
@@ -294,6 +298,50 @@ test("a private host's redirect to another host isn't followed", async () => {
   expect(await reply.json()).toMatchObject({
     error: "unreachable",
     message: `${host} is a private host and sent a redirect to elsewhere.example, which isn't followed.`,
+  });
+});
+
+test("the server answers a relay's ping, so a runner can tell its socket still reaches the server", async () => {
+  await listHost();
+  await joinRelay("vm");
+
+  const [control] = relays;
+
+  const answer = new Promise((resolve) => {
+    control?.addEventListener(
+      "message",
+      (event: MessageEvent) => {
+        resolve(event.data);
+      },
+      { once: true },
+    );
+  });
+
+  control?.send("ping");
+
+  expect(await answer).toBe("pong");
+});
+
+test("a call through a runner that is online but has lost its relay says so", async () => {
+  await listHost();
+  await joinRelay("vm");
+
+  const [control] = relays;
+
+  const closed = new Promise((resolve) => {
+    control?.addEventListener("close", resolve, { once: true });
+  });
+
+  control?.close();
+  await closed;
+
+  const reply = await hello();
+
+  expect(reply.status).toBe(409);
+
+  expect(await reply.json()).toMatchObject({
+    error: "unreachable",
+    message: `${host} is a private host and the runners that reach it have no relay open.`,
   });
 });
 

@@ -24,6 +24,7 @@ export async function relay(
   hosts: readonly HostPort[],
   log: Log,
   signal: AbortSignal,
+  heartbeatMs = 30_000,
 ): Promise<void> {
   const retry = backoff(1000, 30_000);
   const open = new Set<() => void>();
@@ -39,8 +40,35 @@ export async function relay(
         headers: agentHeaders(agent),
       });
 
-      const stop = (): void => {
+      let heard = true;
+
+      // A load balancer can keep the socket open after the server behind it
+      // is gone, with no close ever coming, so a ping that goes unanswered
+      // gives up on it.
+      const heartbeat = setInterval(() => {
+        if (!heard) {
+          log("relay socket went quiet", { heartbeatMs });
+          done(false);
+
+          return;
+        }
+
+        heard = false;
+
+        if (socket.readyState === WebSocket.OPEN) {
+          socket.send("ping");
+        }
+      }, heartbeatMs);
+
+      const done = (clean: boolean): void => {
+        clearInterval(heartbeat);
+        signal.removeEventListener("abort", stop);
         socket.close();
+        resolve(clean);
+      };
+
+      const stop = (): void => {
+        done(true);
       };
 
       signal.addEventListener("abort", stop, { once: true });
@@ -51,6 +79,12 @@ export async function relay(
       });
 
       socket.addEventListener("message", (event: MessageEvent) => {
+        heard = true;
+
+        if (event.data === "pong") {
+          return;
+        }
+
         const request = JSON.parse(String(event.data)) as TunnelRequest;
 
         if (!allowed(request) || open.size >= maxTunnels) {
@@ -67,8 +101,7 @@ export async function relay(
       });
 
       socket.addEventListener("close", (event) => {
-        signal.removeEventListener("abort", stop);
-        resolve(event.code === 1000);
+        done(event.code === 1000);
       });
     });
 
