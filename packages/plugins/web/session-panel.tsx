@@ -154,10 +154,15 @@ export function SessionPanel({
     };
   }, []);
 
+  const activate = group?.activate;
   const claim = group?.claim;
   const unclaimed = group !== undefined && group.active === undefined;
 
   const release = group?.release;
+
+  useEffect(() => {
+    activate?.(id);
+  }, [activate, id]);
 
   useEffect(() => {
     if (unclaimed) {
@@ -220,7 +225,7 @@ export function SessionPanel({
 
 // Several Sessions side by side, such as a Project's coordinator and a
 // thread, that share one panel at the group's end. It shows the Session
-// last clicked or focused.
+// last opened, clicked or focused.
 export function SessionPanelGroup({
   children,
 }: {
