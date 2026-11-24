@@ -901,3 +901,37 @@ test("what Pi's turn saved shows as cards under its reply, and a card opens the 
     "#session-1?session=session-1&file=outputs%2Fjoined.csv",
   );
 });
+
+test("a turn that saved many files shows four cards, and the rest on asking", () => {
+  const page = renderPart(web, "notice:saved", {
+    text: "Saved for the person after your turn.",
+    data: {
+      files: ["a", "b", "c", "d", "e", "f"].map((name) => ({
+        path: `${name}.md`,
+        size: 10,
+      })),
+    },
+    session: sessionWith({}),
+  });
+
+  const cards = (): string[] =>
+    [...page.querySelectorAll("[aria-label='Files Pi saved'] button")].map(
+      (each) => each.textContent,
+    );
+
+  expect(cards()).toEqual([
+    "a.mdoutputs · 10 B",
+    "b.mdoutputs · 10 B",
+    "c.mdoutputs · 10 B",
+    "d.mdoutputs · 10 B",
+    "2 more files",
+  ]);
+
+  act(() => {
+    [...page.querySelectorAll<HTMLButtonElement>("button")]
+      .find((each) => each.textContent === "2 more files")
+      ?.click();
+  });
+
+  expect(cards()).toHaveLength(6);
+});
