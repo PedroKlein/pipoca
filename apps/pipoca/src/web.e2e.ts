@@ -4822,9 +4822,11 @@ test("creates a Project and shares a file through its folder", async () => {
   await page.goto(`${server.url.href}#${threadId}`);
   await side.waitFor();
 
-  expect(
-    await page.getByRole("navigation", { name: "Session panel" }).count(),
-  ).toBe(1);
+  // The rail draws once the thread's sections load, and only one shows.
+  const rails = page.getByRole("navigation", { name: "Session panel" });
+
+  await rails.first().waitFor();
+  expect(await rails.count()).toBe(1);
 
   expect(new URL(page.url()).hash).toEndWith(`/${threadId}`);
 
