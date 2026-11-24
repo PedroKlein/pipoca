@@ -978,12 +978,20 @@ function thisMachineEnvironment(
 
 // Other sites never frame Pipoca. A document that runs in a sandbox, on an
 // opaque origin, may be framed by Pipoca's own pages, such as an artifact
-// (ADR 0078).
+// (ADR 0078), and so may a PDF, which browsers don't show in a sandbox and
+// which runs no page scripts.
 function framedOnlyHere(headers: Headers): void {
   const policy = headers.get("content-security-policy");
 
   if (policy !== null && /(^|;)\s*sandbox\b/.test(policy)) {
     headers.set("content-security-policy", `${policy}; frame-ancestors 'self'`);
+    headers.set("x-frame-options", "SAMEORIGIN");
+
+    return;
+  }
+
+  if (headers.get("content-type") === "application/pdf") {
+    headers.set("content-security-policy", "frame-ancestors 'self'");
     headers.set("x-frame-options", "SAMEORIGIN");
 
     return;
