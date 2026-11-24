@@ -1169,13 +1169,18 @@ export const server = defineServer(
           });
         }
 
-        return rendered(
+        const served = rendered(
           kindOf(found.name) ?? "html",
           found.name,
           await content(found),
           config.get().scriptHosts,
           { slides: shown.type === "slides" },
         );
+
+        // A release or the admins' script hosts may change its headers.
+        served.headers.set("cache-control", "private, no-cache");
+
+        return served;
       },
     );
 
