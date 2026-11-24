@@ -105,9 +105,19 @@ function previewHeaders(
   return headers;
 }
 
+// A host's path matches only itself unless it ends in a slash (CSP Level
+// 3), so a path names a folder unless its last part looks like a file.
+function folderOf(host: string): string {
+  const last = host.split("/").at(-1) ?? "";
+
+  return host.includes("/") && last !== "" && !last.includes(".")
+    ? `${host}/`
+    : host;
+}
+
 function policy(scriptHosts: readonly string[], base?: string): string {
   const hosts = [
-    ...scriptHosts.map((host) => `https://${host}`),
+    ...scriptHosts.map((host) => `https://${folderOf(host)}`),
     ...(base === undefined ? [] : [base]),
   ].join(" ");
 
@@ -297,7 +307,9 @@ function markdown(text: string, scriptHosts: readonly string[]): string {
 
   const drawsDiagrams =
     html.includes('class="mermaid"') &&
-    scriptHosts.some((host) => `${mermaid}/`.startsWith(`${host}/`));
+    scriptHosts.some((host) =>
+      `${mermaid}/`.startsWith(host.endsWith("/") ? host : `${host}/`),
+    );
 
   return drawsDiagrams
     ? `${html}<script src="https://${mermaid}"></script><script>mermaid.initialize({ startOnLoad: true, theme: matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "default" });</script>`

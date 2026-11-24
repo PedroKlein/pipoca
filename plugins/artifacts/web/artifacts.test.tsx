@@ -5880,6 +5880,15 @@ test("Artifacts › New picks a template by whose it is and what it's for, and s
     "allow-scripts",
   );
 
+  // A deck's first slide shows whole, letterboxed at 16:9.
+  const frames = [
+    ...dialog.querySelectorAll<HTMLIFrameElement>("label iframe"),
+  ];
+
+  expect(frames[0]?.parentElement?.className).toContain("aspect-video");
+  expect(frames[0]?.style.height).toBe("720px");
+  expect(frames[1]?.parentElement?.className).not.toContain("aspect-video");
+
   act(() => {
     named(dialog, "Discuss")?.click();
   });
@@ -6581,5 +6590,1541 @@ test("Pi starting from a template shows in the chat as one row with what it copi
 
   expect(page.textContent).toBe(
     "Started from template Slide deck · 2 files in webhooks-v2",
+  );
+});
+
+const deckSlides = [
+  {
+    selector: "body > section:nth-of-type(1)",
+    title: "Webhooks v2",
+    notes: "Say who you are.",
+    steps: 0,
+  },
+  {
+    selector: "body > section:nth-of-type(2)",
+    title: "Retries moved off the request path",
+    notes: "Lead with the p95.",
+    steps: 2,
+  },
+  {
+    selector: "body > section:nth-of-type(3)",
+    title: "Questions",
+    notes: "",
+    steps: 0,
+  },
+];
+
+function deckArtifact(o: object = {}) {
+  return {
+    ...artifact({ title: "Webhooks v2", type: "slides", living: true }),
+    ...viewed(1),
+    askable: true,
+    ...o,
+  };
+}
+
+function deckFrame(page: HTMLElement, version = 1): ReturnType<typeof frameOf> {
+  const frame = page.querySelector<HTMLIFrameElement>(
+    `iframe[src$='/view?v=${String(version)}']:not([aria-hidden])`,
+  );
+
+  const window = frame?.contentWindow;
+  const posted: { pipoca?: string }[] = [];
+
+  if (window !== null && window !== undefined) {
+    window.postMessage = (data: unknown) => {
+      posted.push(data as { pipoca?: string });
+    };
+  }
+
+  return {
+    tell: (data) => {
+      act(() => {
+        dispatchEvent(
+          new MessageEvent("message", { data, source: window ?? null }),
+        );
+      });
+    },
+    told: () => posted,
+  };
+}
+
+function shownSlide(frame: ReturnType<typeof frameOf>): unknown {
+  return frame
+    .told()
+    .filter((each) => each.pipoca === "slide")
+    .at(-1);
+}
+
+// Keeps what runs every 20 seconds, the heartbeats, to run them at once.
+function beatsOf(every: (() => void)[]): { restore: () => void } {
+  const interval = globalThis.setInterval;
+
+  globalThis.setInterval = ((run: () => void, ms?: number) => {
+    if (ms === 20_000) {
+      every.push(run);
+    }
+
+    return interval(run, ms);
+  }) as typeof setInterval;
+
+  return {
+    restore: () => {
+      globalThis.setInterval = interval;
+    },
+  };
+}
+
+function pressKey(
+  key: string,
+  on: Element = document.activeElement ?? document.body,
+  held: KeyboardEventInit = {},
+): KeyboardEvent {
+  const event = new KeyboardEvent("keydown", {
+    key,
+    bubbles: true,
+    cancelable: true,
+    ...held,
+  });
+
+  act(() => {
+    on.dispatchEvent(event);
+  });
+
+  return event;
+}
+
+test("a deck shows one slide at a time with a rail of its slides and the notes under it, and keys and clicks step through its builds", async () => {
+  const asked: Served[] = [];
+
+  const page = renderPart(
+    web,
+    "overlay",
+    {},
+    {
+      hash: "#session-1?artifact=a1",
+      fetch: serving(deckArtifact(), asked, {
+        comments: () => [
+          thread({
+            id: "t1",
+            version: 1,
+            quote: "Slide 2",
+            element: "body > section:nth-of-type(2)",
+            body: "Is that with the queue on?",
+          }),
+        ],
+      }),
+    },
+  );
+
+  await opened(asked);
+
+  const frame = deckFrame(page);
+
+  frame.tell({ pipoca: "deck", slides: deckSlides });
+
+  const rail = (): HTMLButtonElement[] => [
+    ...page.querySelectorAll<HTMLButtonElement>(
+      "nav[aria-label=Slides] button",
+    ),
+  ];
+
+  const notes = (): string =>
+    page.querySelector("section[aria-label='Speaker notes'] p")?.textContent ??
+    "";
+
+  expect(rail().map((each) => each.getAttribute("aria-label"))).toEqual([
+    "Slide 1 · Webhooks v2",
+    "Slide 2 · Retries moved off the request path",
+    "Slide 3 · Questions",
+  ]);
+
+  expect(rail()[0]?.getAttribute("aria-current")).toBe("true");
+  expect(page.textContent).toContain("Slides · 3 slides");
+  expect(notes()).toBe("Say who you are.");
+
+  expect(
+    [...page.querySelectorAll("nav[aria-label=Slides] iframe")].map((each) =>
+      each.getAttribute("src"),
+    ),
+  ).toEqual(
+    [0, 1, 2].map(
+      (n) => `/api/ext/artifacts/artifacts/a1/view?v=1#slide=${String(n)}`,
+    ),
+  );
+
+  expect(shownSlide(frame)).toEqual({ pipoca: "slide", slide: 0, step: 0 });
+
+  pressKey("ArrowRight");
+
+  expect(shownSlide(frame)).toEqual({ pipoca: "slide", slide: 1, step: 0 });
+  expect(notes()).toBe("Lead with the p95.");
+  expect(rail()[1]?.getAttribute("aria-current")).toBe("true");
+
+  pressKey("ArrowRight");
+  expect(shownSlide(frame)).toEqual({ pipoca: "slide", slide: 1, step: 1 });
+
+  frame.tell({ pipoca: "key", key: "ArrowRight" });
+  expect(shownSlide(frame)).toEqual({ pipoca: "slide", slide: 1, step: 2 });
+
+  pressKey("ArrowRight");
+  expect(shownSlide(frame)).toEqual({ pipoca: "slide", slide: 2, step: 0 });
+  expect(notes()).toBe("This slide has no notes.");
+
+  pressKey("ArrowLeft");
+  expect(shownSlide(frame)).toEqual({ pipoca: "slide", slide: 1, step: 2 });
+
+  pressKey("End");
+  expect(shownSlide(frame)).toEqual({ pipoca: "slide", slide: 2, step: 0 });
+
+  act(() => {
+    rail()[0]?.click();
+  });
+
+  expect(shownSlide(frame)).toEqual({ pipoca: "slide", slide: 0, step: 0 });
+
+  const field = document.createElement("input");
+  page.append(field);
+
+  act(() => {
+    field.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
+    );
+  });
+
+  expect(shownSlide(frame)).toEqual({ pipoca: "slide", slide: 0, step: 0 });
+
+  frame.tell({ pipoca: "pinned", pins: [{ n: 1, slide: 1 }] });
+
+  expect(rail()[1]?.querySelector("[aria-label='1 comment']")).not.toBeNull();
+
+  commentMode(page);
+  await drawn(() => page.textContent.includes("Is that with the queue on?"));
+
+  act(() => {
+    [...page.querySelectorAll("aside[aria-label=Comments] button")]
+      .find((each) => each.textContent.includes("Is that with the queue on?"))
+      ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+
+  expect(shownSlide(frame)).toEqual({ pipoca: "slide", slide: 1, step: 2 });
+});
+
+test("another version of a deck shows its own slides and pins, not the ones the last version reported", async () => {
+  const asked: Served[] = [];
+
+  const page = renderPart(
+    web,
+    "overlay",
+    {},
+    {
+      hash: "#session-1?artifact=a1",
+      fetch: serving(deckArtifact({ ...viewed(2), versions: 2 }), asked),
+    },
+  );
+
+  await opened(asked);
+
+  const rail = (): string[] =>
+    [...page.querySelectorAll("nav[aria-label=Slides] button")].map(
+      (each) => each.textContent,
+    );
+
+  const newer = deckFrame(page, 2);
+
+  newer.tell({ pipoca: "deck", slides: deckSlides });
+  newer.tell({ pipoca: "pinned", pins: [{ n: 1, slide: 1 }] });
+
+  expect(rail()).toEqual(["1", "21", "3"]);
+
+  act(() => {
+    history.replaceState(null, "", "#session-1?artifact=a1&v=1");
+    dispatchEvent(new HashChangeEvent("hashchange"));
+  });
+
+  await drawn(() => page.querySelector("iframe[src$='/view?v=1']") !== null);
+
+  expect(rail()).toEqual([]);
+
+  deckFrame(page, 1).tell({ pipoca: "deck", slides: deckSlides.slice(0, 2) });
+
+  expect(rail()).toEqual(["1", "2"]);
+});
+
+test("keys move a deck only from inside its viewer, and not while someone types, uses a menu or holds a modifier", async () => {
+  const asked: Served[] = [];
+
+  const page = renderPart(
+    web,
+    "overlay",
+    {},
+    {
+      hash: "#session-1?artifact=a1",
+      fetch: serving(deckArtifact(), asked),
+    },
+  );
+
+  await opened(asked);
+
+  const frame = deckFrame(page);
+  const notes = page.querySelector("section[aria-label='Speaker notes']");
+
+  if (notes === null) {
+    throw new Error("no notes");
+  }
+
+  const none = pressKey("ArrowRight", notes);
+
+  expect(none.defaultPrevented).toBe(false);
+
+  frame.tell({
+    pipoca: "deck",
+    slides: [...deckSlides.slice(0, 2), { ...deckSlides[2], steps: 1 }],
+  });
+
+  const at = (): unknown => {
+    const { slide, step } = shownSlide(frame) as {
+      slide: number;
+      step: number;
+    };
+
+    return [slide, step];
+  };
+
+  expect(pressKey("End", notes).defaultPrevented).toBe(true);
+  expect(at()).toEqual([2, 1]);
+
+  pressKey("Home", notes);
+  expect(at()).toEqual([0, 0]);
+
+  for (const [key, then] of [
+    ["ArrowDown", [1, 0]],
+    ["PageDown", [1, 1]],
+    [" ", [1, 2]],
+    ["ArrowUp", [1, 1]],
+    ["PageUp", [1, 0]],
+  ] as const) {
+    pressKey(key, notes);
+    expect(at()).toEqual(then);
+  }
+
+  frame.tell({ pipoca: "key", key: "click" });
+  expect(at()).toEqual([1, 1]);
+
+  pressKey("ArrowRight", notes, { metaKey: true });
+  pressKey("ArrowRight", notes, { ctrlKey: true });
+  expect(at()).toEqual([1, 1]);
+
+  const button = named(page, "All slides");
+
+  if (button === undefined) {
+    throw new Error("no All slides");
+  }
+
+  expect(pressKey(" ", button).defaultPrevented).toBe(false);
+  expect(at()).toEqual([1, 1]);
+
+  const outside = document.createElement("div");
+
+  document.body.append(outside);
+  expect(pressKey("ArrowRight", outside).defaultPrevented).toBe(false);
+  expect(at()).toEqual([1, 1]);
+  outside.remove();
+
+  const field = document.createElement("textarea");
+
+  notes.append(field);
+  pressKey("ArrowRight", field);
+  expect(at()).toEqual([1, 1]);
+  field.remove();
+
+  act(() => {
+    named(page, "More")?.click();
+  });
+
+  const menu = page.querySelector("[role=menu]");
+
+  if (menu === null) {
+    throw new Error("no menu");
+  }
+
+  pressKey("ArrowDown", menu);
+  expect(at()).toEqual([1, 1]);
+
+  pressKey("Escape", menu);
+
+  frame.tell({ pipoca: "key", key: "ArrowRight" });
+  expect(at()).toEqual([1, 2]);
+
+  pressKey("ArrowRight", notes);
+  expect(at()).toEqual([2, 0]);
+
+  frame.tell({ pipoca: "deck", slides: deckSlides.slice(0, 1) });
+  expect(at()).toEqual([0, 0]);
+});
+
+test("the grid shows every slide, and asking Pi about one, moving, duplicating or deleting it, or a new slide, are comments sent to Pi", async () => {
+  const asked: Served[] = [];
+
+  const page = renderPart(
+    web,
+    "overlay",
+    {},
+    {
+      hash: "#session-1?artifact=a1",
+      fetch: serving(deckArtifact(), asked),
+    },
+  );
+
+  await opened(asked);
+
+  const frame = deckFrame(page);
+
+  frame.tell({ pipoca: "deck", slides: deckSlides });
+  frame.tell({ pipoca: "pinned", pins: [{ n: 1, slide: 1 }] });
+  pressKey("ArrowRight", page.querySelector("nav[aria-label=Slides]") ?? page);
+  pressKey("ArrowRight", page.querySelector("nav[aria-label=Slides]") ?? page);
+
+  act(() => {
+    named(page, "All slides")?.click();
+  });
+
+  const grid = (): HTMLElement | null =>
+    page.querySelector("ul[aria-label='All slides']");
+
+  const captions = (): string[] =>
+    [...(grid()?.querySelectorAll(":scope > li") ?? [])].map(
+      (each) => each.textContent,
+    );
+
+  expect(captions()).toEqual([
+    "1 · Webhooks v2",
+    "1 comment · 2 · Retries moved off the request path",
+    "3 · Questions",
+    "Ask Pi for a slide",
+  ]);
+
+  expect(page.textContent).toContain("3 slides · drag to reorder");
+
+  pressKey("ArrowRight", grid() ?? page);
+
+  expect(page.textContent).toContain("Back to slide 2");
+
+  const reporter = page.querySelector<HTMLIFrameElement>(
+    "iframe[aria-hidden][src$='/view?v=1']:not([title^='Slide'])",
+  );
+
+  expect(reporter?.getAttribute("tabindex")).toBe("-1");
+
+  act(() => {
+    dispatchEvent(
+      new MessageEvent("message", {
+        data: {
+          pipoca: "deck",
+          slides: [...deckSlides, { ...deckSlides[2], title: "Thanks" }],
+        },
+        source: reporter?.contentWindow ?? null,
+      }),
+    );
+  });
+
+  expect(captions().at(-2)).toBe("4 · Thanks");
+
+  const sent = (): unknown[] =>
+    asked
+      .filter(
+        ({ method, url }) => method === "POST" && url.endsWith("/comments"),
+      )
+      .map(({ body }) => body);
+
+  const choose = async (slide: string, label: string): Promise<void> => {
+    act(() => {
+      named(page, `${slide}, ask Pi`)?.click();
+    });
+
+    const before = sent().length;
+
+    act(() => {
+      item(page, label)?.click();
+    });
+
+    await drawn(() => sent().length > before);
+  };
+
+  await choose(
+    "Slide 2 · Retries moved off the request path",
+    "Make it shorter",
+  );
+
+  expect(sent().at(-1)).toEqual({
+    version: 1,
+    body: "Make this slide shorter.",
+    toPi: true,
+    quote: "Slide 2 · Retries moved off the request path",
+    element: "body > section:nth-of-type(2)",
+  });
+
+  await drawn(
+    () => page.querySelector("[role=status]")?.textContent === "Sent to Pi",
+  );
+
+  await choose("Slide 2 · Retries moved off the request path", "Move later");
+
+  expect(sent().at(-1)).toMatchObject({
+    body: "Move this slide so it becomes slide 3.",
+  });
+
+  await choose("Slide 1 · Webhooks v2", "Duplicate");
+
+  expect(sent().at(-1)).toMatchObject({
+    body: "Duplicate this slide, right after it.",
+    element: "body > section:nth-of-type(1)",
+  });
+
+  act(() => {
+    named(page, "Slide 3 · Questions, ask Pi")?.click();
+  });
+
+  act(() => {
+    item(page, "Delete slide")?.click();
+  });
+
+  const deleting = sent().length;
+
+  await act(async () => {
+    asking(page, "Ask Pi to delete slide 3?", "Cancel");
+    await Promise.resolve();
+  });
+
+  expect(sent()).toHaveLength(deleting);
+
+  act(() => {
+    named(page, "Slide 3 · Questions, ask Pi")?.click();
+  });
+
+  act(() => {
+    item(page, "Delete slide")?.click();
+  });
+
+  await act(async () => {
+    asking(page, "Ask Pi to delete slide 3?", "Ask Pi to delete it");
+    await until(() => sent().length > deleting);
+  });
+
+  expect(sent().at(-1)).toMatchObject({ body: "Delete this slide." });
+
+  await choose("Slide 2 · Retries moved off the request path", "Move earlier");
+
+  expect(sent().at(-1)).toMatchObject({
+    body: "Move this slide so it becomes slide 1.",
+  });
+
+  const dragged = (from: number, to: number): void => {
+    const slides = [...(grid()?.querySelectorAll(":scope > li") ?? [])];
+
+    const drag = (type: string): Event => {
+      const event = new Event(type, { bubbles: true, cancelable: true });
+
+      Object.defineProperty(event, "dataTransfer", {
+        value: { effectAllowed: "" },
+      });
+
+      return event;
+    };
+
+    act(() => {
+      slides[from]?.dispatchEvent(drag("dragstart"));
+    });
+
+    act(() => {
+      slides[to]?.dispatchEvent(drag("drop"));
+    });
+  };
+
+  const dropping = sent().length;
+
+  dragged(0, 2);
+  await drawn(() => sent().length > dropping);
+
+  expect(sent().at(-1)).toMatchObject({
+    body: "Move this slide so it becomes slide 3.",
+    element: "body > section:nth-of-type(1)",
+  });
+
+  act(() => {
+    named(page, "Slide 1 · Webhooks v2, ask Pi")?.click();
+  });
+
+  expect(item(page, "Move earlier")).toBeUndefined();
+  expect(item(page, "Move later")).not.toBeUndefined();
+
+  act(() => {
+    named(page, "Ask Pi for a slide")?.click();
+  });
+
+  typeInto(
+    document.querySelector("dialog[open] textarea"),
+    "The rollback plan",
+  );
+
+  const before = sent().length;
+
+  await act(async () => {
+    document
+      .querySelector<HTMLFormElement>("dialog[open] form")
+      ?.requestSubmit();
+
+    await until(() => sent().length > before);
+  });
+
+  expect(sent().at(-1)).toEqual({
+    version: 1,
+    body: "Add a slide at the end: The rollback plan",
+    toPi: true,
+  });
+
+  act(() => {
+    named(page, "Open Slide 2 · Retries moved off the request path")?.click();
+  });
+
+  expect(grid()).toBeNull();
+
+  const back = deckFrame(page);
+
+  act(() => {
+    page
+      .querySelector("iframe[src$='/view?v=1']:not([aria-hidden])")
+      ?.dispatchEvent(new Event("load"));
+  });
+
+  expect(shownSlide(back)).toEqual({ pipoca: "slide", slide: 1, step: 1 });
+
+  act(() => {
+    named(page, "All slides")?.click();
+  });
+
+  act(() => {
+    named(page, "Open Slide 3 · Questions")?.click();
+  });
+
+  expect(
+    page
+      .querySelector("nav[aria-label=Slides] button[aria-current]")
+      ?.getAttribute("aria-label"),
+  ).toBe("Slide 3 · Questions");
+});
+
+test("only people who can ask Pi get the grid's requests, and Export prints the deck with or without its notes", async () => {
+  const asked: Served[] = [];
+
+  const page = renderPart(
+    web,
+    "overlay",
+    {},
+    {
+      hash: "#session-1?artifact=a1",
+      fetch: serving(
+        deckArtifact({ askable: false, access: "comment" }),
+        asked,
+      ),
+    },
+  );
+
+  await opened(asked);
+  deckFrame(page).tell({ pipoca: "deck", slides: deckSlides });
+
+  act(() => {
+    named(page, "All slides")?.click();
+  });
+
+  expect(page.textContent).toContain("3 slides");
+  expect(page.textContent).not.toContain("drag to reorder");
+  expect(page.textContent).not.toContain("Ask Pi for a slide");
+  expect(named(page, "Slide 1 · Webhooks v2, ask Pi")).toBeUndefined();
+
+  const job = (title: string) => {
+    const frame = page.querySelector<HTMLIFrameElement>(
+      `iframe[title='${title}']`,
+    );
+
+    const posted: unknown[] = [];
+
+    if (frame?.contentWindow !== null && frame?.contentWindow !== undefined) {
+      frame.contentWindow.postMessage = (data: unknown) => {
+        posted.push(data);
+      };
+    }
+
+    act(() => {
+      frame?.dispatchEvent(new Event("load"));
+    });
+
+    return {
+      src: frame?.getAttribute("src"),
+      posted,
+      say: (data: unknown, from = frame?.contentWindow ?? null) => {
+        act(() => {
+          dispatchEvent(new MessageEvent("message", { data, source: from }));
+        });
+      },
+      gone: () => page.querySelector(`iframe[title='${title}']`) === null,
+    };
+  };
+
+  const exporting = (label: string): void => {
+    act(() => {
+      named(page, "Export")?.click();
+    });
+
+    act(() => {
+      item(page, label)?.click();
+    });
+  };
+
+  act(() => {
+    named(page, "Export")?.click();
+  });
+
+  expect(menuItems(page).map((each) => each.textContent)).toEqual([
+    "PDF, one page per slide",
+    "PDF with speaker notes",
+    "PNG of this slide",
+    "PowerPoint (not planned)",
+  ]);
+
+  expect(
+    item(page, "PowerPoint (not planned)")?.getAttribute("aria-disabled"),
+  ).toBe("true");
+
+  act(() => {
+    item(page, "PDF with speaker notes")?.click();
+  });
+
+  const notes = job("Printing the deck");
+
+  expect(notes.src).toBe("/api/ext/artifacts/artifacts/a1/view?v=1");
+  expect(notes.posted).toEqual([{ pipoca: "print", notes: true }]);
+
+  notes.say({ pipoca: "printed" }, window);
+  expect(notes.gone()).toBe(false);
+
+  notes.say({ pipoca: "printed" });
+  expect(notes.gone()).toBe(true);
+
+  exporting("PDF, one page per slide");
+
+  const plain = job("Printing the deck");
+
+  expect(plain.posted).toEqual([{ pipoca: "print", notes: false }]);
+
+  plain.say({ pipoca: "printed" });
+
+  act(() => {
+    named(page, "Back to slide 1")?.click();
+  });
+
+  pressKey("ArrowRight", page.querySelector("nav[aria-label=Slides]") ?? page);
+
+  act(() => {
+    named(page, "All slides")?.click();
+  });
+
+  const saved: { href: string; download: string }[] = [];
+
+  // Saving makes a link and clicks it, which the page would follow.
+  Object.defineProperty(HTMLAnchorElement.prototype, "click", {
+    configurable: true,
+    value(this: HTMLAnchorElement) {
+      saved.push({ href: this.href, download: this.download });
+    },
+  });
+
+  try {
+    exporting("PNG of this slide");
+
+    const png = job("Drawing the slide");
+
+    expect(png.src).toBe("/api/ext/artifacts/artifacts/a1/view?v=1#slide=1");
+    expect(png.posted).toEqual([{ pipoca: "png" }]);
+
+    act(() => {
+      named(page, "Export")?.click();
+    });
+
+    expect(item(page, "PNG of this slide")?.getAttribute("aria-disabled")).toBe(
+      "true",
+    );
+
+    act(() => {
+      named(page, "Export")?.click();
+    });
+
+    png.say({ pipoca: "png", url: "data:image/png;base64,iVBORw0KGgoAAAAA" });
+
+    expect(
+      saved.map(({ href, download }) => [href.slice(0, 5), download]),
+    ).toEqual([["blob:", "Webhooks v2 slide 2.png"]]);
+
+    expect(png.gone()).toBe(true);
+
+    exporting("PNG of this slide");
+
+    job("Drawing the slide").say({
+      pipoca: "png",
+      url: "javascript:alert(1)",
+    });
+
+    expect(saved).toHaveLength(1);
+
+    expect(page.textContent).toContain(
+      "The slide couldn't be drawn as a picture.",
+    );
+
+    exporting("PNG of this slide");
+    job("Drawing the slide").say({ pipoca: "png", error: "Needs a host." });
+
+    expect(page.textContent).toContain("Needs a host.");
+
+    const refused = (url: string, said: string): void => {
+      exporting("PNG of this slide");
+
+      const drawing = job("Drawing the slide");
+
+      drawing.say({ pipoca: "png", url });
+
+      expect(page.textContent).toContain(said);
+      expect(drawing.gone()).toBe(true);
+    };
+
+    refused(
+      "data:image/png;base64,@@@@",
+      "The picture of the slide didn't decode.",
+    );
+
+    refused(
+      "data:image/png;base64,R0lGODlhAQ==",
+      "The picture of the slide isn't a PNG.",
+    );
+
+    refused(
+      `data:image/png;base64,iVBORw0KGgo${"A".repeat(28_000_000)}`,
+      "The picture of the slide is over 20 MB.",
+    );
+
+    expect(saved).toHaveLength(1);
+  } finally {
+    Reflect.deleteProperty(HTMLAnchorElement.prototype, "click");
+  }
+});
+
+test("a picture of a slide that never comes stops after a while, so Export works again", async () => {
+  const asked: Served[] = [];
+
+  const page = renderPart(
+    web,
+    "overlay",
+    {},
+    {
+      hash: "#session-1?artifact=a1",
+      fetch: serving(deckArtifact(), asked),
+    },
+  );
+
+  await opened(asked);
+  deckFrame(page).tell({ pipoca: "deck", slides: deckSlides });
+
+  const later: (() => void)[] = [];
+  const timeout = globalThis.setTimeout;
+
+  globalThis.setTimeout = ((run: () => void, ms?: number) => {
+    if (ms === 30_000) {
+      later.push(run);
+    }
+
+    return timeout(run, ms);
+  }) as typeof setTimeout;
+
+  try {
+    act(() => {
+      named(page, "More")?.click();
+    });
+
+    act(() => {
+      item(page, "Export slide as PNG")?.click();
+    });
+
+    expect(
+      page.querySelector("iframe[title='Drawing the slide']"),
+    ).not.toBeNull();
+
+    expect(later).toHaveLength(1);
+  } finally {
+    globalThis.setTimeout = timeout;
+  }
+
+  act(() => {
+    for (const run of later) {
+      run();
+    }
+  });
+
+  expect(page.querySelector("iframe[title='Drawing the slide']")).toBeNull();
+  expect(page.textContent).toContain("The slide took too long to draw.");
+});
+
+test("an older version of a deck asks Pi nothing, and More exports it", async () => {
+  const asked: Served[] = [];
+
+  const page = renderPart(
+    web,
+    "overlay",
+    {},
+    {
+      hash: "#session-1?artifact=a1&v=1",
+      fetch: serving(deckArtifact({ ...viewed(2), versions: 2 }), asked),
+    },
+  );
+
+  await opened(asked);
+  deckFrame(page).tell({ pipoca: "deck", slides: deckSlides });
+
+  act(() => {
+    named(page, "All slides")?.click();
+  });
+
+  expect(page.textContent).toContain("3 slides");
+  expect(page.textContent).not.toContain("drag to reorder");
+  expect(named(page, "Slide 1 · Webhooks v2, ask Pi")).toBeUndefined();
+  expect(page.textContent).not.toContain("Ask Pi for a slide");
+
+  act(() => {
+    named(page, "More")?.click();
+  });
+
+  expect(
+    menuItems(page)
+      .map((each) => each.textContent)
+      .filter((each) => each.startsWith("Export")),
+  ).toEqual([
+    "Export as PDF",
+    "Export as PDF with notes",
+    "Export slide as PNG",
+  ]);
+});
+
+test("Present shows the slide, the next one, the notes and a timer against the talk's length, and shares the slide it's on until it ends", async () => {
+  const asked: Served[] = [];
+  const beats: Served[] = [];
+  const every: (() => void)[] = [];
+  const opens: unknown[][] = [];
+  const started = Date.now();
+
+  const page = renderPart(
+    web,
+    "overlay",
+    {},
+    {
+      hash: "#session-1?artifact=a1",
+      fetch: serving(deckArtifact(), asked, {
+        beats,
+        here: () => [
+          { name: "Bo", typing: null, following: true },
+          { name: "Cy", typing: null },
+        ],
+        comments: () => [
+          thread({
+            id: "t0",
+            version: 1,
+            author: "Cy",
+            body: "Asked before it started",
+            createdAt: started - 60_000,
+          }),
+          thread({
+            id: "t1",
+            version: 1,
+            author: "Bo",
+            body: "Is that 0 with the queue on?",
+            createdAt: started + 60_000,
+          }),
+        ],
+      }),
+    },
+  );
+
+  // Rendering sets the page's globals anew.
+  const timing = beatsOf(every);
+
+  const opening = spyOn(globalThis, "open").mockImplementation(
+    (...args: unknown[]) => {
+      opens.push(args);
+
+      return null;
+    },
+  );
+
+  try {
+    await opened(asked);
+
+    deckFrame(page).tell({
+      pipoca: "deck",
+      duration: "15m",
+      slides: deckSlides,
+    });
+
+    const shares = (): unknown[] =>
+      asked
+        .filter(({ url }) => url.includes("a1/presenting"))
+        .map(({ method, body, url }) =>
+          method === "PUT" ? body : `${method} ${url.split("/").at(-1) ?? ""}`,
+        );
+
+    const present = named(page, "Present");
+
+    act(() => {
+      present?.focus();
+      present?.click();
+    });
+
+    const presenter = (): HTMLElement | null =>
+      page.querySelector(
+        "[role=dialog][aria-modal=true][aria-label='Presenter view']",
+      );
+
+    await drawn(() => shares().length > 1);
+
+    const [, first] = shares() as [unknown, { page: string }];
+
+    expect(shares()).toEqual([
+      "GET presenting",
+      { page: first.page, version: 1, slide: 0, step: 0, blank: false },
+    ]);
+
+    expect(presenter()?.getAttribute("data-theme")).toBe("dark");
+    expect(document.activeElement).toBe(presenter());
+    expect(page.querySelector("header")?.closest("[inert]")).not.toBeNull();
+    expect(presenter()?.closest("[inert]")).toBeNull();
+
+    expect(presenter()?.querySelector("[role=timer]")?.textContent).toBe(
+      "00:00",
+    );
+
+    expect(presenter()?.textContent).toContain("00:00of 15:00");
+    expect(presenter()?.textContent).toContain("1 following in Pipoca");
+    expect(presenter()?.textContent).toContain("Say who you are.");
+    expect(presenter()?.textContent).toContain("Slide 1 of 3");
+
+    expect(
+      presenter()?.querySelector("aside iframe")?.getAttribute("src"),
+    ).toEndWith("#slide=1");
+
+    expect(presenter()?.textContent).toContain(
+      "Asked while you present · 1Bo: Is that 0 with the queue on?",
+    );
+
+    expect(beats.at(-1)?.body).toMatchObject({ following: false });
+
+    pressKey("ArrowRight");
+    await drawn(() => shares().length > 2);
+
+    expect(shares().at(-1)).toMatchObject({ slide: 1, step: 0 });
+    expect(presenter()?.textContent).toContain("Lead with the p95.");
+
+    const sent = shares().length;
+
+    expect(every).not.toHaveLength(0);
+
+    act(() => {
+      for (const run of every) {
+        run();
+      }
+    });
+
+    await drawn(() => shares().length > sent);
+    expect(shares().at(-1)).toMatchObject({ slide: 1, step: 0 });
+
+    pressKey("b");
+    await drawn(() => shares().length > sent + 1);
+
+    expect(shares().at(-1)).toMatchObject({ slide: 1, blank: true });
+
+    expect(
+      presenter()?.querySelector("[role=img][aria-label='Blank screen']"),
+    ).not.toBeNull();
+
+    pressKey("B");
+
+    expect(
+      presenter()?.querySelector("[aria-label='Blank screen']"),
+    ).toBeNull();
+
+    pressKey("s");
+    expect(presenter()?.textContent).not.toContain("Lead with the p95.");
+    pressKey("S");
+    expect(presenter()?.textContent).toContain("Lead with the p95.");
+
+    act(() => {
+      named(page, "Open audience window")?.click();
+    });
+
+    expect(opens).toEqual([
+      ["#plugin/artifacts/a1/audience", "_blank", "popup"],
+    ]);
+
+    pressKey("End");
+
+    await drawn(
+      () =>
+        presenter()?.textContent.includes("This is the last slide.") === true,
+    );
+
+    pressKey("Escape");
+
+    await drawn(
+      () => shares().at(-1) === `DELETE presenting?page=${first.page}`,
+    );
+
+    expect(presenter()).toBeNull();
+    expect(page.querySelector("[inert]")).toBeNull();
+    expect(document.activeElement).toBe(named(page, "Present") ?? null);
+    expect(page.querySelector("dialog[open]")).not.toBeNull();
+  } finally {
+    timing.restore();
+    opening.mockRestore();
+  }
+});
+
+test("the presenter's timer turns red once the talk runs over its length", async () => {
+  const asked: Served[] = [];
+  const now = Date.now();
+  const clock = spyOn(Date, "now").mockImplementation(() => now);
+
+  try {
+    const page = renderPart(
+      web,
+      "overlay",
+      {},
+      {
+        hash: "#session-1?artifact=a1",
+        fetch: serving(deckArtifact(), asked),
+      },
+    );
+
+    await opened(asked);
+
+    deckFrame(page).tell({
+      pipoca: "deck",
+      duration: "0:02",
+      slides: deckSlides,
+    });
+
+    act(() => {
+      named(page, "Present")?.click();
+    });
+
+    const timer = (): Element | null => page.querySelector("[role=timer]");
+
+    expect(timer()?.className).not.toContain("text-failed");
+
+    clock.mockImplementation(() => now + 3000);
+
+    await drawn(() => timer()?.textContent === "00:03");
+    expect(timer()?.className).toContain("text-failed");
+  } finally {
+    clock.mockRestore();
+  }
+});
+
+test("Present waits while someone else presents, unless you steer, and a refused share stops", async () => {
+  for (const access of ["comment", "steer", "view"] as const) {
+    const asked: Served[] = [];
+
+    const ana = {
+      by: "Ana",
+      yours: false,
+      slide: 0,
+      step: 0,
+      blank: false,
+      since: 0,
+    };
+
+    const served = serving(deckArtifact({ access }), asked);
+
+    const page = renderPart(
+      web,
+      "overlay",
+      {},
+      {
+        hash: "#session-1?artifact=a1",
+        fetch: async (url, init) => {
+          if (url.endsWith("/presenting")) {
+            asked.push({ url, method: init?.method ?? "GET" });
+
+            return init?.method === "PUT"
+              ? Response.json(
+                  { error: "conflict", message: "Ana is presenting it." },
+                  { status: 409 },
+                )
+              : Response.json({ presenting: ana });
+          }
+
+          return served(url, init);
+        },
+      },
+    );
+
+    await opened(asked);
+    deckFrame(page).tell({ pipoca: "deck", slides: deckSlides });
+
+    await drawn(() => page.textContent.includes("Ana is presenting"));
+
+    const button = buttons(page).find((each) =>
+      ["Present", "Take over"].includes(each.textContent),
+    );
+
+    if (access !== "steer") {
+      expect(button?.textContent).toBe("Present");
+      expect(button?.disabled).toBe(true);
+      expect(button?.title).toBe("Ana is presenting");
+
+      continue;
+    }
+
+    expect(button?.textContent).toBe("Take over");
+    expect(button?.disabled).toBe(false);
+
+    const every: (() => void)[] = [];
+    const timing = beatsOf(every);
+
+    act(() => {
+      button?.click();
+    });
+
+    const puts = (): number =>
+      asked.filter(({ method }) => method === "PUT").length;
+
+    await drawn(() => page.textContent.includes("Ana is presenting it."));
+    expect(puts()).toBe(1);
+    timing.restore();
+    expect(every).not.toHaveLength(0);
+
+    act(() => {
+      for (const run of every) {
+        run();
+      }
+    });
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+
+    expect(puts()).toBe(1);
+  }
+});
+
+test("people who open a deck while it's presented follow the presenter's slide, until they move on their own", async () => {
+  const asked: Served[] = [];
+  const beats: Served[] = [];
+
+  const talk = {
+    by: "Ana",
+    yours: false,
+    version: 1,
+    blank: false,
+    since: 0,
+  };
+
+  let presenting: object | null = { ...talk, slide: 1, step: 1 };
+  let loads = 0;
+
+  const served = serving(
+    deckArtifact({ access: "comment", askable: false }),
+    asked,
+    { beats },
+  );
+
+  const page = renderPart(
+    web,
+    "overlay",
+    {},
+    {
+      hash: "#session-1?artifact=a1",
+      fetch: async (url, init) => {
+        if (url.endsWith("/presenting")) {
+          loads += 1;
+
+          return Response.json({ presenting });
+        }
+
+        return served(url, init);
+      },
+    },
+  );
+
+  await opened(asked);
+
+  const frame = deckFrame(page);
+
+  frame.tell({ pipoca: "deck", slides: deckSlides });
+
+  const group = (): Element | null =>
+    page.querySelector("[role=group][aria-label=Presenting]");
+
+  const banner = (): string => group()?.textContent ?? "";
+
+  const tell = async (next: object | null): Promise<void> => {
+    const before = loads;
+
+    presenting = next;
+    changed("artifacts.presence-a1");
+
+    await drawn(() => loads > before);
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+  };
+
+  await drawn(() => banner().includes("Ana is presenting"));
+
+  expect(group()?.getAttribute("aria-live")).toBe("polite");
+
+  expect(banner()).toContain(
+    "Ana is presenting, on slide 2. You follow their slide.",
+  );
+
+  expect(shownSlide(frame)).toEqual({ pipoca: "slide", slide: 1, step: 1 });
+
+  await drawn(() =>
+    beats.some(
+      ({ body }) =>
+        (body as { following?: boolean } | undefined)?.following === true,
+    ),
+  );
+
+  frame.tell({ pipoca: "key", key: "click" });
+  expect(banner()).toContain("You follow their slide.");
+  expect(shownSlide(frame)).toEqual({ pipoca: "slide", slide: 1, step: 1 });
+
+  await tell({ ...talk, slide: 2, step: 0, blank: true });
+
+  await drawn(() => banner().includes("on slide 3"));
+  expect(shownSlide(frame)).toEqual({ pipoca: "slide", slide: 2, step: 0 });
+
+  expect(
+    page.querySelector("[role=img][aria-label='Ana blanked the screen']"),
+  ).not.toBeNull();
+
+  await tell({ ...talk, slide: 2, step: 0 });
+
+  expect(
+    page.querySelector("[aria-label='Ana blanked the screen']"),
+  ).toBeNull();
+
+  pressKey("ArrowLeft");
+
+  expect(shownSlide(frame)).toEqual({ pipoca: "slide", slide: 1, step: 2 });
+  expect(banner()).toContain("Ana is presenting.Follow Ana");
+
+  await drawn(() =>
+    beats.some(
+      ({ body }) =>
+        (body as { following?: boolean } | undefined)?.following === false,
+    ),
+  );
+
+  await tell({ ...talk, slide: 0, step: 0 });
+  expect(banner()).toContain("Ana is presenting.Follow Ana");
+  expect(shownSlide(frame)).toEqual({ pipoca: "slide", slide: 1, step: 2 });
+
+  act(() => {
+    named(page, "Follow Ana")?.click();
+  });
+
+  expect(shownSlide(frame)).toEqual({ pipoca: "slide", slide: 0, step: 0 });
+
+  act(() => {
+    named(page, "Stop following")?.click();
+  });
+
+  await tell({ ...talk, slide: 2, step: 0 });
+  expect(banner()).toContain("Follow Ana");
+  expect(shownSlide(frame)).toEqual({ pipoca: "slide", slide: 0, step: 0 });
+
+  await tell({ ...talk, by: "Bo", since: 5, slide: 2, step: 0 });
+  await drawn(() => banner().includes("You follow their slide."));
+  expect(shownSlide(frame)).toEqual({ pipoca: "slide", slide: 2, step: 0 });
+
+  commentMode(page);
+
+  act(() => {
+    named(page, "Comment on the whole page")?.click();
+  });
+
+  expect(
+    page.querySelector("form[aria-label='New comment'] p")?.textContent,
+  ).toBe("On “Slide 3 · Questions”");
+
+  await tell({ ...talk, yours: true, slide: 1, step: 0 });
+  await drawn(() => banner() === "");
+
+  await tell(null);
+  expect(banner()).toBe("");
+});
+
+test("followers open the version the presenter shows, and keep the one they chose once they stop", async () => {
+  const asked: Served[] = [];
+  let loads = 0;
+
+  let presenting: object | null = {
+    by: "Ana",
+    yours: false,
+    version: 1,
+    blank: false,
+    since: 0,
+    slide: 1,
+    step: 0,
+  };
+
+  const served = serving(
+    deckArtifact({ ...viewed(2), versions: 2, access: "comment" }),
+    asked,
+  );
+
+  const page = renderPart(
+    web,
+    "overlay",
+    {},
+    {
+      hash: "#session-1?artifact=a1",
+      fetch: async (url, init) => {
+        if (url.endsWith("/presenting")) {
+          loads += 1;
+
+          return Response.json({ presenting });
+        }
+
+        return served(url, init);
+      },
+    },
+  );
+
+  await opened(asked);
+
+  await drawn(() => location.hash === "#session-1?artifact=a1&v=1");
+
+  const frame = deckFrame(page, 1);
+
+  frame.tell({ pipoca: "deck", slides: deckSlides });
+  expect(shownSlide(frame)).toEqual({ pipoca: "slide", slide: 1, step: 0 });
+
+  const before = loads;
+
+  presenting = { ...presenting, version: 2 };
+  changed("artifacts.presence-a1");
+
+  await drawn(
+    () => loads > before && location.hash === "#session-1?artifact=a1",
+  );
+
+  await drawn(() => page.querySelector("iframe[src$='/view?v=2']") !== null);
+
+  act(() => {
+    named(page, "Stop following")?.click();
+  });
+
+  const unfollowedAt = loads;
+
+  presenting = { ...presenting, version: 1 };
+  changed("artifacts.presence-a1");
+
+  await drawn(() => loads > unfollowedAt);
+
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  });
+
+  expect(location.hash).toBe("#session-1?artifact=a1");
+});
+
+test("the audience window shows only the slide, following the presentation, yours too, and goes black when it's blanked", async () => {
+  const Gallery = slots.page;
+
+  if (Gallery === undefined) {
+    throw new Error("no gallery page");
+  }
+
+  const Page = Gallery;
+  const asked: Served[] = [];
+  let loads = 0;
+
+  let presenting: object | null = {
+    by: "You",
+    yours: true,
+    version: 1,
+    blank: false,
+    since: 0,
+    slide: 1,
+    step: 1,
+  };
+
+  const served = serving(deckArtifact({ ...viewed(2), versions: 2 }), asked);
+
+  function Audience(): ReactElement {
+    return <Page path="a1/audience" />;
+  }
+
+  const audience = { page: Audience };
+
+  const page = renderPart(
+    { ...web, slots: audience },
+    "page",
+    {},
+    {
+      hash: "#plugin/artifacts/a1/audience",
+      fetch: async (url, init) => {
+        if (url.endsWith("/presenting")) {
+          loads += 1;
+
+          return Response.json({ presenting });
+        }
+
+        return served(url, init);
+      },
+    },
+  );
+
+  await drawn(
+    () =>
+      page.querySelector("iframe[src$='/view?v=1']:not([aria-hidden])") !==
+      null,
+  );
+
+  const frame = deckFrame(page);
+
+  frame.tell({ pipoca: "deck", slides: deckSlides });
+
+  await drawn(() => {
+    const shown = shownSlide(frame) as { slide?: number } | undefined;
+
+    return shown?.slide === 1;
+  });
+
+  expect(shownSlide(frame)).toEqual({ pipoca: "slide", slide: 1, step: 1 });
+  expect(page.querySelector("[data-theme=dark]")).not.toBeNull();
+  expect(page.querySelector("nav, header, button")).toBeNull();
+
+  const before = loads;
+
+  presenting = { ...presenting, slide: 2, step: 0, blank: true };
+  changed("artifacts.presence-a1");
+
+  await drawn(
+    () => loads > before && page.querySelector("[role=img]") !== null,
+  );
+
+  expect(shownSlide(frame)).toEqual({ pipoca: "slide", slide: 2, step: 0 });
+
+  expect(page.querySelector("[role=img]")?.getAttribute("aria-label")).toBe(
+    "Blank screen",
   );
 });

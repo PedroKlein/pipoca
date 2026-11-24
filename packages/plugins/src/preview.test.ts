@@ -53,6 +53,41 @@ test("a script given runs in every page it draws", async () => {
   );
 });
 
+test("a script host named with a path allows every script under that path", () => {
+  const policy =
+    preview("a.html", bytes("<p>hi</p>"), {
+      scriptHosts: [
+        "unpkg.com",
+        "cdn.jsdelivr.net/npm",
+        "cdn.example/lib/",
+        "cdn.example/v1.2/app.min.js",
+      ],
+    })?.headers.get("content-security-policy") ?? "";
+
+  // A path without a trailing slash allows only itself (CSP Level 3), as a
+  // file named on its own should.
+  expect(
+    policy.split("; ").find((each) => each.startsWith("script-src ")),
+  ).toBe(
+    "script-src 'unsafe-inline' 'unsafe-eval' https://unpkg.com https://cdn.jsdelivr.net/npm/ https://cdn.example/lib/ https://cdn.example/v1.2/app.min.js",
+  );
+});
+
+test("a Markdown diagram draws when its script's host is listed, with or without a trailing slash", async () => {
+  const drawn = async (host: string): Promise<boolean> =>
+    (
+      (await preview("a.md", bytes("```mermaid\ngraph TD\n  a --> b\n```"), {
+        scriptHosts: [host],
+      })?.text()) ?? ""
+    ).includes("mermaid.min.js");
+
+  expect(await drawn("cdn.jsdelivr.net/npm")).toBe(true);
+  expect(await drawn("cdn.jsdelivr.net/npm/")).toBe(true);
+  expect(await drawn("cdn.jsdelivr.net")).toBe(true);
+  expect(await drawn("cdn.jsdelivr.net/np")).toBe(false);
+  expect(await drawn("unpkg.com")).toBe(false);
+});
+
 test("a page may load and fetch its own files from its base, and they go as they are under the same policy", async () => {
   const base = "pipoca.example/files/grant/";
   const page = preview("index.html", bytes("<p>hi</p>"), { base });

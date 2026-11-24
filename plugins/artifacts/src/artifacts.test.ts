@@ -945,7 +945,11 @@ test("people see who else is looking and who is typing in which thread, until th
 
   const here = async (
     who: string,
-    body: { readonly here: boolean; readonly typing?: string | null },
+    body: {
+      readonly here: boolean;
+      readonly typing?: string | null;
+      readonly following?: boolean;
+    },
     page = "tab",
   ) => t.as(who).post(`artifacts/${id}/presence`, { page, ...body });
 
@@ -967,6 +971,27 @@ test("people see who else is looking and who is typing in which thread, until th
 
   expect(await seen("bo")).toEqual([
     { name: "Ana", typing: null },
+    { name: "Cy", typing: null },
+  ]);
+
+  await here("cy", { here: true, following: true });
+
+  expect(await seen("ana")).toEqual([
+    { name: "Bo", typing: null },
+    { name: "Cy", typing: null, following: true },
+  ]);
+
+  await here("cy", { here: true });
+
+  expect(await seen("ana")).toEqual([
+    { name: "Bo", typing: null },
+    { name: "Cy", typing: null, following: true },
+  ]);
+
+  await here("cy", { here: true, following: false });
+
+  expect(await seen("ana")).toEqual([
+    { name: "Bo", typing: null },
     { name: "Cy", typing: null },
   ]);
 
@@ -2781,7 +2806,14 @@ test("Pi publishes a folder as one artifact, whose page loads its files by relat
   }
 
   // Cached no longer than the link lasts.
-  expect(page.headers.get("cache-control")).toBe("private, max-age=3600");
+  const lasts = Number(grant.split(".")[1]);
+
+  expect(lasts - t.clock.now()).toBeGreaterThanOrEqual(3_600_000);
+
+  expect(page.headers.get("cache-control")).toBe(
+    `private, max-age=${String(Math.floor((lasts - t.clock.now()) / 1000))}`,
+  );
+
   expect(await page.text()).toContain('pipoca: "selection"');
 
   const style = await anyone.raw(
@@ -2818,7 +2850,7 @@ test("Pi publishes a folder as one artifact, whose page loads its files by relat
     (await t.as("bo").raw(`artifacts/${id}/view`, { method: "GET" })).status,
   ).toBe(404);
 
-  await t.clock.advance("59m");
+  await t.clock.advance(lasts - t.clock.now() - 60_000);
 
   const late = await anyone.raw(
     `artifacts/${id}/files/${grant}/styles/app.css`,
@@ -3502,6 +3534,289 @@ test("an artifact's type comes from the files at the top of its folder, else fro
   ).toMatchObject({ title: "plan.md", type: "markdown" });
 });
 
+test("a deck's page draws it a slide at a time, also when its folder opens at another entry", async () => {
+  const { t, cwd, part } = await setUp();
+
+  const opened = async (id: string): Promise<string> => {
+    const view = await t
+      .as("ana")
+      .raw(`artifacts/${id}/view`, { method: "GET" });
+
+    const at = view.headers.get("location");
+
+    return at === null
+      ? view.text()
+      : (
+          await t.public().raw(`artifacts/${id}/${at}`, { method: "GET" })
+        ).text();
+  };
+
+  const folder = await publishFolder(part, cwd, "talk", {
+    "index.html": "<p>Read the deck</p>",
+    "deck.html":
+      '<section><h2>Hi</h2><aside class="notes">Wave</aside></section>',
+    "deck.css": "",
+  });
+
+  const view = await t
+    .as("ana")
+    .raw(`artifacts/${folder}/view`, { method: "GET" });
+
+  expect(view.headers.get("location")).toMatch(/^files\/[^/]+\/deck\.html$/);
+
+  const page = await opened(folder);
+
+  expect(page).toContain("<h2>Hi</h2>");
+  expect(page).toContain('pipoca: "deck"');
+  expect(page).toContain('pipoca: "selection"');
+
+  const grant = (view.headers.get("location") ?? "").split("/")[1] ?? "";
+
+  expect(
+    await (
+      await t
+        .public()
+        .raw(`artifacts/${folder}/files/${grant}/index.html`, { method: "GET" })
+    ).text(),
+  ).not.toContain("<script>");
+
+  await writeFile(join(cwd, "deck.html"), "<section>Alone</section>");
+
+  const { details } = await part.tool("publish_artifact", {
+    path: "deck.html",
+  });
+
+  expect(await opened((details as { id: string }).id)).toContain(
+    'pipoca: "deck"',
+  );
+
+  const other = await publishFolder(part, cwd, "site", {
+    "index.html": "<p>Hi</p>",
+    "notes/deck.html": "<section>Not a deck</section>",
+  });
+
+  expect(await opened(other)).not.toContain('pipoca: "deck"');
+});
+
+test("whoever presents a deck moves the slide everyone who can see it follows, until they end or fall silent", async () => {
+  const { t, cwd, part } = await setUp();
+
+  const id = await publishFolder(
+    part,
+    cwd,
+    "talk",
+    { "deck.html": "<section>One</section><section>Two</section>" },
+    "deck.html",
+  );
+
+  await t.as("ana").put(`artifacts/${id}/shares`, {
+    shares: [
+      { name: "Bo", role: "comment" },
+      { name: "Cy", role: "view" },
+    ],
+  });
+
+  const presenting = async (who: string) =>
+    (await t.as(who).get<{ presenting: unknown }>(`artifacts/${id}/presenting`))
+      .presenting;
+
+  const move = async (
+    who: string,
+    at: object,
+    page = `${who}-tab`,
+  ): Promise<number> =>
+    (
+      await t.as(who).raw(`artifacts/${id}/presenting`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ page, version: 1, blank: false, ...at }),
+      })
+    ).status;
+
+  const end = async (who: string, page = `${who}-tab`): Promise<number> =>
+    (
+      await t
+        .as(who)
+        .raw(`artifacts/${id}/presenting?page=${page}`, { method: "DELETE" })
+    ).status;
+
+  const told = () =>
+    t.topics.filter((topic) => topic === `artifacts.presence-${id}`).length;
+
+  expect(await presenting("cy")).toBeNull();
+
+  const quiet = told();
+
+  expect(await end("bo")).toBe(200);
+  expect(told()).toBe(quiet);
+
+  expect(await move("bo", { slide: 1, step: 2 })).toBe(200);
+  expect(told()).toBe(quiet + 1);
+
+  const since = t.clock.now();
+
+  expect(await presenting("cy")).toEqual({
+    by: "Bo",
+    yours: false,
+    version: 1,
+    slide: 1,
+    step: 2,
+    blank: false,
+    since,
+  });
+
+  expect(await presenting("bo")).toMatchObject({ yours: true });
+
+  expect(await move("bo", { slide: 1, step: 2, blank: true })).toBe(200);
+  expect(await presenting("cy")).toMatchObject({ blank: true });
+
+  expect(await move("cy", { slide: 0, step: 0 })).toBe(403);
+  expect(await end("cy")).toBe(403);
+  expect(await end("bolee")).toBe(404);
+  expect(await move("bolee", { slide: 0, step: 0 })).toBe(404);
+  expect(await move("bo", { slide: 1001, step: 0 })).toBe(422);
+  expect(await move("bo", { version: 2, slide: 0, step: 0 })).toBe(404);
+  expect(await presenting("cy")).toMatchObject({ by: "Bo", slide: 1 });
+
+  expect(await end("bo", "other-tab")).toBe(200);
+  expect(await presenting("cy")).toMatchObject({ by: "Bo" });
+
+  await t.clock.advance("10s");
+
+  expect(await move("bo", { slide: 0, step: 0 })).toBe(200);
+  expect(await presenting("cy")).toMatchObject({ slide: 0, since });
+
+  const ending = told();
+
+  expect(await end("bo")).toBe(200);
+  expect(told()).toBe(ending + 1);
+  expect(await presenting("cy")).toBeNull();
+
+  expect(await move("bo", { slide: 1, step: 0 })).toBe(200);
+
+  expect(await move("ana", { slide: 0, step: 0 })).toBe(200);
+  expect(await presenting("cy")).toMatchObject({ by: "Ana", slide: 0 });
+  expect(await move("bo", { slide: 1, step: 0 })).toBe(409);
+  expect(await end("bo")).toBe(403);
+
+  expect(await move("bo", { slide: 1, step: 0 }, "ana-tab")).toBe(409);
+  expect(await end("ana", "elsewhere")).toBe(200);
+  expect(await presenting("cy")).toMatchObject({ by: "Ana" });
+
+  const silent = told();
+  await t.clock.advance("91s");
+
+  expect(told()).toBeGreaterThan(silent);
+  expect(await presenting("cy")).toBeNull();
+
+  expect(await move("bo", { slide: 1, step: 0 })).toBe(200);
+  expect(await end("ana", "any")).toBe(200);
+  expect(await presenting("cy")).toBeNull();
+
+  expect(await move("bo", { slide: 1, step: 0 })).toBe(200);
+
+  await t.as("ana").put(`artifacts/${id}/shares`, {
+    shares: [{ name: "Cy", role: "view" }],
+  });
+
+  expect(await presenting("cy")).toBeNull();
+  expect(await presenting("ana")).toBeNull();
+
+  await t.as("ana").put(`artifacts/${id}/shares`, {
+    shares: [
+      { name: "Bo", role: "comment" },
+      { name: "Cy", role: "comment" },
+    ],
+  });
+
+  expect(await presenting("cy")).toBeNull();
+  expect(await move("cy", { slide: 0, step: 0 })).toBe(200);
+  expect(await presenting("bo")).toMatchObject({ by: "Cy" });
+
+  // Whoever presents shows the version they have open, and everyone
+  // follows that one.
+  await writeFile(
+    join(cwd, "talk", "deck.html"),
+    "<section>One</section><section>Two</section><section>Three</section>",
+  );
+
+  await part.tool("publish_artifact", { id, path: "talk", entry: "deck.html" });
+
+  expect(await move("cy", { version: 2, slide: 2, step: 0 })).toBe(200);
+  expect(await presenting("bo")).toMatchObject({ version: 2, slide: 2 });
+  expect(await move("cy", { version: 1, slide: 1, step: 0 })).toBe(200);
+  expect(await presenting("bo")).toMatchObject({ version: 1, slide: 1 });
+
+  await writeFile(join(cwd, "plan.md"), "# Plan");
+
+  const { details } = await part.tool("publish_artifact", { path: "plan.md" });
+
+  expect(
+    (
+      await t
+        .as("ana")
+        .raw(`artifacts/${(details as { id: string }).id}/presenting`, {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            page: "tab",
+            version: 1,
+            slide: 0,
+            step: 0,
+            blank: false,
+          }),
+        })
+    ).status,
+  ).toBe(400);
+});
+
+test("a deck's pages for one person and version open at one link for a while, so its frames share what they load", async () => {
+  const { t, cwd, part } = await setUp();
+
+  const id = await publishFolder(
+    part,
+    cwd,
+    "talk",
+    { "deck.html": "<section>One</section>", "deck.css": "" },
+    "deck.html",
+  );
+
+  const where = async (): Promise<string | null> =>
+    (
+      await t.as("ana").raw(`artifacts/${id}/view`, { method: "GET" })
+    ).headers.get("location");
+
+  await t.clock.advance(600_000 - (t.clock.now() % 600_000) + 1000);
+
+  const first = await where();
+
+  await t.clock.advance("2m");
+
+  expect(await where()).toBe(first);
+
+  await t.clock.advance("9m");
+
+  expect(await where()).not.toBe(first);
+});
+
+test("the slide deck template's preview draws its first slide", async () => {
+  const { t } = await setUp();
+
+  const page = await t
+    .public()
+    .raw("templates/slide-deck/files/deck.html", { method: "GET" });
+
+  expect(await page.text()).toContain('pipoca: "deck"');
+
+  expect(
+    await (
+      await t
+        .public()
+        .raw("templates/report-page/files/index.html", { method: "GET" })
+    ).text(),
+  ).not.toContain('pipoca: "deck"');
+});
+
 test("Pi finds templates by name or what they're for, one line each, without their files", async () => {
   const { part } = await setUp();
 
@@ -3545,6 +3860,9 @@ test("Pi starts an artifact from a built-in template in a folder named from its 
 
   expect(started.text).toContain(folder);
   expect(started.text).toContain("ask who the audience is");
+  expect(started.text).toContain('<aside class="notes">');
+  expect(started.text).toContain("data-step");
+  expect(started.text).toContain("1280 by 720");
   expect(started.text).toContain("publish_artifact");
 
   expect(await readFile(join(folder, "deck.html"), "utf8")).toContain(

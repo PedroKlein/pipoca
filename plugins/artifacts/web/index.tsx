@@ -37,6 +37,7 @@ import { useDock } from "./dock";
 import { Gallery } from "./gallery";
 import { AttachArtifact, PublishFile, SessionArtifacts } from "./files";
 import { StartedCard, StartFromTemplate, TemplatePicker } from "./templates";
+import { Audience } from "./slides";
 import { ArtifactDock, ArtifactLink, ArtifactOverlay, Viewer } from "./viewer";
 
 export const web = defineWeb(plugin, {
@@ -78,6 +79,10 @@ function ArtifactsPage({ path }: PageProps): ReactElement {
 
   if (id === "") {
     return <ArtifactList />;
+  }
+
+  if (rest[0] === "audience") {
+    return <Audience id={id} />;
   }
 
   const version = rest[0] === "v" ? Number(rest[1]) : undefined;

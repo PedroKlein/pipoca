@@ -95,3 +95,32 @@ test("a heading says what the list holds, and a badge marks an item", () => {
   expect(menu.textContent).toStartWith("Versions · every publish is kept");
   expect(byRole(menu, "menuitemradio", "Version 2 latest")).toBeDefined();
 });
+
+test("shows an item that can't be picked without running it", () => {
+  const ran: string[] = [];
+
+  const page = render(
+    <Menu
+      label="Export"
+      items={[
+        { label: "PDF", run: () => ran.push("pdf") },
+        {
+          label: "PowerPoint (not planned)",
+          disabled: true,
+          run: () => ran.push("pptx"),
+        },
+      ]}
+    />,
+  );
+
+  click(byRole(page, "button", "Export"));
+
+  const item = byRole(page, "menuitem", "PowerPoint (not planned)");
+
+  expect(item.getAttribute("aria-disabled")).toBe("true");
+
+  click(item);
+
+  expect(ran).toEqual([]);
+  expect(page.querySelector('[role="menu"]')).not.toBeNull();
+});

@@ -28,6 +28,7 @@ export interface MenuItem {
   readonly checked?: boolean;
   // Draws a rule above the item.
   readonly divided?: boolean;
+  readonly disabled?: boolean;
   readonly run: () => void;
 }
 
@@ -156,13 +157,22 @@ export function Menu({
                 type="button"
                 role={item.checked === undefined ? "menuitem" : "menuitemradio"}
                 aria-checked={item.checked}
+                aria-disabled={item.disabled}
                 onClick={() => {
+                  if (item.disabled === true) {
+                    return;
+                  }
+
                   setOpen(false);
                   item.run();
                 }}
                 className={cn(
-                  "flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-ui hover:bg-hover",
-                  item.danger === true ? "text-failed" : "text-fg",
+                  "flex items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-ui",
+                  item.disabled === true
+                    ? "cursor-default text-fg-dim"
+                    : "cursor-pointer hover:bg-hover",
+                  item.disabled !== true &&
+                    (item.danger === true ? "text-failed" : "text-fg"),
                 )}
               >
                 {item.checked !== undefined && (

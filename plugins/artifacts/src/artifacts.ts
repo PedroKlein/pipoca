@@ -399,6 +399,7 @@ export interface Reaction {
 export interface Presence {
   readonly name: string;
   readonly typing: string | null;
+  readonly following?: boolean;
 }
 
 // The threads one notice told Pi about, for its row in the chat.

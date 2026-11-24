@@ -252,6 +252,7 @@ export const web = defineWeb(vault, {
   });
 
   browser = await chromium.launch();
+
   page = await browser.newPage();
   page.setDefaultTimeout(10_000);
 
@@ -7137,6 +7138,385 @@ test("opens a folder Pi published with its stylesheet and picture loaded in the 
 
   await viewer.getByRole("button", { name: "Page", exact: true }).click();
   await heading.waitFor();
+  await page.keyboard.press("Escape");
+  await overlayClosed();
+}, 30_000);
+
+test("shows a deck Pi published one slide at a time with its notes, builds its steps, lists every slide and presents it", async () => {
+  const folder = join(root, "artifact-deck");
+  const deck = join(folder, "talk");
+  await mkdir(deck, { recursive: true });
+
+  await writeFile(
+    join(deck, "deck.html"),
+    `<link rel="stylesheet" href="deck.css">
+<section class="title"><h1>Webhooks v2: ready to cut over</h1><aside class="notes">Say who you are.</aside></section>
+<section><h2>Retries moved off the request path</h2><p class="kpi">320 ms</p><p class="kpi" data-step="2">0 events lost</p><p class="kpi" data-step="1">p95 halved</p><button type="button">Poll</button> <a href="javascript:void 0">Source</a><aside class="notes">Lead with
+   the   p95.
+
+
+  Then the loss.</aside></section>
+<section><h2>Questions</h2><section><p>Asked before</p></section></section>
+<section><p>Thanks for listening</p><p class="bye" data-step>Bye</p><aside class="notes">Wave.</aside></section>`,
+  );
+
+  await writeFile(
+    join(deck, "deck.css"),
+    "section { padding: 48px; background: rgb(255, 255, 255); } section.title { background: rgb(29, 36, 51); color: rgb(255, 255, 255); }\n",
+  );
+
+  faux.setResponses([
+    fauxAssistantMessage(
+      [
+        fauxToolCall("publish_artifact", {
+          path: "talk",
+          entry: "deck.html",
+          title: "Webhooks v2",
+        }),
+      ],
+      { stopReason: "toolUse" },
+    ),
+    fauxAssistantMessage([fauxText("Published the deck")]),
+  ]);
+
+  // Printing is stubbed in every frame: it tells the window what would be
+  // printed, then that it's done, then what's left after.
+  await page.addInitScript(`
+    const atPage = () => [...document.querySelectorAll("style")].map((each) => each.textContent).filter((each) => each.includes("@page")).join("");
+    window.print = () => {
+      parent.postMessage({ pipoca: "e2e-print", page: atPage(), notes: [...document.querySelectorAll("[data-pipoca-notes]")].map((each) => each.textContent) }, "*");
+      dispatchEvent(new Event("afterprint"));
+      parent.postMessage({ pipoca: "e2e-print", page: atPage(), notes: document.querySelectorAll("[data-pipoca-notes]").length }, "*");
+    };
+    if (window === top) {
+      window.prints = [];
+      addEventListener("message", (event) => {
+        if (event.data?.pipoca === "e2e-print") window.prints.push([event.data.page, event.data.notes]);
+      });
+    }
+  `);
+
+  // Not the real rasterizer: one that answers a picture at once.
+  await page.route(
+    "https://cdn.jsdelivr.net/npm/html-to-image@1.11.11/dist/html-to-image.js",
+    async (route) =>
+      route.fulfill({
+        contentType: "text/javascript",
+        body: `globalThis.htmlToImage = { toPng: async () => "data:image/png;base64,iVBORw0KGgoAAAAA" };`,
+      }),
+  );
+
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto(server.url.href);
+  await page.getByRole("button", { name: "New session" }).click();
+  const form = page.locator("form#create");
+
+  await pickWorkspace(form, folder);
+  await form.getByRole("button", { name: "Start session" }).click();
+  await page.locator("#status", { hasText: "idle" }).waitFor();
+
+  const box = page.locator("#prompt-text");
+  await box.fill("publish the deck");
+  await box.press("Enter");
+  await page.getByText("Published the deck").waitFor();
+
+  await page.getByRole("link", { name: /Webhooks v2/ }).click();
+
+  const viewer = page.getByRole("dialog", { name: "Webhooks v2" });
+  const rail = viewer.getByRole("navigation", { name: "Slides" });
+  const notes = viewer.getByRole("region", { name: "Speaker notes" });
+
+  await rail
+    .getByRole("button", { name: "Slide 4 · Thanks for listening Bye" })
+    .waitFor();
+
+  await notes.getByText("Say who you are.").waitFor();
+  await viewer.getByText("Slides · 4 slides").waitFor();
+
+  // Nested sections are part of their slide, and a slide with no heading
+  // is named by its words, not its notes.
+  expect(
+    await Promise.all(
+      (await rail.getByRole("button").all()).map(async (each) =>
+        each.getAttribute("aria-label"),
+      ),
+    ),
+  ).toEqual([
+    "Slide 1 · Webhooks v2: ready to cut over",
+    "Slide 2 · Retries moved off the request path",
+    "Slide 3 · Questions",
+    "Slide 4 · Thanks for listening Bye",
+  ]);
+
+  const frameOf = async (selector: string) => {
+    const found = await (
+      await viewer.locator(selector).elementHandle()
+    ).contentFrame();
+
+    if (found === null) {
+      throw new Error(`no frame ${selector}`);
+    }
+
+    return found;
+  };
+
+  const inside = await frameOf("iframe:not([aria-hidden])");
+
+  const shown = async (): Promise<unknown> =>
+    inside.evaluate(
+      "[...document.querySelectorAll('body > section')].map((each) => getComputedStyle(each).display !== 'none' && [each.querySelector('h1, h2, p').textContent, [...each.querySelectorAll('.kpi')].map((kpi) => getComputedStyle(kpi).visibility)]).filter(Boolean)",
+    );
+
+  expect(await shown()).toEqual([["Webhooks v2: ready to cut over", []]]);
+
+  expect(
+    await inside.evaluate(
+      "[innerWidth, innerHeight, getComputedStyle(document.querySelector('section')).backgroundColor, document.querySelector('section').getBoundingClientRect().height, getComputedStyle(document.querySelector('aside.notes')).display]",
+    ),
+  ).toEqual([1280, 720, "rgb(29, 36, 51)", 720, "none"]);
+
+  // A thumbnail shows its slide with every step built.
+  const thumb = await frameOf("nav[aria-label=Slides] iframe[src$='#slide=1']");
+
+  await until(
+    async () =>
+      thumb.evaluate(
+        "[...document.querySelectorAll('.kpi')].map((kpi) => getComputedStyle(kpi).visibility).join()",
+      ),
+    (now) => now === "visible,visible,visible",
+  );
+
+  await page.keyboard.press("ArrowRight");
+  await notes.getByText("Lead with").waitFor();
+
+  expect(await notes.locator("p").innerText()).toBe(
+    "Lead with\nthe p95.\n\nThen the loss.",
+  );
+
+  const showing = async (slide: unknown): Promise<void> => {
+    await until(
+      shown,
+      (now) => JSON.stringify(now) === JSON.stringify([slide]),
+    );
+  };
+
+  await showing([
+    "Retries moved off the request path",
+    ["visible", "hidden", "hidden"],
+  ]);
+
+  // A button or a link in the slide does its own thing, and doesn't step.
+  const stage = viewer.frameLocator("iframe:not([aria-hidden])");
+
+  await stage.getByRole("button", { name: "Poll" }).click();
+  await stage.getByRole("link", { name: "Source" }).click();
+  await page.waitForTimeout(200);
+
+  await showing([
+    "Retries moved off the request path",
+    ["visible", "hidden", "hidden"],
+  ]);
+
+  // Steps build in the order their numbers say.
+  await stage.getByText("Retries moved off the request path").click();
+
+  await showing([
+    "Retries moved off the request path",
+    ["visible", "hidden", "visible"],
+  ]);
+
+  await page.keyboard.press("ArrowRight");
+
+  await showing([
+    "Retries moved off the request path",
+    ["visible", "visible", "visible"],
+  ]);
+
+  // In comment mode keys pick nothing and move nothing; the whole page is
+  // the slide, and its pin shows on the slide's thumbnail.
+  await viewer.getByRole("button", { name: "Comment", exact: true }).click();
+
+  await viewer
+    .getByRole("button", { name: "Comment on the whole page" })
+    .waitFor();
+
+  await stage.getByRole("button", { name: "Poll" }).press("ArrowRight");
+  await page.waitForTimeout(200);
+
+  await showing([
+    "Retries moved off the request path",
+    ["visible", "visible", "visible"],
+  ]);
+
+  await viewer
+    .getByRole("button", { name: "Comment on the whole page" })
+    .click();
+
+  const comment = page.getByRole("form", { name: "New comment" });
+
+  await comment
+    .getByText("On “Slide 2 · Retries moved off the request path”")
+    .waitFor();
+
+  await comment
+    .getByRole("textbox", { name: "Comment text" })
+    .fill("Where is the p95 from?");
+
+  await comment.locator("button[type=submit]").click();
+  await comment.waitFor({ state: "hidden" });
+
+  await rail
+    .getByRole("button", {
+      name: "Slide 2 · Retries moved off the request path",
+    })
+    .getByLabel("1 comment")
+    .waitFor();
+
+  await viewer.getByRole("button", { name: "Comment", exact: true }).click();
+
+  await page.keyboard.press("ArrowRight");
+  await notes.getByText("This slide has no notes.").waitFor();
+  await showing(["Questions", []]);
+
+  expect(
+    await inside.evaluate(
+      "document.querySelectorAll('[data-pipoca-slide]').length",
+    ),
+  ).toBe(4);
+
+  // Printed, every slide is a page, with the steps of one never shown
+  // built.
+  await page.emulateMedia({ media: "print" });
+
+  expect(
+    await inside.evaluate(
+      "[...document.querySelectorAll('body > section')].map((each) => [getComputedStyle(each).display !== 'none', getComputedStyle(each).breakAfter, each.getBoundingClientRect().height])",
+    ),
+  ).toEqual([
+    [true, "page", 720],
+    [true, "page", 720],
+    [true, "page", 720],
+    [true, "page", 720],
+  ]);
+
+  expect(
+    await inside.evaluate(
+      "getComputedStyle(document.querySelector('.bye')).visibility",
+    ),
+  ).toBe("visible");
+
+  await page.emulateMedia({ media: "screen" });
+
+  await viewer.getByRole("button", { name: "All slides" }).click();
+
+  const grid = viewer.getByRole("list", { name: "All slides" });
+
+  await grid
+    .getByRole("button", {
+      name: "Open Slide 2 · Retries moved off the request path",
+    })
+    .waitFor();
+
+  expect(await grid.getByRole("listitem").count()).toBe(5);
+
+  const prints = async (): Promise<unknown> =>
+    page.evaluate("window.prints.splice(0)");
+
+  const exported = async (label: string): Promise<void> => {
+    await viewer.getByRole("button", { name: "Export" }).click();
+    await page.getByRole("menuitem", { name: label }).click();
+  };
+
+  // Each print sets its page size and the notes under each slide, and
+  // takes them away after.
+  await exported("PDF with speaker notes");
+
+  await until(
+    async () => page.evaluate("window.prints.length"),
+    (now) => now === 2,
+  );
+
+  expect(await prints()).toEqual([
+    [
+      "@page { size: 1280px 1100px; margin: 0; } @media print { [data-pipoca-slide] { break-after: auto !important; } }",
+      [
+        "Say who you are.",
+        "Lead with\nthe p95.\n\nThen the loss.",
+        "",
+        "Wave.",
+      ],
+    ],
+    ["", 0],
+  ]);
+
+  await viewer
+    .locator("iframe[title='Printing the deck']")
+    .waitFor({ state: "detached" });
+
+  await exported("PDF, one page per slide");
+
+  await until(
+    async () => page.evaluate("window.prints.length"),
+    (now) => now === 2,
+  );
+
+  expect(await prints()).toEqual([
+    ["@page { size: 1280px 720px; margin: 0; }", []],
+    ["", 0],
+  ]);
+
+  await viewer
+    .locator("iframe[title='Printing the deck']")
+    .waitFor({ state: "detached" });
+
+  const download = page.waitForEvent("download");
+
+  await exported("PNG of this slide");
+
+  expect((await download).suggestedFilename()).toBe("Webhooks v2 slide 3.png");
+
+  await grid
+    .getByRole("button", {
+      name: "Open Slide 1 · Webhooks v2: ready to cut over",
+    })
+    .click();
+
+  await notes.getByText("Say who you are.").waitFor();
+
+  const present = viewer.getByRole("button", { name: "Present" });
+
+  // Moving through the slides adds no step to the window's history, so
+  // Escape and then Back close the viewer.
+  const steps = await page.evaluate("history.length");
+
+  await present.click();
+
+  const presenter = page.getByRole("dialog", { name: "Presenter view" });
+
+  await presenter.getByText("Say who you are.").waitFor();
+  await presenter.getByText("Slide 1 of 4").waitFor();
+
+  // The presenter is dark whatever the theme, and has focus.
+  expect(
+    await page.evaluate(
+      "[document.activeElement.getAttribute('aria-label'), document.activeElement.dataset.theme, getComputedStyle(document.activeElement).backgroundColor]",
+    ),
+  ).toEqual(["Presenter view", "dark", "rgb(20, 18, 14)"]);
+
+  await page.keyboard.press("ArrowRight");
+  await presenter.getByText("Lead with").waitFor();
+  await presenter.getByRole("button", { name: "End" }).click();
+  await presenter.waitFor({ state: "detached" });
+  await notes.getByText("Lead with").waitFor();
+
+  expect(
+    await page.evaluate(
+      "[document.activeElement.textContent, document.activeElement.closest('dialog') !== null]",
+    ),
+  ).toEqual(["Present", true]);
+
+  expect(await page.evaluate("history.length")).toBe(steps);
+
   await page.keyboard.press("Escape");
   await overlayClosed();
 }, 30_000);

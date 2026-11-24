@@ -7,9 +7,13 @@ const beatMs = 20_000;
 const typingMs = 3000;
 
 // Who else is looking at the artifact, while this viewer says it's open
-// too, and typing, which tells them at most every few seconds; null says
-// the person stopped, such as once their reply is sent.
-export function usePresence(id: string): {
+// too, and following the deck someone presents when it says so, and
+// typing, which tells them at most every few seconds; null says the person
+// stopped, such as once their reply is sent.
+export function usePresence(
+  id: string,
+  following?: boolean,
+): {
   readonly people: readonly Presence[];
   readonly typing: (thread: string | null) => void;
 } {
@@ -22,6 +26,7 @@ export function usePresence(id: string): {
   });
 
   const gone = useRef(false);
+  const follows = useRef(following);
 
   const { value } = useLoaded(
     async () =>
@@ -38,7 +43,13 @@ export function usePresence(id: string): {
       void api
         .raw(`artifacts/${id}/presence`, {
           method: "POST",
-          body: JSON.stringify({ page, here }),
+          body: JSON.stringify({
+            page,
+            here,
+            ...(follows.current !== undefined && {
+              following: follows.current,
+            }),
+          }),
           // Still sent while the page closes.
           keepalive: !here,
         })
@@ -73,6 +84,16 @@ export function usePresence(id: string): {
       leave();
     };
   }, [api, id, page]);
+
+  useEffect(() => {
+    follows.current = following;
+
+    if (following !== undefined && !gone.current) {
+      void api
+        .post(`artifacts/${id}/presence`, { page, here: true, following })
+        .catch(() => undefined);
+    }
+  }, [api, following, id, page]);
 
   const typing = useCallback(
     (thread: string | null) => {

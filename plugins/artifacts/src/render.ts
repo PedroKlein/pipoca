@@ -1,6 +1,6 @@
 import { preview } from "@pipoca/plugins";
 import type { Kind } from "./artifacts";
-import { selection } from "./page";
+import { deck, selection } from "./page";
 
 // The document an artifact's frame shows, which tells the viewer what the
 // person selects or clicks, to comment on it. A folder's page may load its
@@ -10,12 +10,15 @@ export function rendered(
   name: string,
   content: Uint8Array,
   scriptHosts: readonly string[],
-  base?: string,
+  {
+    base,
+    slides = false,
+  }: { readonly base?: string; readonly slides?: boolean } = {},
 ): Response {
   return preview(name, content, {
     kind,
     scriptHosts,
-    script: selection,
+    script: slides ? `${selection}${deck}` : selection,
     ...(base !== undefined && { base }),
   });
 }

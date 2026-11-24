@@ -69,12 +69,30 @@ import { useDock, usePhone } from "./dock";
 import { FolderFiles } from "./folder";
 import { usePresence } from "./presence";
 import { SaveVersionDialog } from "./save-version";
+import {
+  type At,
+  deckKeys,
+  DeckJob,
+  DeckView,
+  type Export,
+  exportItems,
+  type Job,
+  moved,
+  Presenter,
+  type Slide,
+  SlideGrid,
+  slideName,
+  typing,
+  usePresenting,
+  within,
+  useShared,
+} from "./slides";
 import { useSize } from "./size";
 import { SaveTemplateDialog } from "./templates";
 import { ShareDialog } from "./share";
 import { Compare, Editor } from "./versions";
 
-type Body = "page" | "files" | "compare" | "edit";
+type Body = "page" | "files" | "compare" | "edit" | "grid";
 
 // A link to an artifact that opens it over the page. Opened in a new tab,
 // it shows the artifact alone.
@@ -388,8 +406,12 @@ function Shown({
   // A version of one file has no files to show.
   const files = artifact.history[shown - 1]?.files ?? 1;
 
+  const deck = artifact.type === "slides";
+
   const body =
-    opened.on !== asked || (opened.body === "files" && files === 1)
+    opened.on !== asked ||
+    (opened.body === "files" && files === 1) ||
+    (opened.body === "grid" && !deck)
       ? "page"
       : opened.body;
 
@@ -468,8 +490,6 @@ function Shown({
     `${artifact.id}:comments`,
     { changes: ["artifacts"] },
   );
-
-  const presence = usePresence(artifact.id);
 
   const { value: people } = useLoaded(
     async () =>
@@ -561,6 +581,209 @@ function Shown({
     () => pinsOf(threads, active, anchor),
     [threads, active, anchor],
   );
+
+  const shell = useRef<HTMLDivElement>(null);
+
+  const [reported, setReported] = useState<{
+    slides: readonly Slide[];
+    duration: string;
+    on: string;
+  }>();
+
+  const [placed, setPlaced] = useState<{
+    pins: readonly { n: number; slide: number }[];
+    on: string;
+  }>();
+
+  const [mine, setMine] = useState<At>({ slide: 0, step: 0 });
+  // The presentation the person stopped following, so the next one is
+  // followed again.
+  const [unfollowed, setUnfollowed] = useState<string>();
+  const [presenting, setPresenting] = useState<number>();
+  const [blank, setBlank] = useState(false);
+  const [job, setJob] = useState<{ job: Job; at: number }>();
+  const live = usePresenting(artifact.id, deck);
+  const talk = live === null ? undefined : `${live.by}:${String(live.since)}`;
+  const following = live !== null && !live.yours && unfollowed !== talk;
+  const presence = usePresence(artifact.id, deck ? following : undefined);
+  const elsewhere = live !== null && !live.yours ? live.by : undefined;
+
+  // Following shows the version the presenter has open.
+  const presented =
+    following && live.version <= artifact.versions ? live.version : undefined;
+
+  useEffect(() => {
+    if (presented !== undefined && presented !== shown) {
+      onVersion(presented === artifact.versions ? undefined : presented);
+    }
+  }, [artifact.versions, onVersion, presented, shown]);
+
+  const slides = deck && reported?.on === page ? reported.slides : [];
+
+  const toldDeck = useCallback(
+    (next: { slides: readonly Slide[]; duration: string }) => {
+      setReported({ ...next, on: page });
+    },
+    [page],
+  );
+
+  const at = within(slides, following ? live : mine);
+
+  const shared = useShared(
+    artifact.id,
+    presenting === undefined ? undefined : { ...at, version: shown, blank },
+  );
+
+  const onSlide = useMemo(
+    () => (placed?.on === page ? placed.pins : []),
+    [placed, page],
+  );
+
+  const counts = useMemo(() => {
+    const each = new Map<number, number>();
+
+    for (const { slide } of onSlide) {
+      each.set(slide, (each.get(slide) ?? 0) + 1);
+    }
+
+    return each;
+  }, [onSlide]);
+
+  const go = (next: At): void => {
+    setUnfollowed(talk);
+    setMine(next);
+  };
+
+  const press = (key: string): void => {
+    if (key === "click" && following) {
+      return;
+    }
+
+    const next = moved(slides, at, key);
+
+    if (next !== undefined) {
+      go(next);
+    }
+  };
+
+  const activate = (id: string | undefined): void => {
+    setActive(id);
+
+    const n = threads.find(({ top }) => top.id === id)?.n;
+    const slide = onSlide.find((each) => each.n === n)?.slide;
+
+    if (slide !== undefined && slide !== at.slide) {
+      go({ slide, step: slides[slide]?.steps ?? 0 });
+    }
+  };
+
+  const present = (): void => {
+    void Promise.resolve()
+      .then(async () => shell.current?.requestFullscreen())
+      .catch(() => undefined);
+
+    setMine(at);
+    setBlank(false);
+    setPresenting(Date.now());
+  };
+
+  const endPresenting = useCallback(() => {
+    setPresenting(undefined);
+
+    if (document.fullscreenElement instanceof Element) {
+      void document.exitFullscreen().catch(() => undefined);
+    }
+  }, []);
+
+  useEffect(() => {
+    const left = (): void => {
+      if (!(document.fullscreenElement instanceof Element)) {
+        setPresenting(undefined);
+      }
+    };
+
+    document.addEventListener("fullscreenchange", left);
+
+    return () => {
+      document.removeEventListener("fullscreenchange", left);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (
+      !deck ||
+      presenting !== undefined ||
+      body !== "page" ||
+      slides.length === 0
+    ) {
+      return undefined;
+    }
+
+    const pressed = (event: KeyboardEvent): void => {
+      const inside =
+        event.target instanceof Node &&
+        (shell.current?.contains(event.target) === true ||
+          (mode === "window" && event.target === document.body));
+
+      if (
+        !inside ||
+        !deckKeys.has(event.key) ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.altKey ||
+        typing(event.target) ||
+        (event.key === " " &&
+          event.target instanceof Element &&
+          event.target.closest("button, a") !== null)
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      press(event.key);
+    };
+
+    document.addEventListener("keydown", pressed);
+
+    return () => {
+      document.removeEventListener("keydown", pressed);
+    };
+  });
+
+  const jobDone = useCallback((failed?: string) => {
+    setJob(undefined);
+
+    if (failed !== undefined) {
+      setProblem(failed);
+    }
+  }, []);
+
+  const exportDeck = (as: Export): void => {
+    setProblem(undefined);
+
+    setJob((was) => ({
+      job: as === "png" ? { slide: at.slide } : { notes: as === "notes" },
+      at: (was?.at ?? 0) + 1,
+    }));
+  };
+
+  const askPi = async (slide: number | null, text: string): Promise<void> => {
+    const on = slide === null ? undefined : slides[slide];
+
+    await api.post(`artifacts/${artifact.id}/comments`, {
+      version: shown,
+      body: text,
+      toPi: true,
+      ...(on !== undefined &&
+        slide !== null && {
+          quote: slideName(slides, slide),
+          element: on.selector,
+        }),
+    });
+
+    setSaid("Sent to Pi");
+    reload();
+  };
 
   useEffect(() => {
     if (said === undefined) {
@@ -658,7 +881,7 @@ function Shown({
       label="View"
       value={body === "files" ? "files" : "page"}
       options={[
-        { value: "page", label: "Page" },
+        { value: "page", label: deck ? "Slides" : "Page" },
         { value: "files", label: `Files ${String(files)}` },
       ]}
       onChange={setBody}
@@ -674,6 +897,9 @@ function Shown({
 
   const more: MenuItem[] = [
     ...(phone ? versions : downloadItem),
+    ...(deck
+      ? exportItems(exportDeck, { more: true, busy: job !== undefined })
+      : []),
     {
       label: "Copy link",
       icon: "link",
@@ -805,6 +1031,31 @@ function Shown({
       : []),
   ];
 
+  const writing = (
+    room: { readonly width: number; readonly height: number },
+    scale: number,
+  ): ReactNode =>
+    held !== undefined &&
+    anchor !== undefined && (
+      <CommentBox
+        artifact={artifact}
+        version={shown}
+        anchor={scaledAnchor(anchor, scale)}
+        scrolled={held.scrolled}
+        area={room}
+        people={people ?? []}
+        onDone={(done) => {
+          setAnchor(undefined);
+
+          if (done !== undefined) {
+            setSaved(done.id);
+            setSaid(savedLine(artifact, done.sentToPi));
+            reload();
+          }
+        }}
+      />
+    );
+
   const toPage = (): void => {
     setBody("page");
   };
@@ -853,7 +1104,7 @@ function Shown({
   }
 
   return (
-    <div className={viewerShellClass}>
+    <div ref={shell} className={viewerShellClass}>
       <header className={viewerHeaderClass}>
         <ViewerLead mode={mode} />
         <ViewerTitle
@@ -865,7 +1116,17 @@ function Shown({
               ? versionLine
               : [
                   ...(doc === null ? [] : [docLabel(doc)]),
-                  ...(files > 1 ? [`${String(files)} files`] : []),
+                  ...(deck
+                    ? [
+                        "Slides",
+                        ...(slides.length > 0
+                          ? [
+                              `${String(slides.length)} ${slides.length === 1 ? "slide" : "slides"}`,
+                            ]
+                          : []),
+                      ]
+                    : []),
+                  ...(files > 1 && !deck ? [`${String(files)} files`] : []),
                   originLine(artifact, mode),
                 ].join(" · ")
           }
@@ -911,7 +1172,7 @@ function Shown({
           </Button>
         )}
         {/* Comments are on the page, so the files offer none. */}
-        {body !== "files" && (
+        {body === "page" && (
           <Button
             variant={commenting && canComment ? "primary" : "ghost"}
             size="sm"
@@ -946,6 +1207,41 @@ function Shown({
           >
             Share
           </Button>
+        )}
+        {deck && body !== "files" && (
+          <>
+            <Button
+              variant="primary"
+              size="sm"
+              disabled={
+                slides.length === 0 ||
+                !canComment ||
+                (elsewhere !== undefined && !steers)
+              }
+              {...(elsewhere !== undefined && {
+                title: `${elsewhere} is presenting`,
+              })}
+              onClick={present}
+            >
+              <Icon name="play" className="size-3.5" />
+              <span className={compact ? "sr-only" : ""}>
+                {elsewhere !== undefined && steers ? "Take over" : "Present"}
+              </span>
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              iconOnly
+              aria-label="All slides"
+              aria-pressed={body === "grid"}
+              className="aria-pressed:bg-hover aria-pressed:text-fg-strong"
+              onClick={() => {
+                setBody(body === "grid" ? "page" : "grid");
+              }}
+            >
+              <Icon name="layout-grid" className="size-3.5" />
+            </Button>
+          </>
         )}
         {mode !== "window" && dock.offered && (
           <Button
@@ -1045,6 +1341,32 @@ function Shown({
           </div>
         )}
       </div>
+      {deck && live !== null && !live.yours && (
+        <div
+          role="group"
+          aria-label="Presenting"
+          aria-live="polite"
+          className="flex flex-wrap items-center gap-2 border-b border-line bg-hover px-4.5 py-2 text-label text-fg"
+        >
+          <Icon name="monitor" className="size-3.5 text-fg-dim" />
+          <span className="min-w-0 flex-1 truncate">
+            {live.by} is presenting
+            {following
+              ? `, on slide ${String(at.slide + 1)}. You follow their slide.`
+              : "."}
+          </span>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setMine(at);
+              setUnfollowed(following ? talk : undefined);
+            }}
+          >
+            {following ? "Stop following" : `Follow ${live.by}`}
+          </Button>
+        </div>
+      )}
       {doc !== null && (
         <ReviewBar
           doc={doc}
@@ -1075,9 +1397,38 @@ function Shown({
       {files > 1 && phone && (
         <div className="flex border-b border-line px-3 py-2">{viewSwitch}</div>
       )}
-      {body === "files" ? (
-        <FolderFiles artifact={artifact} version={shown} />
-      ) : (
+      {body === "files" && <FolderFiles artifact={artifact} version={shown} />}
+      {body === "grid" && (
+        <Frame
+          artifact={artifact}
+          version={shown}
+          onDeck={toldDeck}
+          unseen
+          className="pointer-events-none fixed top-0 -left-[200vw] border-0"
+          style={{ width: 1280, height: 720 }}
+        />
+      )}
+      {body === "grid" && (
+        <SlideGrid
+          artifact={artifact}
+          version={shown}
+          slides={slides}
+          at={at}
+          counts={counts}
+          askable={artifact.askable && latest}
+          onOpen={(slide) => {
+            if (slide !== at.slide) {
+              go({ slide, step: 0 });
+            }
+
+            setBody("page");
+          }}
+          onAsk={askPi}
+          onExport={exportDeck}
+          exporting={job !== undefined}
+        />
+      )}
+      {body === "page" && (
         <div className="flex min-h-0 flex-1 bg-panel">
           {roomy && (
             <OutlineNav
@@ -1094,53 +1445,87 @@ function Shown({
               }}
             />
           )}
-          <div
-            ref={measured}
-            className="relative flex min-w-0 flex-1 flex-col overflow-hidden"
-          >
-            <Frame
+          {deck ? (
+            <DeckView
               artifact={artifact}
               version={shown}
-              commenting={commenting && canComment}
-              pins={pins}
-              badges={
-                !(
-                  roomy &&
-                  commenting &&
-                  listed === "open" &&
-                  active === undefined
-                )
-              }
-              className="min-h-0 flex-1"
-              onPick={pick}
-              onPin={showPin}
-              onEscape={stopWriting}
-              onScroll={follow}
-              onOutline={(next) => {
-                setOutline({ ...next, on: page });
+              slides={slides}
+              at={at}
+              counts={counts}
+              onGo={(slide) => {
+                go({ slide, step: 0 });
               }}
-              goto={goto}
+              onKey={press}
+              stage={(style) => (
+                <>
+                  <Frame
+                    artifact={artifact}
+                    version={shown}
+                    commenting={commenting && canComment}
+                    pins={pins}
+                    onPick={(picked) => {
+                      pick(
+                        "label" in picked
+                          ? {
+                              ...picked,
+                              label: `Slide ${String(at.slide + 1)}: ${picked.label}`,
+                            }
+                          : picked,
+                      );
+                    }}
+                    onPin={showPin}
+                    onEscape={stopWriting}
+                    onDeck={toldDeck}
+                    onPinned={(next) => {
+                      setPlaced({ pins: next, on: page });
+                    }}
+                    onKey={press}
+                    slide={at}
+                    className="border-0"
+                    style={style}
+                  />
+                  {following && live.blank && (
+                    <div
+                      role="img"
+                      aria-label={`${live.by} blanked the screen`}
+                      className="absolute inset-0 bg-blank"
+                    />
+                  )}
+                </>
+              )}
+              writing={writing}
             />
-            {held !== undefined && anchor !== undefined && (
-              <CommentBox
+          ) : (
+            <div
+              ref={measured}
+              className="relative flex min-w-0 flex-1 flex-col overflow-hidden"
+            >
+              <Frame
                 artifact={artifact}
                 version={shown}
-                anchor={anchor}
-                scrolled={held.scrolled}
-                area={area}
-                people={people ?? []}
-                onDone={(done) => {
-                  setAnchor(undefined);
-
-                  if (done !== undefined) {
-                    setSaved(done.id);
-                    setSaid(savedLine(artifact, done.sentToPi));
-                    reload();
-                  }
+                commenting={commenting && canComment}
+                pins={pins}
+                badges={
+                  !(
+                    roomy &&
+                    commenting &&
+                    listed === "open" &&
+                    active === undefined
+                  )
+                }
+                className="min-h-0 flex-1"
+                onPick={pick}
+                onPin={showPin}
+                onEscape={stopWriting}
+                onScroll={follow}
+                onOutline={(next) => {
+                  setOutline({ ...next, on: page });
                 }}
+                goto={goto}
               />
-            )}
-          </div>
+              {writing(area, 1)}
+            </div>
+          )}
           {commenting && sheet && phone && (
             <button
               type="button"
@@ -1187,9 +1572,19 @@ function Shown({
                   setSaved(undefined);
                 }}
                 onSaid={setSaid}
-                onActive={setActive}
+                onActive={activate}
                 onWholePage={() => {
-                  setAnchor({ page: true });
+                  const on = slides[at.slide];
+
+                  setAnchor(
+                    on === undefined
+                      ? { page: true }
+                      : {
+                          element: on.selector,
+                          label: slideName(slides, at.slide),
+                          rect: { x: 24, y: 24, width: 0, height: 0 },
+                        },
+                  );
                 }}
                 onChanged={reload}
                 people={people ?? []}
@@ -1253,9 +1648,61 @@ function Shown({
           setNaming(false);
         }}
       />
+      {presenting !== undefined && (
+        <Presenter
+          artifact={artifact}
+          version={shown}
+          slides={slides}
+          at={at}
+          blank={blank}
+          duration={reported?.duration ?? ""}
+          following={
+            presence.people.filter((each) => each.following === true).length
+          }
+          asked={threads
+            .filter(({ top }) => top.createdAt >= presenting)
+            .map(({ top, n }) => ({
+              id: top.id,
+              author: top.author,
+              body: top.body,
+              slide: onSlide.find((each) => each.n === n)?.slide,
+            }))}
+          problem={shared}
+          onKey={press}
+          onBlank={setBlank}
+          onEnd={endPresenting}
+        />
+      )}
+      {job !== undefined && (
+        <DeckJob
+          key={job.at}
+          artifact={artifact}
+          version={shown}
+          job={job.job}
+          onDone={jobDone}
+        />
+      )}
       {confirmDialog}
     </div>
   );
+}
+
+function scaledAnchor(anchor: Anchor, scale: number): Anchor {
+  if (scale === 1 || !("rect" in anchor)) {
+    return anchor;
+  }
+
+  const { x, y, width, height } = anchor.rect;
+
+  return {
+    ...anchor,
+    rect: {
+      x: x * scale,
+      y: y * scale,
+      width: width * scale,
+      height: height * scale,
+    },
+  };
 }
 
 // The others looking at the artifact now.

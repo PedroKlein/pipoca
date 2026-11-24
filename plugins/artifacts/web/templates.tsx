@@ -642,29 +642,40 @@ function Preview({
 }): ReactElement {
   const [measure, size] = useSize();
   const scale = size.width > 0 ? size.width / drawnWidth : 0.25;
+  // A deck shows its first slide whole, letterboxed.
+  const deck = template.type === "slides";
+  const fitted = size.height > 0 ? size.height / scale : 400;
 
   return (
     <span
-      ref={measure}
       aria-hidden="true"
       className={cn(
-        "relative block w-full overflow-hidden rounded-md border border-line bg-canvas",
+        "flex w-full justify-center overflow-hidden rounded-md border border-line",
+        deck ? "bg-panel" : "bg-canvas",
         className,
       )}
     >
-      <iframe
-        title={template.name}
-        tabIndex={-1}
-        loading="lazy"
-        src={`${base}/${template.preview}`}
-        sandbox="allow-scripts"
-        style={{
-          width: `${String(drawnWidth)}px`,
-          height: `${String(size.height > 0 ? size.height / scale : 400)}px`,
-          transform: `scale(${String(scale)})`,
-        }}
-        className="pointer-events-none absolute top-0 left-0 origin-top-left border-0"
-      />
+      <span
+        ref={measure}
+        className={cn(
+          "relative block h-full overflow-hidden bg-canvas",
+          deck ? "aspect-video" : "w-full",
+        )}
+      >
+        <iframe
+          title={template.name}
+          tabIndex={-1}
+          loading="lazy"
+          src={`${base}/${template.preview}`}
+          sandbox="allow-scripts"
+          style={{
+            width: `${String(drawnWidth)}px`,
+            height: `${String(deck ? (drawnWidth * 9) / 16 : fitted)}px`,
+            transform: `scale(${String(scale)})`,
+          }}
+          className="pointer-events-none absolute top-0 left-0 origin-top-left border-0"
+        />
+      </span>
     </span>
   );
 }
