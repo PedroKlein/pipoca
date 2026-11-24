@@ -108,6 +108,8 @@ export function Frame({
   onDeck,
   onPinned,
   onKey,
+  path,
+  onBoard,
   unseen = false,
   className,
   style,
@@ -150,6 +152,8 @@ export function Frame({
     pins: readonly { readonly n: number; readonly slide: number }[],
   ) => void;
   readonly onKey?: (key: string) => void;
+  readonly path?: string;
+  readonly onBoard?: (path: string) => void;
   // Drawn out of sight only to hear what the page reports.
   readonly unseen?: boolean;
   // Its size and edge, in place of a bordered box three quarters as tall as
@@ -184,6 +188,7 @@ export function Frame({
         duration?: unknown;
         pins?: unknown;
         key?: unknown;
+        path?: unknown;
       } | null;
 
       if (data?.pipoca === "deck") {
@@ -198,6 +203,12 @@ export function Frame({
 
       if (data?.pipoca === "pinned") {
         onPinned?.(pinnedOf(data.pins));
+
+        return;
+      }
+
+      if (data?.pipoca === "board" && typeof data.path === "string") {
+        onBoard?.(data.path);
 
         return;
       }
@@ -279,6 +290,7 @@ export function Frame({
     };
   }, [
     draft,
+    onBoard,
     onDeck,
     onEscape,
     onKey,
@@ -347,9 +359,9 @@ export function Frame({
   return (
     <iframe
       ref={frame}
-      key={`${artifact.id}-${String(version)}`}
-      title={`${artifact.title}, ${frameName(artifact, version)}`}
-      src={`${base}/artifacts/${artifact.id}/view?v=${String(version)}`}
+      key={`${artifact.id}-${String(version)}-${path ?? ""}`}
+      title={`${path ?? artifact.title}, ${frameName(artifact, version)}`}
+      src={`${base}/artifacts/${artifact.id}/view?v=${String(version)}${path === undefined ? "" : `&path=${encodeURIComponent(path)}`}`}
       {...(artifact.kind !== "pdf" && { sandbox: frameSandbox })}
       {...(unseen && { "aria-hidden": true, tabIndex: -1 })}
       onLoad={() => {

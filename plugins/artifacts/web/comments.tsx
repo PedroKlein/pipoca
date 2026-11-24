@@ -31,7 +31,9 @@ import type { Box, Picked, Pin } from "./collaborate";
 import { mentionable, Said, ThreadView, useMentions } from "./thread";
 
 // What a new thread is on: what the person picked, or the whole page.
-export type Anchor = Picked | { readonly page: true };
+export type Anchor = (Picked | { readonly page: true }) & {
+  readonly file?: string;
+};
 
 // A thread with the number the page pins it by.
 export interface Thread {
@@ -88,9 +90,12 @@ const kindLabels: Readonly<Record<CommentKind, string>> = {
   suggestion: "Suggestion",
 };
 
-function where(anchor: Anchor): ReactNode {
+// What a comment on the whole of what's open is on.
+export type Noun = "page" | "board" | "canvas";
+
+function where(anchor: Anchor, noun: Noun): ReactNode {
   if ("page" in anchor) {
-    return "On the whole page";
+    return `On the whole ${noun}`;
   }
 
   return "quote" in anchor ? anchor.quote : `On “${anchor.label}”`;
@@ -134,10 +139,12 @@ export function CommentBox({
   area,
   people,
   onDone,
+  noun = "page",
 }: {
   readonly artifact: ArtifactView;
   readonly version: number;
   readonly anchor: Anchor;
+  readonly noun?: Noun;
   // Everyone else who can see the artifact, to mention.
   readonly people: readonly string[];
   // How far the page scrolled since the pick.
@@ -193,6 +200,7 @@ export function CommentBox({
             quote: anchor.label,
             element: anchor.element,
           }),
+          ...(anchor.file !== undefined && { file: anchor.file }),
         },
       );
 
@@ -231,7 +239,7 @@ export function CommentBox({
       }}
     >
       <p className="truncate border-l-2 border-butter pl-2 text-label text-fg-dim">
-        {where(anchor)}
+        {where(anchor, noun)}
       </p>
       <div className="relative">
         {mentions.menu}
@@ -345,6 +353,7 @@ export function CommentList({
   onWholePage,
   onChanged,
   onTyping,
+  noun = "page",
 }: {
   readonly artifact: ArtifactView;
   readonly version: number;
@@ -367,6 +376,7 @@ export function CommentList({
   readonly onSaid: (text: string) => void;
   readonly onActive: (id: string | undefined) => void;
   readonly onWholePage: () => void;
+  readonly noun?: Noun;
   readonly onChanged: () => void;
   // Everyone else who can see the artifact, to mention, and who of them is
   // looking now.
@@ -603,13 +613,15 @@ export function CommentList({
                 <span className="text-caption text-fg-dim">writing…</span>
               </span>
               <p className="truncate border-l-2 border-butter pl-2 text-label text-fg-dim italic">
-                {where(anchor)}
+                {where(anchor, noun)}
               </p>
             </li>
           )}
         </ul>
         {loaded === true && listed.length === 0 && anchor === undefined && (
-          <p className="text-label text-fg-dim">{empty(shown, artifact)}</p>
+          <p className="text-label text-fg-dim">
+            {empty(shown, artifact, noun)}
+          </p>
         )}
         {artifact.access !== "view" && shown === "open" && (
           <Button
@@ -618,7 +630,7 @@ export function CommentList({
             className="self-start"
             onClick={onWholePage}
           >
-            Comment on the whole page
+            Comment on the whole {noun}
           </Button>
         )}
       </div>
@@ -668,7 +680,14 @@ function lineUp(
   }
 }
 
-function empty(shown: Listed, artifact: ArtifactView): string {
+const emptyLines: Readonly<Record<Noun, string>> = {
+  page: "Select text or click part of the page to comment on it.",
+  board: "Select text or click part of the board to comment on it.",
+  canvas:
+    "Open a board to comment on part of it, or comment on the whole canvas.",
+};
+
+function empty(shown: Listed, artifact: ArtifactView, noun: Noun): string {
   if (shown === "resolved") {
     return "Nothing resolved yet.";
   }
@@ -677,9 +696,7 @@ function empty(shown: Listed, artifact: ArtifactView): string {
     return "No open questions.";
   }
 
-  return artifact.access === "view"
-    ? "No comments yet."
-    : "Select text or click part of the page to comment on it.";
+  return artifact.access === "view" ? "No comments yet." : emptyLines[noun];
 }
 
 function ThreadCard({

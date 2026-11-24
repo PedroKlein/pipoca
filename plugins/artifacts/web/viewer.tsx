@@ -48,6 +48,8 @@ import {
   saveName,
   versionOf,
 } from "../src/artifacts";
+import type { CanvasView } from "../src/canvas";
+import { BoardPane, type BoardMode, CanvasPane, type Spot } from "./canvas";
 import { audienceLabel, shownLine, versionChoices } from "./chrome";
 import { artifactHref, base, Frame, loadArtifact } from "./collaborate";
 import {
@@ -55,6 +57,7 @@ import {
   CommentBox,
   CommentList,
   type Listed,
+  type Noun,
   pinsOf,
   threadsOf,
 } from "./comments";
@@ -409,6 +412,7 @@ function Shown({
   const files = artifact.history[shown - 1]?.files ?? 1;
 
   const deck = artifact.type === "slides";
+  const canvas = artifact.type === "canvas";
 
   const body =
     opened.on !== asked ||
@@ -509,13 +513,64 @@ function Shown({
     { changes: ["artifacts"] },
   );
 
-  const threads = useMemo(
+  const every = useMemo(
     () =>
       comments === undefined || comments === "failed"
         ? []
         : threadsOf(comments),
     [comments],
   );
+
+  const { value: drawing, reload: redraw } = useLoaded(
+    async (): Promise<CanvasView | "failed" | null> =>
+      canvas
+        ? api
+            .get<CanvasView>(
+              `artifacts/${artifact.id}/canvas?v=${String(shown)}`,
+            )
+            .catch(() => "failed" as const)
+        : null,
+    `${artifact.id}:${String(shown)}:canvas`,
+    { changes: ["artifacts"] },
+  );
+
+  const drawn =
+    drawing === undefined || drawing === null || drawing === "failed"
+      ? undefined
+      : drawing;
+
+  const [boarded, setBoarded] = useState<{ file: string; mode: BoardMode }>();
+
+  const [spot, setSpot] = useState<Spot>({
+    page: undefined,
+    camera: undefined,
+  });
+
+  const [comparing, setComparing] = useState<string>();
+
+  const board =
+    boarded === undefined
+      ? undefined
+      : drawn?.canvas?.boards.find(({ file }) => file === boarded.file);
+
+  const threads = useMemo(
+    () =>
+      board === undefined
+        ? every
+        : every.filter(({ top }) => top.file === board.file),
+    [every, board],
+  );
+
+  const openBoard = (file: string, how: BoardMode): void => {
+    setBoarded({ file, mode: how });
+    setAnchor(undefined);
+
+    const on = drawn?.canvas?.boards.find((each) => each.file === file);
+
+    if (on !== undefined) {
+      setSpot((was) => ({ ...was, page: on.page }));
+    }
+  };
 
   const canComment = artifact.access !== "view";
   const [listed, setListed] = useState<Listed>("open");
@@ -676,6 +731,17 @@ function Shown({
 
   const activate = (id: string | undefined): void => {
     setActive(id);
+
+    const on = every.find(({ top }) => top.id === id)?.top.file ?? "";
+
+    if (
+      canvas &&
+      on !== "" &&
+      on !== board?.file &&
+      drawn?.canvas?.boards.some(({ file }) => file === on) === true
+    ) {
+      openBoard(on, "board");
+    }
 
     const n = threads.find(({ top }) => top.id === id)?.n;
     const slide = onSlide.find((each) => each.n === n)?.slide;
@@ -887,6 +953,13 @@ function Shown({
 
   const downloadLabel = files > 1 ? "Download .zip" : "Download";
 
+  const pageLabels = { slides: "Slides", canvas: "Canvas" } as const;
+
+  const pageLabel =
+    artifact.type === "slides" || artifact.type === "canvas"
+      ? pageLabels[artifact.type]
+      : "Page";
+
   // A folder's page or its files. On a phone it sits under the title, which
   // keeps the header's room.
   const viewSwitch = (
@@ -894,7 +967,7 @@ function Shown({
       label="View"
       value={body === "files" ? "files" : "page"}
       options={[
-        { value: "page", label: deck ? "Slides" : "Page" },
+        { value: "page", label: pageLabel },
         { value: "files", label: `Files ${String(files)}` },
       ]}
       onChange={setBody}
@@ -1057,6 +1130,7 @@ function Shown({
         scrolled={held.scrolled}
         area={room}
         people={people ?? []}
+        noun={nounOf(canvas, board !== undefined)}
         onDone={(done) => {
           setAnchor(undefined);
 
@@ -1073,6 +1147,104 @@ function Shown({
     setBody("page");
   };
 
+  const canvasBody = (): ReactNode => {
+    if (drawing === "failed") {
+      return (
+        <div
+          role="alert"
+          className="flex flex-1 flex-col items-center justify-center gap-3 bg-panel p-8 text-center"
+        >
+          <p className="text-fg-dim">The canvas didn&apos;t load.</p>
+          <Button onClick={redraw}>Try again</Button>
+        </div>
+      );
+    }
+
+    if (drawn === undefined) {
+      return <div aria-busy className="flex-1 bg-panel" />;
+    }
+
+    if (board === undefined || boarded === undefined || drawn.canvas === null) {
+      return (
+        <CanvasPane
+          artifact={artifact}
+          version={shown}
+          view={drawn}
+          threads={every}
+          canComment={canComment}
+          spot={spot}
+          onSpot={setSpot}
+          onOpen={openBoard}
+          onChanged={redraw}
+          commenting={commenting && canComment}
+          onCommenting={(next) => {
+            setAnchor(undefined);
+            setSheet(true);
+            setCommenting(next);
+          }}
+          writing={
+            anchor !== undefined && "page" in anchor
+              ? (room): ReactNode => writing(room, 1)
+              : undefined
+          }
+        />
+      );
+    }
+
+    const how = boarded.mode;
+    const boards = drawn.canvas.boards;
+
+    return (
+      <BoardPane
+        canvas={drawn.canvas}
+        board={board}
+        mode={how}
+        comparable={
+          drawn.changed.includes(board.file) ||
+          drawn.added.includes(board.file) ||
+          drawn.shared.length > 0
+        }
+        onMode={(next) => {
+          if (next === "compare") {
+            setComparing(board.file);
+            setBody("compare");
+          } else {
+            openBoard(board.file, next);
+          }
+        }}
+        onBoard={(file) => {
+          openBoard(file, how);
+        }}
+        onBack={() => {
+          setBoarded(undefined);
+          setAnchor(undefined);
+        }}
+        stage={(style) => (
+          <Frame
+            artifact={artifact}
+            version={shown}
+            path={board.file}
+            commenting={how === "board" && commenting && canComment}
+            pins={how === "board" ? pins : []}
+            onPick={(picked) => {
+              pick({ ...picked, file: board.file });
+            }}
+            onPin={showPin}
+            onEscape={stopWriting}
+            onBoard={(file) => {
+              if (how === "play" && boards.some((each) => each.file === file)) {
+                openBoard(file, "play");
+              }
+            }}
+            className="border-0"
+            style={style}
+          />
+        )}
+        writing={writing}
+      />
+    );
+  };
+
   if (body === "compare") {
     return (
       <div className={viewerShellClass}>
@@ -1082,8 +1254,10 @@ function Shown({
           titleId={titleId}
           version={shown}
           since={since}
+          board={comparing}
           onBack={() => {
             setSince(undefined);
+            setComparing(undefined);
             toPage();
           }}
           onClose={onClose}
@@ -1139,7 +1313,20 @@ function Shown({
                           : []),
                       ]
                     : []),
-                  ...(files > 1 && !deck ? [`${String(files)} files`] : []),
+                  ...(canvas
+                    ? [
+                        "Design canvas",
+                        ...(drawn?.canvas === null ||
+                        drawn?.canvas === undefined
+                          ? []
+                          : [
+                              `${String(drawn.canvas.boards.length)} ${drawn.canvas.boards.length === 1 ? "board" : "boards"}`,
+                            ]),
+                      ]
+                    : []),
+                  ...(files > 1 && !deck && !canvas
+                    ? [`${String(files)} files`]
+                    : []),
                   originLine(artifact, mode),
                 ].join(" · ")
           }
@@ -1178,7 +1365,7 @@ function Shown({
             items={versions}
           />
         )}
-        {files > 1 && !phone && viewSwitch}
+        {files > 1 && !phone && board === undefined && viewSwitch}
         {body === "files" && !phone && (
           <Button size="sm" onClick={download}>
             Download .zip
@@ -1429,7 +1616,7 @@ function Shown({
           <ErrorText size="caption">{problem}</ErrorText>
         </div>
       )}
-      {files > 1 && phone && (
+      {files > 1 && phone && board === undefined && (
         <div className="flex border-b border-line px-3 py-2">{viewSwitch}</div>
       )}
       {body === "files" && <FolderFiles artifact={artifact} version={shown} />}
@@ -1480,7 +1667,8 @@ function Shown({
               }}
             />
           )}
-          {deck ? (
+          {canvas && canvasBody()}
+          {!canvas && deck && (
             <DeckView
               artifact={artifact}
               version={shown}
@@ -1530,7 +1718,8 @@ function Shown({
               )}
               writing={writing}
             />
-          ) : (
+          )}
+          {!canvas && !deck && (
             <div
               ref={measured}
               className="relative flex min-w-0 flex-1 flex-col overflow-hidden"
@@ -1609,8 +1798,15 @@ function Shown({
                 }}
                 onSaid={setSaid}
                 onActive={activate}
+                noun={nounOf(canvas, board !== undefined)}
                 onWholePage={() => {
                   const on = slides[at.slide];
+
+                  if (board !== undefined) {
+                    setAnchor({ page: true, file: board.file });
+
+                    return;
+                  }
 
                   setAnchor(
                     on === undefined
@@ -1721,6 +1917,14 @@ function Shown({
       {confirmDialog}
     </div>
   );
+}
+
+function nounOf(canvas: boolean, board: boolean): Noun {
+  if (!canvas) {
+    return "page";
+  }
+
+  return board ? "board" : "canvas";
 }
 
 function scaledAnchor(anchor: Anchor, scale: number): Anchor {
