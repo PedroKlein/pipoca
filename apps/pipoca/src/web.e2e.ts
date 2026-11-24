@@ -5365,13 +5365,17 @@ test("opens what Pi's turn saved from the card under its reply, publishes it as 
   await page.keyboard.press("Escape");
   await overlayClosed();
 
-  await page.getByRole("button", { name: "Files, 2" }).click();
+  // The file it was published from now shows as the artifact only.
+  await page.getByRole("button", { name: "Files, 1" }).click();
 
-  await page
-    .getByRole("complementary", { name: "Files" })
+  const files = page.getByRole("complementary", { name: "Files" });
+
+  await files
     .getByRole("region", { name: "Artifacts" })
-    .getByRole("button", { name: /^joined\.csv/ })
+    .getByRole("link", { name: /joined\.csv/ })
     .waitFor();
+
+  await files.getByText("1 file is part of the artifacts above.").waitFor();
 
   await page.getByRole("button", { name: "Close panel" }).click();
 
