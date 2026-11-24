@@ -51,15 +51,17 @@ const pressedClass =
 
 // Every artifact the person opens as a grid of their first screens, which
 // open in the viewer over the gallery (ADR 0081). sessions narrows it to a
-// Project's.
+// Project's, and team to the team's shelf alone.
 export function Gallery({
   sessions,
+  team = false,
 }: {
   readonly sessions?: readonly string[];
+  readonly team?: boolean;
 }): ReactElement {
   const api = useApi(plugin);
   const now = useNow();
-  const [shelf, setShelf] = useState<Shelf>("yours");
+  const [shelf, setShelf] = useState<Shelf>(team ? "team" : "yours");
   const [search, setSearch] = useState("");
   const [type, setType] = useState<ArtifactType | "">("");
   const [commented, setCommented] = useState(false);
@@ -135,7 +137,7 @@ export function Gallery({
             </Select>
           </div>
           <div className="flex flex-wrap items-center gap-3">
-            {narrowed === undefined && (
+            {narrowed === undefined && !team && (
               <Segmented
                 label="Show"
                 value={shelf}

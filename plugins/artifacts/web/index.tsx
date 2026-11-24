@@ -57,6 +57,13 @@ export const web = defineWeb(plugin, {
       nav: { fills: (path) => path !== "", Items: Pinned },
       bare: (path) => path !== "",
     },
+    {
+      path: "team-artifacts",
+      label: "Artifacts",
+      icon: "file-text",
+      Page: TeamArtifactsPage,
+      area: "hub",
+    },
   ],
   settings: { group: "server", Section: ServerSettings },
   slots: {
@@ -105,6 +112,17 @@ function ArtifactsPage({ path }: PageProps): ReactElement {
         location.hash = href(plugin, "");
       }}
     />
+  );
+}
+
+function TeamArtifactsPage(): ReactElement {
+  return (
+    <Page
+      title="Artifacts"
+      description="Pages, documents and pictures Pi published from the team's work."
+    >
+      <Gallery team />
+    </Page>
   );
 }
 

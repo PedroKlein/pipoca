@@ -1730,6 +1730,47 @@ function viewed(versions: number) {
 
 const slots = { page: web.pages?.find(({ path }) => path === "")?.Page };
 
+test("the team's workspace has an Artifacts page with only the team's artifacts", async () => {
+  const asked: string[] = [];
+  const hub = web.pages?.find(({ area }) => area === "hub");
+
+  const team = { page: hub?.Page };
+
+  expect(hub?.label).toBe("Artifacts");
+
+  const page = renderPart(
+    { ...web, slots: team },
+    "page",
+    { path: "" },
+    {
+      hash: "#team/plugin/artifacts/team-artifacts",
+      fetch: async (url) => {
+        await Promise.resolve();
+
+        asked.push(url);
+
+        return Response.json({
+          artifacts: [
+            artifact({ id: "a1", title: "Checkout latency" }),
+            artifact({ id: "a2", title: "Bo's plan", yours: false }),
+            artifact({ id: "a3", title: "Rollout", audience: "team" }),
+          ],
+        });
+      },
+    },
+  );
+
+  await act(async () => until(() => asked.length === 1));
+
+  expect(
+    [...page.querySelectorAll("[aria-label=Artifacts] li h2")].map(
+      (each) => each.textContent,
+    ),
+  ).toEqual(["Rollout"]);
+
+  expect(page.querySelector("[aria-label=Show]")).toBeNull();
+});
+
 test("the Artifacts page shows yours, the ones shared with you and the team's, finds them by title or Session, and opens one over the page", async () => {
   const asked: string[] = [];
 
