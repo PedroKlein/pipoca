@@ -230,6 +230,14 @@ export function AttachRow({
   );
 }
 
+// Whether the + menu a row sits in is open, for a row that loads what it
+// says only then.
+export function useAttachOpen(): boolean {
+  const rows = useContext(MenuContext)?.rows;
+
+  return rows !== undefined && rows !== null;
+}
+
 // What a row's picker offers, such as the folder's files.
 export interface Pickable {
   readonly key: string;

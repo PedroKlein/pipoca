@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { act } from "react";
 import { Menu } from "./menu";
 import { byRole, click, render, withPage } from "./testing/render";
@@ -123,4 +123,88 @@ test("shows an item that can't be picked without running it", () => {
 
   expect(ran).toEqual([]);
   expect(page.querySelector('[role="menu"]')).not.toBeNull();
+});
+
+test("an open menu shifts to stay 16px inside the screen, and again as the screen changes", () => {
+  let place = { at: 0, left: -40, width: 320 };
+  const screen = 1000;
+
+  const measure = (
+    name: "offsetLeft" | "offsetWidth" | "clientWidth",
+    of: (element: HTMLElement) => number,
+  ): (() => void) => {
+    const was =
+      Object.getOwnPropertyDescriptor(HTMLElement.prototype, name) ??
+      Object.getOwnPropertyDescriptor(Element.prototype, name);
+
+    Object.defineProperty(HTMLElement.prototype, name, {
+      configurable: true,
+      get(this: HTMLElement) {
+        return of(this);
+      },
+    });
+
+    return () => {
+      if (was === undefined) {
+        Reflect.deleteProperty(HTMLElement.prototype, name);
+      } else {
+        Object.defineProperty(HTMLElement.prototype, name, was);
+      }
+    };
+  };
+
+  const menuOnly =
+    (of: () => number) =>
+    (element: HTMLElement): number =>
+      element.getAttribute("role") === "menu" ? of() : 0;
+
+  const boxed = spyOn(
+    HTMLElement.prototype,
+    "getBoundingClientRect",
+  ).mockImplementation(() => new DOMRect(place.at, 0, 0, 0));
+
+  const restore = [
+    measure(
+      "offsetLeft",
+      menuOnly(() => place.left),
+    ),
+    measure(
+      "offsetWidth",
+      menuOnly(() => place.width),
+    ),
+    measure("clientWidth", (element) =>
+      element === document.documentElement ? screen : 0,
+    ),
+  ];
+
+  try {
+    const page = render(
+      <Menu label="Design system" items={[{ label: "Open", run: () => 0 }]} />,
+    );
+
+    const button = byRole(page, "button", "Design system");
+    const menu = (): HTMLElement => byRole(page, "menu", "Design system");
+
+    click(button);
+    expect(menu().style.translate).toBe("56px 0");
+
+    click(button);
+    place = { at: screen - 100, left: 0, width: 300 };
+    click(button);
+    expect(menu().style.translate).toBe("-216px 0");
+
+    place = { at: 100, left: 0, width: 200 };
+
+    act(() => {
+      dispatchEvent(new Event("resize"));
+    });
+
+    expect(menu().style.translate).toBe("");
+  } finally {
+    boxed.mockRestore();
+
+    for (const each of restore) {
+      each();
+    }
+  }
 });

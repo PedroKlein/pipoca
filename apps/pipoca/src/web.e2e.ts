@@ -7956,6 +7956,246 @@ test("saves an artifact as a template from the viewer's More menu, which shows a
   await page.keyboard.press("Escape");
 }, 30_000);
 
+test("makes a deck with the person's own design system, which keeps its copy until Update asks Pi to redraw it", async () => {
+  const folder = join(root, "design-systems");
+
+  const acme = async (accent: string): Promise<void> => {
+    const files = {
+      "README.md": "# Acme\n\nLink tokens.css and bundle.css.",
+      "tokens.json": JSON.stringify({
+        color: { ink: "#1d2433", paper: "#ffffff", accent },
+        type: { styles: [{ name: "display", fontSize: "34px" }] },
+        spacing: { s: "8px" },
+      }),
+      "tokens.css": `:root { --accent: ${accent}; }`,
+      "bundle.css": "button { color: var(--accent); }",
+      "components/Button/preview.html":
+        '<link rel="stylesheet" href="../../bundle.css"><button>Go</button>',
+    };
+
+    for (const [path, text] of Object.entries(files)) {
+      await mkdir(join(folder, "acme", path, ".."), { recursive: true });
+      await writeFile(join(folder, "acme", path), text);
+    }
+  };
+
+  // What an earlier tool said, such as where start_artifact put a folder.
+  const said = (
+    context: Parameters<FauxResponseFactory>[0],
+    pattern: RegExp,
+  ): string =>
+    context.messages
+      .flatMap((each) =>
+        each.role === "toolResult"
+          ? each.content.flatMap((part) =>
+              part.type === "text" ? [part.text] : [],
+            )
+          : [],
+      )
+      .map((text) => pattern.exec(text)?.[1])
+      .find((found) => found !== undefined) ?? "";
+
+  await acme("#c2410c");
+
+  faux.setResponses([
+    fauxAssistantMessage(
+      [
+        fauxToolCall("publish_artifact", {
+          path: "acme",
+          entry: "README.md",
+          title: "Acme design system",
+        }),
+      ],
+      { stopReason: "toolUse" },
+    ),
+    fauxAssistantMessage([fauxText("Published Acme")]),
+  ]);
+
+  await page.goto(server.url.href);
+  await page.getByRole("button", { name: "New session" }).click();
+  const form = page.locator("form#create");
+
+  await pickWorkspace(form, folder);
+  await form.getByRole("button", { name: "Start session" }).click();
+  await page.locator("#status", { hasText: "idle" }).waitFor();
+
+  const box = page.locator("#prompt-text");
+  await box.fill("publish the design system");
+  await box.press("Enter");
+  await page.getByText("Published Acme").waitFor();
+
+  await page.getByRole("link", { name: /Acme design system/ }).click();
+
+  const system = page.getByRole("dialog", { name: "Acme design system" });
+
+  await system.getByText("Design system · used by 0 artifacts").waitFor();
+  await system.getByRole("tab", { name: "Colors 3" }).waitFor();
+
+  // Each component draws in the artifacts' sandbox, with the system's files.
+  await system
+    .locator("section[aria-label=Components] iframe")
+    .first()
+    .contentFrame()
+    .getByRole("button", { name: "Go" })
+    .waitFor();
+
+  await system.getByRole("switch", { name: "My default" }).click();
+
+  await system
+    .getByRole("switch", { name: "My default", checked: true })
+    .waitFor();
+
+  await page.keyboard.press("Escape");
+  await overlayClosed();
+
+  faux.setResponses([
+    fauxAssistantMessage(
+      [
+        fauxToolCall("start_artifact", {
+          template: "slide-deck",
+          title: "Webhooks v2",
+        }),
+      ],
+      { stopReason: "toolUse" },
+    ),
+    (context) =>
+      fauxAssistantMessage(
+        [
+          fauxToolCall("publish_artifact", {
+            path: said(context, /of the template “Slide deck” to (.+?): /),
+            entry: "deck.html",
+            title: "Webhooks v2",
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+    fauxAssistantMessage([fauxText("Made the deck")]),
+  ]);
+
+  await box.fill("make the deck");
+  await box.press("Enter");
+  await page.getByText("Made the deck").waitFor();
+
+  await acme("#0e7490");
+
+  faux.setResponses([
+    (context) =>
+      fauxAssistantMessage(
+        [
+          fauxToolCall("publish_artifact", {
+            path: "acme",
+            entry: "README.md",
+            id: said(
+              context,
+              /“Acme design system” as version 1 of artifact (\S+)\./,
+            ),
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+    fauxAssistantMessage([fauxText("Changed the accent")]),
+  ]);
+
+  await box.fill("change the accent");
+  await box.press("Enter");
+  await page.getByText("Changed the accent").waitFor();
+
+  await page.getByRole("link", { name: /Webhooks v2/ }).click();
+
+  const deck = page.getByRole("dialog", { name: "Webhooks v2" });
+
+  const systemMenu = deck.getByRole("button", {
+    name: "Acme v1, v2 is newer. Design system",
+  });
+
+  // On a phone the menu stays on the screen, inside its gutter.
+  const size = page.viewportSize();
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await systemMenu.click();
+  await page.waitForTimeout(300);
+
+  const menu = await page
+    .getByRole("menu", { name: "Acme v1, v2 is newer. Design system" })
+    .boundingBox();
+
+  expect(menu?.x).toBeGreaterThanOrEqual(16);
+  expect((menu?.x ?? 0) + (menu?.width ?? 0)).toBeLessThanOrEqual(390 - 16);
+
+  await page.keyboard.press("Escape");
+
+  if (size !== null) {
+    await page.setViewportSize(size);
+  }
+
+  await systemMenu.click();
+
+  await page
+    .getByRole("menuitem", {
+      name: "Open Acme design system This deck has a copy of v1. v2 changed accent.",
+    })
+    .waitFor();
+
+  faux.setResponses([fauxAssistantMessage([fauxText("Redrawn with v2")])]);
+
+  await page
+    .getByRole("menuitem", { name: "Update to v2 (Pi redraws the slides)" })
+    .click();
+
+  await deck.getByText("Pi is redrawing it with v2").waitFor();
+
+  await page.keyboard.press("Escape");
+  await overlayClosed();
+
+  await page
+    .locator('#chat li[data-role="user"]', {
+      hasText: 'Redraw the artifact "Webhooks v2"',
+    })
+    .waitFor();
+
+  await page.getByText("Redrawn with v2").waitFor();
+
+  await page.goto(new URL("/#settings/general", server.url).href);
+
+  const rows = page.getByRole("list", { name: "Design systems" });
+
+  await rows
+    .getByRole("listitem")
+    .filter({ hasText: "Acme design system" })
+    .getByText("My default")
+    .waitFor();
+
+  await rows
+    .getByRole("listitem")
+    .filter({ hasText: "Pipoca" })
+    .getByText("Team default")
+    .waitFor();
+
+  await page
+    .getByRole("group", { name: "When nothing is picked" })
+    .getByRole("button", { name: "Use the default", pressed: true })
+    .waitFor();
+
+  // The team's system is with the server's artifact settings, for admins.
+  await page
+    .getByRole("link", { name: "Server settings for artifacts" })
+    .click();
+
+  await page
+    .getByRole("combobox", { name: /Team design system/ })
+    .locator("option:checked", { hasText: "Pipoca" })
+    .waitFor({ state: "attached" });
+
+  await page.getByText("Largest artifact").waitFor();
+
+  expect(
+    await page
+      .getByRole("navigation", { name: "Settings" })
+      .getByRole("link", { name: "Artifacts", exact: true })
+      .count(),
+  ).toBe(1);
+}, 60_000);
+
 test("docks an artifact beside the chat on a wide window, and on a phone keeps its actions at the bottom and its comments in a sheet", async () => {
   const folder = join(root, "artifact-layouts");
   await mkdir(folder, { recursive: true });

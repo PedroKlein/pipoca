@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { Tabs } from "./tabs";
+import { tabPanelLabel, Tabs } from "./tabs";
 import { byRole, click, render, withPage } from "./testing/render";
 
 withPage();
@@ -53,4 +53,24 @@ test("other tabs select their panel", () => {
   click(byRole(list, "tab", "Invites"));
 
   expect(picked).toEqual(["invites"]);
+});
+
+test("tabs name the panel they control, which a tab's id labels", () => {
+  const page = render(
+    <Tabs
+      label="Sections"
+      value="colors"
+      panel="system"
+      tabs={[
+        { value: "overview", label: "Overview" },
+        { value: "colors", label: "Colors" },
+      ]}
+      onSelect={() => undefined}
+    />,
+  );
+
+  const tab = byRole(page, "tab", "Colors");
+
+  expect(tab.id).toBe(tabPanelLabel("system", "colors"));
+  expect(tab.getAttribute("aria-controls")).toBe("system");
 });

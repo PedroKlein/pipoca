@@ -18,12 +18,15 @@ export function Tabs<T extends string>({
   tabs,
   value,
   onSelect,
+  panel,
   className,
 }: {
   readonly label: string;
   readonly tabs: readonly Tab<T>[];
   readonly value: T | undefined;
   readonly onSelect?: (value: T) => void;
+  // The id of the tabpanel the tabs show, which tabPanelLabel names.
+  readonly panel?: string;
   readonly className?: string;
 }): ReactElement {
   const boxClass = cn(
@@ -55,6 +58,10 @@ export function Tabs<T extends string>({
           key={tab.value}
           type="button"
           role="tab"
+          {...(panel !== undefined && {
+            id: tabPanelLabel(panel, tab.value),
+            "aria-controls": panel,
+          })}
           aria-selected={tab.value === value}
           onClick={() => {
             onSelect(tab.value);
@@ -66,4 +73,9 @@ export function Tabs<T extends string>({
       ))}
     </div>
   );
+}
+
+// The id of the tab a tabpanel's aria-labelledby names.
+export function tabPanelLabel(panel: string, value: string): string {
+  return `${panel}-${value}`;
 }

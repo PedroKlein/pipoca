@@ -28,7 +28,8 @@ Claude's artifacts solve this with types. A deck, a document, a design canvas an
 
 - A type says how the viewer draws an artifact. The types are Page, Document (Markdown and design docs, [ADR 0081](0081-artifact-viewer-and-discussion.md)), Slides, Design canvas, Design system, and the file kinds of today (SVG, picture, PDF, CSV).
 - The type comes from the folder: a `canvas.json` makes a design canvas, a `deck.html` makes slides, a `tokens.json` with a `README.md` makes a design system. Otherwise it comes from the entry file's kind, as today.
-- Slides, canvases and design systems are living documents, as HTML pages are ([ADR 0082](0082-living-markdown-artifacts.md)): Pi publishing again is a save, and versions come from approval, Decided or Save version.
+- Slides and canvases are living documents, as HTML pages are ([ADR 0082](0082-living-markdown-artifacts.md)): Pi publishing again is a save, and versions come from approval, Decided or Save version.
+- A design system is versioned on every publish, as a file is, because the artifacts made with it keep a copy that names the exact version they copied.
 
 ### Templates
 
@@ -71,7 +72,7 @@ Claude's artifacts solve this with types. A deck, a document, a design canvas an
 
 - A design system is an artifact with `tokens.json` (colors, type, spacing), `tokens.css`, a stylesheet, a `README.md` that tells Pi how to use it, and one `components/<Name>/preview.html` per component.
 - The viewer shows its colors, type, components and the artifacts that use it.
-- An admin can set the server's default; a person can set their own. When nothing is picked, Pi uses the default, asks, or uses none, as the person chose in Settings › Artifacts.
+- An admin can set the server's default; a person can set their own. When nothing is picked, Pi uses the default, asks, or uses none, as the person chose in Settings › General.
 - A deck, canvas or page made with a design system keeps a copy of it in its own files, so a later change to the system never changes an approved artifact. The viewer says when a newer version exists, and Update asks Pi to redraw with it as a new save.
 - Pi can make a design system from a repository's styles or a screenshot.
 

@@ -1,0 +1,137 @@
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font: 400 16px/26px var(--font-sans);
+}
+
+h1,
+.pp-display {
+  margin: 0;
+  font: 300 44px/52px var(--font-serif);
+  letter-spacing: -0.01em;
+}
+
+h2,
+.pp-heading {
+  margin: 0;
+  font: 600 28px/36px var(--font-sans);
+}
+
+h3,
+.pp-title {
+  margin: 0;
+  font: 600 18px/26px var(--font-sans);
+}
+
+p {
+  margin: 0;
+}
+
+code {
+  font: 400 14px/20px var(--font-mono);
+}
+
+.pp-caption {
+  color: var(--ink-dim);
+  font: 500 13px/18px var(--font-sans);
+}
+
+.pp-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.pp-button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--ink);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink);
+  font: 600 14px/20px var(--font-sans);
+}
+
+.pp-button--primary {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.pp-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.pp-callout {
+  padding: var(--space-3) var(--space-4);
+  border-left: 3px solid var(--accent);
+  background: var(--surface);
+}
+
+.pp-kpi {
+  font: 600 40px/44px var(--font-sans);
+  letter-spacing: -0.02em;
+}
+
+.pp-tag {
+  display: inline-block;
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  font: 500 13px/18px var(--font-sans);
+}
+
+.pp-tag--good {
+  color: var(--good);
+}
+
+.pp-tag--warn {
+  color: var(--warn);
+}
+
+.pp-tag--bad {
+  color: var(--bad);
+}
+
+.pp-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--surface);
+}
+
+.pp-table th,
+.pp-table td {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+}
+
+.pp-table th {
+  color: var(--ink-dim);
+  font: 500 13px/18px var(--font-sans);
+}
+
+.pp-slide-title {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: var(--space-4);
+  box-sizing: border-box;
+  height: 100%;
+  padding: var(--space-12);
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.pp-slide-title .pp-caption {
+  color: var(--accent);
+}

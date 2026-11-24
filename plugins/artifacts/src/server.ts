@@ -77,6 +77,23 @@ import {
 import { lineDiff } from "./diff";
 import { presences, presentations } from "./presence";
 import { rendered } from "./render";
+import {
+  builtInSystem,
+  changesOf,
+  componentsOf,
+  recordOf,
+  shownSystems,
+  type SystemSummary,
+  type Systems,
+  systemRecord,
+  type SystemView,
+  thumbOf,
+  tokensOf,
+  type Unpicked,
+  unpickedChoices,
+  type UsedSystem,
+} from "./systems";
+import { pipoca } from "./pipoca";
 import { type BuiltIn, builtIns } from "./templates";
 import { zip } from "./zip";
 
@@ -302,7 +319,26 @@ export const server = defineServer(
 
     // An artifact follows its Session; once the Session is gone, its owner
     // keeps it. Named people open it too.
+    const pickedServerSystem = (): string | undefined =>
+      store.get<{ system: string }>(
+        "select system from artifacts_server_system where id = 1",
+      )?.system;
+
+    const isSystem = (artifact: Row): boolean =>
+      templateOf(artifact.id) === undefined &&
+      shownOf(artifact.id, versionOf(artifact)).type === "system";
+
+    // The team's design system is everyone's to read and use.
+    const isServerSystem = (artifact: Row): boolean =>
+      artifact.id === pickedServerSystem() && isSystem(artifact);
+
+    // A Markdown doc is edited in place (ADR 0082), but a design system's
+    // every save is a version, since its copies name the one they keep.
+    const lives = (artifact: Row): boolean =>
+      living(kindOf(versionOf(artifact).name) ?? "html") && !isSystem(artifact);
+
     const sees = (artifact: Row, person: string): boolean =>
+      isServerSystem(artifact) ||
       (artifact.session_id !== null &&
         sessions.sees(artifact.session_id, person)) ||
       (artifact.session_id === null &&
@@ -389,11 +425,15 @@ export const server = defineServer(
               for: marked.purpose,
             };
 
+      const type = last === undefined ? kind : shownOf(artifact.id, last).type;
+
+      const inPlace = last !== undefined && lives(artifact);
+
       return {
         id: artifact.id,
         title: artifact.title,
         kind,
-        type: last === undefined ? kind : shownOf(artifact.id, last).type,
+        type,
         template,
         sessionId: artifact.session_id,
         sessionTitle:
@@ -410,8 +450,8 @@ export const server = defineServer(
             artifact.id,
           )?.count ?? 0,
         versions: all.length,
-        living: living(kind),
-        named: living(kind)
+        living: inPlace,
+        named: inPlace
           ? all.filter(({ label }) => label !== null).length
           : all.length,
         updatedAt: artifact.updated_at,
@@ -567,7 +607,7 @@ export const server = defineServer(
     const mark = (artifact: Row, verb: string, person: string): void => {
       const head = versionOf(artifact);
 
-      if (!living(kindOf(head.name) ?? "html")) {
+      if (!lives(artifact)) {
         return;
       }
 
@@ -956,6 +996,9 @@ export const server = defineServer(
           artifact.id,
         ) !== undefined,
       doc: await docOf(artifact, person),
+      ...(await usedSystem(artifact, versionOf(artifact), { person }).then(
+        (used) => (used === undefined ? {} : { designSystem: used }),
+      )),
     });
 
     // What a Session's Pi reads: its own artifacts, and the ones the person
@@ -1599,7 +1642,7 @@ export const server = defineServer(
           artifact.id,
           savedOf(artifact.id, found),
           `user:${caller.person.id}`,
-          living(kindOf(found.name) ?? "html")
+          lives(artifact)
             ? "restored an earlier text"
             : `restored version ${String(found.number)}`,
         );
@@ -1706,7 +1749,7 @@ export const server = defineServer(
         const head = versionOf(artifact);
         const label = body.label.trim();
 
-        if (!living(kindOf(head.name) ?? "html")) {
+        if (!lives(artifact)) {
           throw new BadRequest("only a Markdown doc's edits are named");
         }
 
@@ -3061,7 +3104,7 @@ export const server = defineServer(
             body.base,
             latest,
             () =>
-              `${latest.author === `user:${caller.person.id}` ? "You" : byOf(latest.author)} ${living(kindOf(latest.name) ?? "html") ? "saved an edit" : `saved version ${String(latest.number)}`} while you were editing.`,
+              `${latest.author === `user:${caller.person.id}` ? "You" : byOf(latest.author)} ${lives(artifact) ? "saved an edit" : `saved version ${String(latest.number)}`} while you were editing.`,
           );
 
           return latest;
@@ -3312,7 +3355,7 @@ export const server = defineServer(
     const canvasProblems = async (
       id: string,
       number: number,
-    ): Promise<{ problems?: readonly string[] }> => {
+    ): Promise<Pick<Published, "problems" | "problemsIn">> => {
       const artifact = row(id);
 
       if (
@@ -3329,7 +3372,7 @@ export const server = defineServer(
 
       return problems === undefined || problems.length === 0
         ? {}
-        : { problems };
+        : { problems, problemsIn: "canvas.json" };
     };
 
     routes.post(
@@ -3386,6 +3429,7 @@ export const server = defineServer(
             version: number,
             kind: kindOf(body.name) ?? "html",
             ...(await canvasProblems(artifact.id, number)),
+            ...(await systemProblems(artifact.id, number)),
           };
         }
 
@@ -3406,6 +3450,7 @@ export const server = defineServer(
           version: 1,
           kind: kindOf(body.name) ?? "html",
           ...(await canvasProblems(id, 1)),
+          ...(await systemProblems(id, 1)),
         };
       },
     );
@@ -3850,10 +3895,20 @@ export const server = defineServer(
         const asked = decisionThread(artifact);
         const files = filesOf(artifact.id, found.number);
 
+        const used = await usedSystem(artifact, found, {
+          session: caller.session,
+          person: sessionPersonId(caller),
+        });
+
         return {
           version: found.number,
           entry: found.name,
           files: files.map(({ path, size }) => ({ path, size })),
+          ...(used !== undefined && { system: used }),
+          ...(shownOf(artifact.id, found).type === "system" && {
+            tokens:
+              (await systemProblems(artifact.id, found.number)).problems ?? [],
+          }),
           ...(files.some(({ path }) => path === "canvas.json") && {
             canvas: {
               ...(await canvasFor(artifact, found)),
@@ -4408,6 +4463,821 @@ export const server = defineServer(
         return { id, name: body.name ?? source.title };
       },
     );
+
+    // Design systems (ADR 0085): Pipoca's own, and every artifact whose
+    // latest version is a folder with tokens.json and README.md, read once
+    // per file.
+    const readTokens = new Map<string, Promise<ReturnType<typeof tokensOf>>>();
+
+    const tokensAt = async (
+      hash: string,
+    ): Promise<ReturnType<typeof tokensOf>> => {
+      const known =
+        readTokens.get(hash) ??
+        blobs
+          .bytes(hash)
+          .then((kept) =>
+            tokensOf(new TextDecoder().decode(kept ?? new Uint8Array())),
+          );
+
+      readTokens.set(hash, known);
+
+      return known;
+    };
+
+    const readRecords = new Map<string, Promise<ReturnType<typeof recordOf>>>();
+
+    const recordAt = async (
+      hash: string,
+    ): Promise<ReturnType<typeof recordOf>> => {
+      const known =
+        readRecords.get(hash) ??
+        blobs
+          .bytes(hash)
+          .then((kept) =>
+            kept === undefined
+              ? undefined
+              : recordOf(new TextDecoder().decode(kept)),
+          );
+
+      readRecords.set(hash, known);
+
+      return known;
+    };
+
+    const pipocaTokens = tokensOf(pipoca["tokens.json"] ?? "");
+
+    const systemRows = (): readonly Row[] =>
+      store
+        .all<Row>(
+          `select a.* from artifacts_artifacts a
+           where not exists (select 1 from artifacts_templates t where t.artifact_id = a.id)
+             and exists (
+               select 1 from artifacts_files f
+               where f.artifact_id = a.id and f.path = 'tokens.json'
+                 and f.number = (select max(number) from artifacts_versions v where v.artifact_id = a.id)
+             )
+           order by a.title collate nocase, a.id`,
+        )
+        .filter(isSystem);
+
+    const systemRow = (id: string): Row | undefined => {
+      const found = id === builtInSystem ? undefined : row(id);
+
+      return found !== undefined && isSystem(found) ? found : undefined;
+    };
+
+    // The server's default, while it's still a design system.
+    const serverSystem = (): string => {
+      const picked = pickedServerSystem();
+
+      return picked !== undefined && systemRow(picked) !== undefined
+        ? picked
+        : builtInSystem;
+    };
+
+    // Who uses a system: whoever reads it, a person or a Session's Pi,
+    // whose person is null in team work.
+    type Reader =
+      | { readonly person: string }
+      | {
+          readonly session: {
+            readonly id: string;
+            readonly startedBy: string | null;
+          };
+          readonly person: string | null;
+        };
+
+    const readerOf = (session: {
+      readonly id: string;
+      readonly startedBy: string | null;
+      readonly ownedBy: Owner;
+    }): Reader => ({
+      session,
+      person: owners.personId(session.ownedBy) ?? null,
+    });
+
+    // Team work is no one's, so like templates its Pi reaches only the
+    // team's, never the person who started it's own.
+    const reads = (artifact: Row, reader: Reader): boolean =>
+      "session" in reader
+        ? (reader.person !== null || artifact.owner_user_id === null) &&
+          reaches(reader.session, artifact)
+        : sees(artifact, reader.person);
+
+    const readable = (artifact: Row, reader: Reader): boolean =>
+      isServerSystem(artifact) || reads(artifact, reader);
+
+    // Each artifact whose latest version keeps a copy of a system.
+    const copies = async (): Promise<
+      readonly {
+        readonly artifact: Row;
+        readonly id: string;
+        readonly version: number;
+      }[]
+    > => {
+      const found = store.all<{ artifact_id: string; hash: string }>(
+        `select f.artifact_id, f.hash from artifacts_files f
+         where f.path = ?
+           and f.number = (select max(number) from artifacts_versions v where v.artifact_id = f.artifact_id)`,
+        systemRecord,
+      );
+
+      return (
+        await Promise.all(
+          found.map(async ({ artifact_id, hash }) => {
+            const artifact = row(artifact_id);
+            const said = await recordAt(hash);
+
+            return artifact === undefined || said === undefined
+              ? []
+              : [{ artifact, id: said.id, version: said.version }];
+          }),
+        )
+      ).flat();
+    };
+
+    const systemSummary = async (
+      artifact: Row | undefined,
+      reader: Reader,
+      used: Awaited<ReturnType<typeof copies>>,
+    ): Promise<SystemSummary> => {
+      const id = artifact?.id ?? builtInSystem;
+
+      const usedBy = used.filter(
+        (each) => each.id === id && reads(each.artifact, reader),
+      ).length;
+
+      if (artifact === undefined) {
+        return {
+          id,
+          name: "Pipoca",
+          scope: "builtin",
+          by: "Pipoca",
+          version: 1,
+          usedBy,
+          thumb: thumbOf(pipocaTokens.tokens.colors),
+        };
+      }
+
+      const head = versionOf(artifact);
+      const tokens = fileOf(artifact.id, head, "tokens.json");
+
+      return {
+        id,
+        name: artifact.title,
+        scope: scopeOfSystem(artifact, reader.person),
+        by: nameOf(artifact.owner_user_id),
+        version: head.number,
+        usedBy,
+        thumb: thumbOf((await tokensAt(tokens.hash)).tokens.colors),
+      };
+    };
+
+    const scopeOfSystem = (
+      artifact: Row,
+      person: string | null,
+    ): SystemSummary["scope"] => {
+      if (artifact.owner_user_id === null) {
+        return "team";
+      }
+
+      return artifact.owner_user_id === person ? "mine" : "shared";
+    };
+
+    const systemsFor = async (
+      reader: Reader,
+    ): Promise<readonly SystemSummary[]> => {
+      const used = await copies();
+
+      return Promise.all([
+        systemSummary(undefined, reader, used),
+        ...systemRows()
+          .filter((each) => readable(each, reader))
+          .map(async (each) => systemSummary(each, reader, used)),
+      ]);
+    };
+
+    const settingsOf = (
+      person: string | null,
+    ): { readonly system: string | null; readonly unpicked: Unpicked } => {
+      const found =
+        person === null
+          ? undefined
+          : store.get<{ system: string | null; unpicked: Unpicked }>(
+              "select system, unpicked from artifacts_system_settings where user_id = ?",
+              person,
+            );
+
+      return {
+        system: found?.system ?? null,
+        unpicked: found?.unpicked ?? "default",
+      };
+    };
+
+    const sessionPick = (session: string): string | null =>
+      store.get<{ system: string }>(
+        "select system from artifacts_session_systems where session_id = ?",
+        session,
+      )?.system ?? null;
+
+    // A system of all the reader may use, which a request lists once, by
+    // its id or its name as people call it.
+    const named = (
+      all: readonly SystemSummary[],
+      ref: string,
+    ): SystemSummary | undefined => {
+      const name = ref.trim().toLowerCase();
+
+      return (
+        all.find(({ id }) => id === ref) ??
+        all.find((each) => each.name.toLowerCase() === name)
+      );
+    };
+
+    // The id of a system every reader may use, by its id or its name,
+    // without counting who uses it.
+    const usableBy = (
+      readers: readonly Reader[],
+      ref: string,
+    ): string | undefined => {
+      const all = [
+        { id: builtInSystem, title: "Pipoca" },
+        ...systemRows().filter((each) =>
+          readers.every((reader) => readable(each, reader)),
+        ),
+      ];
+
+      const name = ref.trim().toLowerCase();
+
+      return (
+        all.find(({ id }) => id === ref) ??
+        all.find((each) => each.title.toLowerCase() === name)
+      )?.id;
+    };
+
+    // What a Session's Pi uses when it isn't told: what the Session
+    // picked, else its person's own default, else what they chose for
+    // nothing picked: the team's default, being asked, or none.
+    const sessionUse = (
+      session: string,
+      person: string | null,
+      all: readonly SystemSummary[],
+    ): {
+      readonly system: SystemSummary | null;
+      readonly why: "session" | "mine" | "server" | "none" | "ask";
+    } => {
+      const picked = sessionPick(session);
+
+      if (picked === "none") {
+        return { system: null, why: "none" };
+      }
+
+      const chosen = picked === null ? undefined : named(all, picked);
+
+      if (chosen !== undefined) {
+        return { system: chosen, why: "session" };
+      }
+
+      const { system, unpicked } = settingsOf(person);
+      const mine = system === null ? undefined : named(all, system);
+
+      if (mine !== undefined) {
+        return { system: mine, why: "mine" };
+      }
+
+      if (unpicked !== "default") {
+        return { system: null, why: unpicked };
+      }
+
+      return { system: named(all, serverSystem()) ?? null, why: "server" };
+    };
+
+    // A system's files at one version, so a copy never mixes two.
+    const systemFiles = (
+      id: string,
+      number: number,
+    ): readonly { readonly path: string; readonly size: number }[] => {
+      const artifact = systemRow(id);
+
+      return artifact === undefined
+        ? Object.entries(pipoca).map(([path, text]) => ({
+            path,
+            size: new TextEncoder().encode(text).length,
+          }))
+        : filesOf(artifact.id, versionOf(artifact, number).number);
+    };
+
+    const systemFile = async (
+      id: string,
+      number: number,
+      path: string,
+    ): Promise<Uint8Array> => {
+      const artifact = systemRow(id);
+
+      if (artifact === undefined) {
+        const text = Object.hasOwn(pipoca, path) ? pipoca[path] : undefined;
+
+        if (text === undefined) {
+          throw new NotFound(`Pipoca's design system has no ${path}`);
+        }
+
+        return new TextEncoder().encode(text);
+      }
+
+      const found = versionOf(artifact, number);
+      const file = fileOf(artifact.id, found, path);
+
+      return content({ number: found.number, hash: file.hash });
+    };
+
+    // What an artifact's copy of a system is, and what the system's newest
+    // version the reader sees changed since.
+    const usedSystem = async (
+      artifact: Row,
+      found: VersionRow,
+      reader: Reader,
+    ): Promise<UsedSystem | undefined> => {
+      const kept = filesOf(artifact.id, found.number).find(
+        ({ path }) => path === systemRecord,
+      );
+
+      const said = kept === undefined ? undefined : await recordAt(kept.hash);
+
+      if (said === undefined) {
+        return undefined;
+      }
+
+      const system = systemRow(said.id);
+
+      const seen = system !== undefined && readable(system, reader);
+      const newest = seen ? versionOf(system).number : null;
+      const latest = said.id === builtInSystem ? 1 : newest;
+
+      return {
+        ...said,
+        ...(seen && { name: system.title }),
+        latest,
+        changed:
+          system === undefined || latest === null || latest <= said.version
+            ? []
+            : await systemChanges(system, said.version, latest),
+      };
+    };
+
+    const systemChanges = async (
+      system: Row,
+      from: number,
+      to: number,
+    ): Promise<readonly string[]> => {
+      const was = versions(system.id)[from - 1];
+      const now = versionOf(system, to);
+
+      if (was === undefined) {
+        return [];
+      }
+
+      const before = new Map(
+        filesOf(system.id, was.number).map((each) => [each.path, each.hash]),
+      );
+
+      const after = filesOf(system.id, now.number);
+
+      const tokensFile = (files: Map<string, string>) =>
+        files.get("tokens.json");
+
+      const tokensWas = tokensFile(before);
+
+      const tokensNow = tokensFile(
+        new Map(after.map((each) => [each.path, each.hash])),
+      );
+
+      return changesOf(
+        tokensWas === undefined
+          ? { colors: [], type: [], spacing: [] }
+          : (await tokensAt(tokensWas)).tokens,
+        tokensNow === undefined
+          ? { colors: [], type: [], spacing: [] }
+          : (await tokensAt(tokensNow)).tokens,
+        componentsOf(after.map(({ path }) => path))
+          .filter(
+            ({ file }) =>
+              before.get(file) !==
+              after.find((each) => each.path === file)?.hash,
+          )
+          .map(({ name }) => name),
+      );
+    };
+
+    const systemView = async (
+      id: string,
+      person: string,
+      number: number | undefined,
+    ): Promise<SystemView> => {
+      const reader: Reader = { person };
+      const artifact = systemRow(id);
+
+      if (
+        id !== builtInSystem &&
+        (artifact === undefined || !readable(artifact, reader))
+      ) {
+        throw new NotFound(`no design system ${id}`);
+      }
+
+      const used = await copies();
+      const summarized = await systemSummary(artifact, reader, used);
+
+      const found =
+        artifact === undefined ? undefined : versionOf(artifact, number);
+
+      const paths =
+        artifact === undefined || found === undefined
+          ? Object.keys(pipoca)
+          : filesOf(artifact.id, found.number).map(({ path }) => path);
+
+      const read =
+        artifact === undefined || found === undefined
+          ? pipocaTokens
+          : await tokensAt(fileOf(artifact.id, found, "tokens.json").hash);
+
+      const { system } = settingsOf(person);
+
+      return {
+        ...summarized,
+        ...read,
+        components: componentsOf(paths),
+        files: paths.length,
+        users: used
+          .filter(
+            (each) => each.id === summarized.id && reads(each.artifact, reader),
+          )
+          .map((each) => ({
+            id: each.artifact.id,
+            title: each.artifact.title,
+            type: shownOf(each.artifact.id, versionOf(each.artifact)).type,
+            version: each.version,
+          })),
+        server: serverSystem() === summarized.id,
+        mine: system === summarized.id,
+      };
+    };
+
+    const systemProblems = async (
+      id: string,
+      number: number,
+    ): Promise<Pick<Published, "problems" | "problemsIn">> => {
+      const artifact = row(id);
+
+      if (artifact === undefined) {
+        return {};
+      }
+
+      const found = versionOf(artifact, number);
+
+      if (shownOf(artifact.id, found).type !== "system") {
+        return {};
+      }
+
+      const { problems } = await tokensAt(
+        fileOf(artifact.id, found, "tokens.json").hash,
+      );
+
+      return problems.length === 0
+        ? {}
+        : { problems, problemsIn: "tokens.json" };
+    };
+
+    routes.get(
+      "systems",
+      {
+        auth: "person",
+        query: Type.Object({
+          session: Type.Optional(Type.String({ minLength: 1 })),
+        }),
+      },
+      async ({ caller, query }): Promise<Systems> => {
+        const person = caller.person.id;
+        const { system, unpicked } = settingsOf(person);
+
+        const session =
+          query.session === undefined ? undefined : sessions.get(query.session);
+
+        if (
+          query.session !== undefined &&
+          (session === undefined || !sessions.sees(session.id, person))
+        ) {
+          throw new NotFound(`no Session ${query.session}`);
+        }
+
+        // For a Session, only what its Pi may use too.
+        const seen = await systemsFor({ person });
+
+        const systems =
+          session === undefined
+            ? seen
+            : seen.filter(({ id }) => usableBy([readerOf(session)], id) === id);
+
+        return {
+          systems,
+          server: serverSystem(),
+          mine: system,
+          unpicked,
+          ...(session !== undefined && { session: sessionPick(session.id) }),
+        };
+      },
+    );
+
+    // A system someone picks must be one they see, and for a Session one
+    // its Pi may use too.
+    const pickable = (readers: readonly Reader[], system: string): string => {
+      const found = usableBy(readers, system);
+
+      if (found === undefined) {
+        throw new NotFound(`no design system ${system}`);
+      }
+
+      return found;
+    };
+
+    routes.put(
+      "systems/settings",
+      {
+        auth: "person",
+        body: Type.Object({
+          system: Type.Optional(
+            Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+          ),
+          unpicked: Type.Optional(StringEnum(unpickedChoices)),
+        }),
+        changes: ["artifacts"],
+      },
+      ({ caller, body }) => {
+        const person = caller.person.id;
+        const was = settingsOf(person);
+
+        const pick = (asked: string | null): string | null =>
+          asked === null ? null : pickable([{ person }], asked);
+
+        const system =
+          body.system === undefined ? was.system : pick(body.system);
+
+        store.run(
+          "insert into artifacts_system_settings (user_id, system, unpicked) values (?, ?, ?) on conflict (user_id) do update set system = excluded.system, unpicked = excluded.unpicked",
+          person,
+          system,
+          body.unpicked ?? was.unpicked,
+        );
+
+        return { mine: system, unpicked: body.unpicked ?? was.unpicked };
+      },
+    );
+
+    // The server's default is everyone's to read, as it's what Pi uses for
+    // anyone who didn't pick their own.
+    routes.put(
+      "systems/server",
+      {
+        auth: "person",
+        body: Type.Object({
+          system: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+        }),
+        changes: ["artifacts"],
+      },
+      ({ caller, body }) => {
+        if (!caller.person.admin) {
+          throw new Forbidden("Only admins pick the team's design system.");
+        }
+
+        if (body.system === null || body.system === builtInSystem) {
+          store.run("delete from artifacts_server_system");
+
+          return { server: builtInSystem };
+        }
+
+        const system = pickable([{ person: caller.person.id }], body.system);
+
+        store.run(
+          "insert into artifacts_server_system (id, system) values (1, ?) on conflict (id) do update set system = excluded.system",
+          system,
+        );
+
+        return { server: system };
+      },
+    );
+
+    routes.put(
+      "systems/session",
+      {
+        auth: "person",
+        body: Type.Object({
+          session: Type.String({ minLength: 1 }),
+          system: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+        }),
+        changes: ["artifacts"],
+      },
+      ({ caller, body }) => {
+        const person = caller.person.id;
+        const session = sessions.get(body.session);
+
+        if (session === undefined || !sessions.steers(session.id, person)) {
+          throw new NotFound(`no Session ${body.session}`);
+        }
+
+        if (body.system === null) {
+          store.run(
+            "delete from artifacts_session_systems where session_id = ?",
+            body.session,
+          );
+
+          return { session: null };
+        }
+
+        const system =
+          body.system === "none"
+            ? "none"
+            : pickable([{ person }, readerOf(session)], body.system);
+
+        store.run(
+          "insert into artifacts_session_systems (session_id, system) values (?, ?) on conflict (session_id) do update set system = excluded.system",
+          body.session,
+          system,
+        );
+
+        return { session: system };
+      },
+    );
+
+    routes.get(
+      "systems/:id",
+      { auth: "person", query: version },
+      async ({ caller, params, query }): Promise<SystemView> =>
+        systemView(params.id, caller.person.id, query.v),
+    );
+
+    // Pipoca's own system's files, for its components' frames, which send
+    // no sign-in. They ship with Pipoca, so they're no one's secret.
+    routes.get("systems/:id/files/*path", { auth: "public" }, ({ params }) => {
+      const path = pathOf(params.path);
+      const text = Object.hasOwn(pipoca, path) ? pipoca[path] : undefined;
+
+      if (params.id !== builtInSystem || text === undefined) {
+        throw new NotFound(`no file ${path}`);
+      }
+
+      const where = new URL(urls.public(`systems/${builtInSystem}/files`));
+
+      const served = previewAsset(path, new TextEncoder().encode(text), {
+        scriptHosts: config.get().scriptHosts,
+        base: `${where.host}${where.pathname}/`,
+      });
+
+      served.headers.set("cache-control", "no-cache");
+
+      return served;
+    });
+
+    // Update and Switch ask the artifact's Pi, in its Session, to redraw it
+    // with another version or another system, as a new save.
+    routes.post(
+      "artifacts/:id/system",
+      {
+        auth: "person",
+        body: Type.Object({ system: Type.String({ minLength: 1 }) }),
+        changes: ["artifacts"],
+      },
+      async ({ caller, params, body }) => {
+        const artifact = theirs(params.id, caller);
+        const person = caller.person.id;
+        const head = versionOf(artifact);
+        const was = await usedSystem(artifact, head, { person });
+        const found = listening(artifact, person);
+
+        if ("refused" in found) {
+          throw found.refused;
+        }
+
+        const session = sessions.get(found.session);
+
+        // The system it's redrawn with is one its Session's Pi may use.
+        const to = named(
+          await systemsFor({ person }),
+          pickable(
+            [{ person }, ...(session === undefined ? [] : [readerOf(session)])],
+            body.system,
+          ),
+        );
+
+        if (to === undefined) {
+          throw new NotFound(`no design system ${body.system}`);
+        }
+
+        const sent = sessions.send(found.session, {
+          text: redrawText(artifact, head.number, was, to),
+          turn: true,
+          as: `user:${person}`,
+        });
+
+        if (sent === "gone") {
+          throw new HttpError(409, "The Session is gone.", "no_session");
+        }
+
+        return { asked: true };
+      },
+    );
+
+    routes.get(
+      "session/systems",
+      {
+        auth: "session",
+        query: Type.Object({
+          query: Type.Optional(Type.String({ maxLength: 200 })),
+        }),
+      },
+      async ({ caller, query }) => {
+        const words = (query.query ?? "")
+          .toLowerCase()
+          .split(/\s+/)
+          .filter(Boolean);
+
+        const person = sessionPersonId(caller);
+        const all = await systemsFor({ session: caller.session, person });
+
+        const matches = all.filter((each) =>
+          words.every((word) =>
+            `${each.id} ${each.name}`.toLowerCase().includes(word),
+          ),
+        );
+
+        return {
+          systems: matches.slice(0, shownSystems),
+          more: Math.max(0, matches.length - shownSystems),
+          use: sessionUse(caller.session.id, person, all),
+          server: serverSystem(),
+        };
+      },
+    );
+
+    // The system Pi names, or with no name the one it uses here.
+    routes.get(
+      "session/systems/:ref",
+      { auth: "session" },
+      async ({ caller, params }) => {
+        const person = sessionPersonId(caller);
+        const all = await systemsFor({ session: caller.session, person });
+        const use = sessionUse(caller.session.id, person, all);
+
+        const found =
+          params.ref === "default" ? use.system : named(all, params.ref);
+
+        if (params.ref !== "default" && found === undefined) {
+          throw new NotFound(
+            `no design system ${params.ref}: list them with list_design_systems`,
+          );
+        }
+
+        const files =
+          found === null || found === undefined
+            ? []
+            : systemFiles(found.id, found.version);
+
+        return {
+          use,
+          system:
+            found === null || found === undefined
+              ? null
+              : {
+                  ...found,
+                  files: files.map(({ path }) => path),
+                  size: files.reduce((sum, { size }) => sum + size, 0),
+                },
+        };
+      },
+    );
+
+    routes.get(
+      "session/systems/:id/file",
+      {
+        auth: "session",
+        query: Type.Object({
+          path: Type.String({ minLength: 1, maxLength: 1024 }),
+          v: Type.Integer({ minimum: 1 }),
+        }),
+      },
+      async ({ caller, params, query }) => {
+        const reader: Reader = {
+          session: caller.session,
+          person: sessionPersonId(caller),
+        };
+
+        if (usableBy([reader], params.id) !== params.id) {
+          throw new NotFound(`no design system ${params.id}`);
+        }
+
+        return new Response(await systemFile(params.id, query.v, query.path), {
+          headers: { "content-type": "application/octet-stream" },
+        });
+      },
+    );
   },
 );
 
@@ -4431,6 +5301,25 @@ function structureText(
         ? []
         : [`instructions ${JSON.stringify(o.instructions)}`]),
     ].join(", ") + ".",
+  ].join(" ");
+}
+
+function redrawText(
+  artifact: { readonly id: string; readonly title: string },
+  base: number,
+  was: UsedSystem | undefined,
+  to: SystemSummary,
+): string {
+  const named = `the design system ${JSON.stringify(to.name)} (${to.id})`;
+
+  const what =
+    was?.id === to.id
+      ? `with version ${String(to.version)} of ${named}, in place of the copy of version ${String(was.version)} it keeps`
+      : `with ${named}${was === undefined ? "" : `, in place of ${JSON.stringify(was.name)}`}`;
+
+  return [
+    `Redraw the artifact ${JSON.stringify(artifact.title)} (${artifact.id}) ${what}.`,
+    `Read it with read_artifact, copy the system into the folder it wrote with use_design_system and system ${to.id}, change its pages where the system changed, following the system's README, and publish the folder again as a new version of ${artifact.id} with base ${String(base)}.`,
   ].join(" ");
 }
 
