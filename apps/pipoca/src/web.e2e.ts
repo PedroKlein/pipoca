@@ -7930,6 +7930,29 @@ test("picks a built-in template under Artifacts › New and starts it with Pi in
   await page.getByText("Who is the audience?").waitFor();
 }, 30_000);
 
+test("starts team work from a template on the team hub's Artifacts page", async () => {
+  await page.goto(`${server.url.href}#team/plugin/artifacts/team-artifacts`);
+  await page.getByRole("button", { name: "New", exact: true }).click();
+
+  const picker = page.getByRole("dialog", { name: "New artifact" });
+
+  await picker
+    .getByRole("radiogroup", { name: "Templates" })
+    .locator("label", { hasText: "Slide deck" })
+    .click();
+
+  await picker
+    .getByRole("button", { name: "Start with Pi in a new Session…" })
+    .click();
+
+  const starter = page.getByRole("dialog", { name: "Start team work" });
+  const task = starter.locator("form#create").getByRole("textbox").first();
+
+  expect(await task.inputValue()).toBe("Start from the Slide deck template.");
+
+  await starter.getByText("template · Slides").waitFor();
+});
+
 test("saves an artifact as a template from the viewer's More menu, which shows as a template and in the picker", async () => {
   const folder = join(root, "template-folder");
 

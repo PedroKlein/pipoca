@@ -9,6 +9,7 @@ import {
   type NoticeProps,
   type SessionAttachProps,
   SessionSection,
+  useAddFilesSessions,
   useApi,
   useLoaded,
   useNow,
@@ -42,6 +43,8 @@ interface SessionFolder {
   > | null;
   readonly written?: readonly FolderFile[];
   readonly count?: number;
+  // A coordinator's threads, whose files its Files list too.
+  readonly threads?: readonly { readonly id: string; readonly title: string }[];
 }
 
 function useSessionFolder(sessionId: string): SessionFolder | undefined {
@@ -94,6 +97,13 @@ export function ProjectFiles({
   const { open } = useOverlay();
   const value = useSessionFolder(session.id);
   const project = value?.project ?? null;
+  const threads = value?.threads ?? [];
+
+  useAddFilesSessions(
+    threads.length === 0
+      ? []
+      : [{ id: session.id, title: "Coordinator" }, ...threads],
+  );
 
   if (project === null) {
     return null;

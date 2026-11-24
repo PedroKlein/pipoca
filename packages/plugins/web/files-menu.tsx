@@ -1,4 +1,14 @@
-import { Icon, type IconName, SearchInput } from "@pipoca/ui";
+import {
+  Button,
+  cn,
+  Icon,
+  type IconName,
+  Menu as ActionMenu,
+  type MenuItem,
+  plural,
+  SearchInput,
+  Select,
+} from "@pipoca/ui";
 import {
   Children,
   createContext,
@@ -8,9 +18,11 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { createPortal } from "react-dom";
+import type { FileActionsProps } from "./index";
 import { SessionSection, useShowSection } from "./session-panel";
 
 interface Section {
@@ -19,12 +31,28 @@ interface Section {
   readonly title: string | undefined;
   readonly count: number;
   readonly acts: boolean;
+  readonly covers: readonly string[];
+}
+
+type FileItem = (file: FileActionsProps) => MenuItem | undefined;
+
+// A Session the Files section lists, such as a Project's thread.
+export interface FilesSession {
+  readonly id: string;
+  readonly title: string;
 }
 
 interface Menu {
   readonly filter: string;
   readonly bodies: ReadonlyMap<string, HTMLElement>;
   readonly add: (section: Section) => () => void;
+  readonly covered: ReadonlySet<string>;
+  readonly fileItems: readonly FileItem[];
+  readonly addFileItem: (item: FileItem) => () => void;
+  // Every Session it lists beside its own, and the one the filter picks.
+  readonly scope: readonly FilesSession[];
+  readonly setScope: (scope: readonly FilesSession[]) => void;
+  readonly picked: string | undefined;
 }
 
 const MenuContext = createContext<Menu | undefined>(undefined);
@@ -34,12 +62,16 @@ interface Host {
   readonly menu: Menu;
   readonly setFilter: (filter: string) => void;
   readonly setBody: (key: string, body: HTMLElement | null) => void;
+  readonly setPicked: (picked: string | undefined) => void;
 }
 
 const HostContext = createContext<Host | undefined>(undefined);
 
-// How many rows of each part the panel's summary shows.
+// How many rows of each part the panel's summary shows, and how many
+// cards; the detail shows that many cards before "more".
 const summaryRows = 2;
+const summaryCards = 3;
+const detailCards = 8;
 
 // The Files section of a Session's panel, whose parts plugins fill, such as
 // artifacts, what Pi made, uploads and the Project folder (ADR 0081, ADR
@@ -52,6 +84,9 @@ export function FilesMenuHost({
 }): ReactElement {
   const [sections, setSections] = useState<readonly Section[]>([]);
   const [filter, setFilter] = useState("");
+  const [fileItems, setFileItems] = useState<readonly FileItem[]>([]);
+  const [scope, setScope] = useState<readonly FilesSession[]>([]);
+  const [picked, setPicked] = useState<string>();
 
   const [bodies, setBodies] = useState<ReadonlyMap<string, HTMLElement>>(
     new Map(),
@@ -86,10 +121,36 @@ export function FilesMenuHost({
     });
   }, []);
 
-  const menu = useMemo(() => ({ filter, bodies, add }), [filter, bodies, add]);
+  const addFileItem = useCallback((item: FileItem) => {
+    setFileItems((now) => [...now, item]);
+
+    return () => {
+      setFileItems((now) => now.filter((each) => each !== item));
+    };
+  }, []);
+
+  const covered = useMemo(
+    () => new Set(sections.flatMap(({ covers }) => covers)),
+    [sections],
+  );
+
+  const menu = useMemo(
+    () => ({
+      filter,
+      bodies,
+      add,
+      covered,
+      fileItems,
+      addFileItem,
+      scope,
+      setScope,
+      picked,
+    }),
+    [filter, bodies, add, covered, fileItems, addFileItem, scope, picked],
+  );
 
   const host = useMemo(
-    () => ({ sections, menu, setFilter, setBody }),
+    () => ({ sections, menu, setFilter, setBody, setPicked }),
     [sections, menu, setBody],
   );
 
@@ -164,6 +225,23 @@ export function FilesMenu(): ReactElement | null {
                 host.setFilter(event.target.value);
               }}
             />
+            {host.menu.scope.length > 1 && (
+              <Select
+                aria-label="Thread"
+                className="max-w-56"
+                value={host.menu.picked ?? ""}
+                onChange={(event) => {
+                  host.setPicked(event.target.value || undefined);
+                }}
+              >
+                <option value="">All threads</option>
+                {host.menu.scope.map((each) => (
+                  <option key={each.id} value={each.id}>
+                    {each.title}
+                  </option>
+                ))}
+              </Select>
+            )}
             {sections
               .filter(({ acts }) => acts)
               .map(({ name }) => (
@@ -184,8 +262,27 @@ export function FilesMenu(): ReactElement | null {
         </div>
       }
     >
-      <div className="flex flex-col gap-2">{parts("summary:")}</div>
+      <div className="flex flex-col gap-2">
+        {parts("summary:")}
+        <OpenAll count={count} />
+      </div>
     </SessionSection>
+  );
+}
+
+function OpenAll({ count }: { readonly count: number }): ReactElement {
+  const show = useShowSection();
+
+  return (
+    <Button
+      size="sm"
+      className="mt-1"
+      onClick={() => {
+        show?.("files");
+      }}
+    >
+      {`Open the gallery · ${plural(count, "file")}`}
+    </Button>
   );
 }
 
@@ -213,6 +310,8 @@ export function FilesSection({
   title,
   count,
   action,
+  cards = false,
+  covers = none,
   children,
 }: {
   readonly name: string;
@@ -223,16 +322,31 @@ export function FilesSection({
   readonly count: number;
   // Beside the filter, such as Upload.
   readonly action?: ReactNode;
+  // Its rows are cards, such as artifacts with a picture of each, laid out
+  // in a grid.
+  readonly cards?: boolean;
+  // The hashes of files it shows already, which other parts may leave out,
+  // such as the files an artifact was published from.
+  readonly covers?: readonly string[];
   readonly children: (filter: string) => ReactNode;
 }): ReactElement | null {
   const menu = useContext(MenuContext);
   const add = menu?.add;
   const acts = action !== undefined;
   const show = useShowSection();
+  const covering = covers.join(" ");
 
   useEffect(
-    () => add?.({ name, order, title, count, acts }),
-    [add, name, order, title, count, acts],
+    () =>
+      add?.({
+        name,
+        order,
+        title,
+        count,
+        acts,
+        covers: covering === "" ? [] : covering.split(" "),
+      }),
+    [add, name, order, title, count, acts, covering],
   );
 
   if (menu === undefined) {
@@ -247,7 +361,11 @@ export function FilesSection({
     <>
       {body !== undefined &&
         createPortal(
-          <Rows title={title}>
+          <Rows
+            title={title}
+            cards={cards}
+            {...(cards && { limit: detailCards, expands: true })}
+          >
             {children(menu.filter.trim().toLowerCase())}
           </Rows>,
           body,
@@ -256,7 +374,8 @@ export function FilesSection({
         createPortal(
           <Rows
             title={title}
-            limit={summaryRows}
+            cards={cards}
+            limit={cards ? summaryCards : summaryRows}
             onMore={() => {
               show?.("files");
             }}
@@ -270,24 +389,32 @@ export function FilesSection({
   );
 }
 
+const none: readonly string[] = [];
+
 function Rows({
   title,
+  cards,
   limit,
+  expands = false,
   onMore,
   children,
 }: {
   readonly title: string | undefined;
+  readonly cards: boolean;
   readonly limit?: number;
+  // "more" shows the rest in place.
+  readonly expands?: boolean;
   readonly onMore?: () => void;
   readonly children: ReactNode;
 }): ReactElement | null {
   const rows = Children.toArray(children);
+  const [all, setAll] = useState(false);
 
   if (rows.length === 0) {
     return null;
   }
 
-  const shown = limit === undefined ? rows : rows.slice(0, limit);
+  const shown = limit === undefined || all ? rows : rows.slice(0, limit);
   const more = rows.length - shown.length;
 
   return (
@@ -297,34 +424,59 @@ function Rows({
           {title}
         </h3>
       )}
-      {shown}
+      {cards ? (
+        <div
+          className={cn(
+            "grid gap-2",
+            expands
+              ? "grid-cols-[repeat(auto-fill,minmax(9.5rem,1fr))] gap-3"
+              : "grid-cols-3",
+          )}
+        >
+          {shown}
+        </div>
+      ) : (
+        shown
+      )}
       {more > 0 && (
         <button
           type="button"
-          className="self-start rounded-md px-1 text-caption text-fg-dim hover:text-fg-strong focus-visible:ring-4 focus-visible:ring-focus focus-visible:outline-none"
-          onClick={onMore}
+          className={cn(
+            "self-start rounded-md px-1 text-caption text-fg-dim hover:text-fg-strong focus-visible:ring-4 focus-visible:ring-focus focus-visible:outline-none",
+            cards && "mt-1",
+          )}
+          onClick={
+            expands
+              ? () => {
+                  setAll(true);
+                }
+              : onMore
+          }
         >{`${String(more)} more`}</button>
       )}
     </>
   );
 }
 
-// One line of a part, which opens what it names.
+// One line of a part, which opens what it names, with a menu of what else
+// it does.
 export function FilesRow({
   icon = "file",
   name,
   detail,
+  actions = [],
   onOpen,
 }: {
   readonly icon?: IconName;
   readonly name: string;
   readonly detail?: string;
+  readonly actions?: readonly MenuItem[];
   readonly onOpen: () => void;
 }): ReactElement {
-  return (
+  const row = (
     <button
       type="button"
-      className="flex min-h-8 items-center gap-2.5 rounded-md px-1 py-1 text-left text-label text-fg hover:bg-hover focus-visible:bg-hover focus-visible:outline-none"
+      className="flex min-h-8 min-w-0 flex-1 items-center gap-2.5 rounded-md px-1 py-1 text-left text-label text-fg hover:bg-hover focus-visible:bg-hover focus-visible:outline-none"
       onClick={onOpen}
     >
       <Icon name={icon} className="size-3.5 shrink-0 text-fg-dim" />
@@ -334,4 +486,87 @@ export function FilesRow({
       )}
     </button>
   );
+
+  if (actions.length === 0) {
+    return row;
+  }
+
+  return (
+    <div className="flex items-center gap-1">
+      {row}
+      <ActionMenu label={`More for ${name}`} size="sm" items={actions} />
+    </div>
+  );
 }
+
+// What other plugins do with a Session's file, for its row's menu, such as
+// publishing it as an artifact.
+export function useFileItems(): (file: FileActionsProps) => MenuItem[] {
+  const items = useContext(MenuContext)?.fileItems;
+
+  return useCallback(
+    (file) =>
+      (items ?? []).flatMap((item) => {
+        const made = item(file);
+
+        return made === undefined ? [] : [made];
+      }),
+    [items],
+  );
+}
+
+// Adds an item to every file row's menu while the caller is drawn.
+export function useFileItem(item: FileItem): void {
+  const add = useContext(MenuContext)?.addFileItem;
+  const latest = useRef(item);
+
+  useEffect(() => {
+    latest.current = item;
+  });
+
+  useEffect(() => add?.((file) => latest.current(file)), [add]);
+}
+
+// The Sessions whose files the section lists: the Session alone, or with
+// the others a plugin adds, such as a Project coordinator's threads,
+// narrowed to the one the person picks.
+export function useFilesSessions(own: string): readonly FilesSession[] {
+  const menu = useContext(MenuContext);
+  const scope = menu?.scope;
+  const picked = menu?.picked;
+
+  return useMemo(() => {
+    const listed = scope ?? [];
+
+    const all = listed.some(({ id }) => id === own)
+      ? listed
+      : [{ id: own, title: "" }, ...listed];
+
+    return picked === undefined ? all : all.filter(({ id }) => id === picked);
+  }, [scope, picked, own]);
+}
+
+// Lists these Sessions' files too while the caller is drawn.
+export function useAddFilesSessions(sessions: readonly FilesSession[]): void {
+  const setScope = useContext(MenuContext)?.setScope;
+  const key = JSON.stringify(sessions);
+
+  useEffect(() => {
+    if (setScope === undefined) {
+      return undefined;
+    }
+
+    setScope(JSON.parse(key) as FilesSession[]);
+
+    return () => {
+      setScope([]);
+    };
+  }, [setScope, key]);
+}
+
+// The hashes of files that a part shows already.
+export function useCoveredFiles(): ReadonlySet<string> {
+  return useContext(MenuContext)?.covered ?? noneCovered;
+}
+
+const noneCovered: ReadonlySet<string> = new Set();

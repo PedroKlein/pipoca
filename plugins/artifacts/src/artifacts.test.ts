@@ -120,6 +120,19 @@ test("Pi publishes a file as an artifact and adds versions at the same link", as
 
   const artifact = await t.as("ana").get<ArtifactView>(`artifacts/${id}`);
 
+  // What each save was published from, so the files Pi made can leave
+  // those out.
+  const sha = (text: string): string =>
+    createHash("sha256").update(text).digest("hex");
+
+  expect(
+    (
+      await t.as("ana").get<{ artifacts: ArtifactSummary[] }>("artifacts")
+    ).artifacts[0]?.hashes.toSorted(),
+  ).toEqual(
+    [sha("# Sales\n\nUp 4%.\n"), sha("# Sales\n\nUp 5%.\n")].toSorted(),
+  );
+
   expect(artifact).toMatchObject({
     title: "Sales report",
     kind: "markdown",

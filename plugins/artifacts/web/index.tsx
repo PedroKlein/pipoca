@@ -116,23 +116,24 @@ function ArtifactsPage({ path }: PageProps): ReactElement {
 }
 
 function TeamArtifactsPage(): ReactElement {
-  return (
-    <Page
-      title="Artifacts"
-      description="Pages, documents and pictures Pi published from the team's work."
-    >
-      <Gallery team />
-    </Page>
-  );
+  return <ArtifactList team />;
 }
 
-function ArtifactList(): ReactElement {
+function ArtifactList({
+  team = false,
+}: {
+  readonly team?: boolean;
+}): ReactElement {
   const [picking, setPicking] = useState(false);
 
   return (
     <Page
       title="Artifacts"
-      description="Pages, documents and pictures Pi published. Each keeps one link and every version."
+      description={
+        team
+          ? "Pages, documents and pictures Pi published from the team's work."
+          : "Pages, documents and pictures Pi published. Each keeps one link and every version."
+      }
       actions={
         <Button
           variant="primary"
@@ -145,7 +146,7 @@ function ArtifactList(): ReactElement {
         </Button>
       }
     >
-      <Gallery />
+      <Gallery team={team} />
       <TemplatePicker
         open={picking}
         onClose={() => {

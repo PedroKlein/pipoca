@@ -238,3 +238,51 @@ test("a summary's “more” opens the Files detail with every row", () => {
 
   expect(rows()).toEqual(["a.md", "b.md", "c.md", "d.md"]);
 });
+
+const carded = defineWeb(sections, {
+  slots: {
+    "session.panel": () => (
+      <FilesSection name="art" order={10} title="Artifacts" count={10} cards>
+        {() =>
+          Array.from({ length: 10 }, (_, at) => (
+            <p key={at} data-card>{`card ${String(at + 1)}`}</p>
+          ))
+        }
+      </FilesSection>
+    ),
+  },
+});
+
+test("cards show three in the summary, and eight in the gallery with the rest on asking", () => {
+  const page = renderPart(carded, "session.panel", {});
+
+  click(page, "Open panel");
+
+  const cards = (): number =>
+    page
+      .querySelector("[role=complementary]")
+      ?.querySelectorAll("section[aria-label=Artifacts] [data-card]").length ??
+    0;
+
+  const press = (text: string): void => {
+    act(() => {
+      [...page.querySelectorAll<HTMLButtonElement>("button")]
+        .find((each) => each.textContent === text)
+        ?.click();
+    });
+  };
+
+  expect(cards()).toBe(3);
+
+  press("Open the gallery · 10 files");
+
+  expect(
+    page.querySelector("[role=complementary]")?.getAttribute("aria-label"),
+  ).toBe("Files");
+
+  expect(cards()).toBe(8);
+
+  press("2 more");
+
+  expect(cards()).toBe(10);
+});

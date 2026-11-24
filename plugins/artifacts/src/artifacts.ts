@@ -241,6 +241,9 @@ export interface ArtifactSummary {
   readonly living: boolean;
   readonly named: number;
   readonly updatedAt: number;
+  // The files of every save, by hash, such as the outputs/ file Pi
+  // published it from.
+  readonly hashes: readonly string[];
   // When the viewer last opened it, or null.
   readonly openedAt: number | null;
 }
