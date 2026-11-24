@@ -2949,6 +2949,7 @@ function thread(o: Partial<Comment> & { readonly id: string }): Comment {
     byPi: false,
     quote: "",
     element: "",
+    file: "",
     body: "A comment",
     sentBy: null,
     resolved: false,
@@ -8653,4 +8654,1326 @@ test("the audience window shows only the slide, following the presentation, your
   expect(page.querySelector("[role=img]")?.getAttribute("aria-label")).toBe(
     "Blank screen",
   );
+});
+
+const checkoutCanvas = {
+  canvas: {
+    title: "Checkout redesign",
+    launch: "flows",
+    pages: [
+      { id: "flows", name: "Flows" },
+      { id: "phone", name: "Phone" },
+    ],
+    boards: [
+      {
+        file: "Cart.html",
+        x: 0,
+        y: 0,
+        w: 1280,
+        h: 800,
+        title: "A. Cart",
+        page: "flows",
+      },
+      {
+        file: "Pay.html",
+        x: 1360,
+        y: 0,
+        w: 1280,
+        h: 900,
+        title: "B. Payment",
+        page: "flows",
+      },
+      {
+        file: "Small.html",
+        x: 0,
+        y: 0,
+        w: 390,
+        h: 844,
+        title: "C. Phone",
+        page: "phone",
+      },
+    ],
+    notes: [
+      {
+        id: "t1",
+        x: 0,
+        y: -300,
+        w: 360,
+        text: "Checkout flow",
+        page: "flows",
+        heading: 1,
+        color: "blue",
+      },
+      {
+        id: "n1",
+        x: 0,
+        y: 1000,
+        w: 360,
+        text: "v2 puts the error inline on B.",
+        page: "flows",
+        heading: 0,
+        color: "blue",
+      },
+    ],
+    problems: [],
+  },
+  error: null,
+  stickies: [
+    {
+      id: "s1",
+      x: 620,
+      y: 330,
+      text: "A separate failed screen?",
+      page: "flows",
+      color: "yellow",
+      author: "You",
+      yours: true,
+      deletable: true,
+      createdAt: 0,
+    },
+    {
+      id: "s2",
+      x: 0,
+      y: 1300,
+      text: "Apple Pay first",
+      page: "flows",
+      color: "green",
+      author: "Bo",
+      yours: false,
+      deletable: false,
+      createdAt: 0,
+    },
+  ],
+  changed: ["Pay.html"],
+  added: [],
+  removed: [],
+  shared: [],
+  against: 1,
+};
+
+function canvasArtifact(o: object = {}) {
+  return {
+    ...artifact({
+      title: "Checkout redesign",
+      type: "canvas",
+      living: true,
+      versions: 2,
+    }),
+    ...viewed(2),
+    askable: true,
+    ...o,
+  };
+}
+
+function servingCanvas(
+  asked: Served[],
+  o: {
+    readonly view?: object;
+    readonly comments?: () => readonly Comment[];
+    readonly artifact?: object;
+  } = {},
+): (url: string, init?: RequestInit) => Promise<Response> {
+  const rest = serving(o.artifact ?? canvasArtifact(), asked, {
+    ...(o.comments !== undefined && { comments: o.comments }),
+  });
+
+  return async (url, init) => {
+    if (url.includes("/canvas?")) {
+      await Promise.resolve();
+      asked.push({ url, method: "GET" });
+
+      return Response.json(o.view ?? checkoutCanvas);
+    }
+
+    return rest(url, init);
+  };
+}
+
+async function openCanvas(page: HTMLElement): Promise<void> {
+  await drawn(
+    () => page.querySelector("[aria-roledescription=canvas]") !== null,
+  );
+}
+
+function boardFrame(page: HTMLElement, path: string, version = 2) {
+  const frame = page.querySelector<HTMLIFrameElement>(
+    `iframe[src$='/view?v=${String(version)}&path=${encodeURIComponent(path)}']:not([aria-hidden])`,
+  );
+
+  const window = frame?.contentWindow;
+  const posted: { pipoca?: string }[] = [];
+
+  if (window !== null && window !== undefined) {
+    window.postMessage = (data: unknown) => {
+      posted.push(data as { pipoca?: string });
+    };
+  }
+
+  return {
+    frame,
+    tell: (data: object) => {
+      act(() => {
+        dispatchEvent(
+          new MessageEvent("message", { data, source: window ?? null }),
+        );
+      });
+    },
+    told: () => posted,
+  };
+}
+
+function layer(page: HTMLElement): string {
+  return (
+    page
+      .querySelector<HTMLElement>("[aria-roledescription=canvas] > div")
+      ?.style.getPropertyValue("transform") ?? ""
+  );
+}
+
+test("a canvas draws its page's boards each in its own frame, with Pi's notes, people's stickies, a list of boards and page tabs, and pans and zooms", async () => {
+  const asked: Served[] = [];
+
+  const page = renderPart(
+    web,
+    "overlay",
+    {},
+    {
+      hash: "#session-1?artifact=a1",
+      fetch: servingCanvas(asked, {
+        comments: () => [
+          thread({
+            id: "t1",
+            file: "Pay.html",
+            quote: "Card number",
+            element: "#card",
+          }),
+          thread({ id: "t2", file: "Pay.html", resolved: true }),
+        ],
+      }),
+    },
+  );
+
+  await openCanvas(page);
+
+  expect(asked.map(({ url }) => url)).toContain(
+    "/api/ext/artifacts/artifacts/a1/canvas?v=2",
+  );
+
+  expect(page.textContent).toContain("Design canvas · 3 boards");
+
+  expect(
+    [
+      ...page.querySelectorAll("[role=tablist][aria-label=Pages] [role=tab]"),
+    ].map((each) => each.textContent),
+  ).toEqual(["Flows 2", "Phone 1"]);
+
+  const boards = (): string[] =>
+    [...page.querySelectorAll("nav[aria-label=Boards] button")].map(
+      (each) => each.textContent,
+    );
+
+  expect(boards()).toEqual(["A. Cart", "B. Payment1changed"]);
+
+  expect(
+    [
+      ...page.querySelectorAll<HTMLIFrameElement>(
+        "[aria-roledescription=canvas] iframe",
+      ),
+    ].map((each) => [each.getAttribute("src"), each.getAttribute("sandbox")]),
+  ).toEqual([
+    [
+      "/api/ext/artifacts/artifacts/a1/view?v=2&path=Cart.html",
+      "allow-scripts allow-popups allow-popups-to-escape-sandbox allow-modals allow-forms",
+    ],
+    [
+      "/api/ext/artifacts/artifacts/a1/view?v=2&path=Pay.html",
+      "allow-scripts allow-popups allow-popups-to-escape-sandbox allow-modals allow-forms",
+    ],
+  ]);
+
+  expect(
+    named(page, "Open B. Payment, changed in this version, 1 open comment"),
+  ).toBeDefined();
+
+  expect(page.textContent).toContain("Checkout flow");
+
+  expect(page.querySelector("[role=note]")?.getAttribute("aria-label")).toBe(
+    "Note from Pi: v2 puts the error inline on B.",
+  );
+
+  expect(
+    named(
+      page,
+      "Sticky from You: A separate failed screen?. Arrow keys move it.",
+    ),
+  ).toBeDefined();
+
+  expect(named(page, "Sticky from Bo: Apple Pay first")).toBeDefined();
+
+  const surface = page.querySelector<HTMLElement>(
+    "[aria-roledescription=canvas]",
+  );
+
+  expect(layer(page)).toBe("translate(40px, 40px) scale(1)");
+
+  pressKey("+", surface ?? undefined);
+  expect(named(page, "Zoom 125%, set to 100%")).toBeDefined();
+
+  pressKey("ArrowRight", surface ?? undefined);
+  expect(layer(page)).toContain("scale(1.25)");
+  expect(layer(page)).not.toStartWith("translate(40px");
+
+  pressKey("-", surface ?? undefined);
+  expect(named(page, "Zoom 100%, set to 100%")).toBeDefined();
+
+  act(() => {
+    named(page, "Zoom in")?.click();
+  });
+
+  expect(named(page, "Zoom 125%, set to 100%")).toBeDefined();
+
+  pressKey("0", surface ?? undefined);
+  expect(layer(page)).toBe("translate(40px, 40px) scale(1)");
+
+  const wheel = (init: WheelEventInit, held = false): void => {
+    const event = new WheelEvent("wheel", {
+      ...init,
+      bubbles: true,
+      cancelable: true,
+    });
+
+    Object.defineProperty(event, "ctrlKey", { value: held });
+
+    act(() => {
+      surface?.dispatchEvent(event);
+    });
+  };
+
+  wheel({ deltaX: 0, deltaY: -100 });
+  expect(layer(page)).toBe("translate(40px, 140px) scale(1)");
+
+  wheel({ deltaY: -100 }, true);
+  expect(layer(page)).toContain("scale(2.718");
+
+  act(() => {
+    [...page.querySelectorAll<HTMLButtonElement>("[role=tab]")]
+      .find((each) => each.textContent.startsWith("Phone"))
+      ?.click();
+  });
+
+  expect(boards()).toEqual(["C. Phone"]);
+  expect(page.textContent).not.toContain("Apple Pay first");
+  expect(layer(page)).toBe("translate(40px, 40px) scale(1)");
+});
+
+test("people add stickies to a canvas where they look, and edit, move and delete their own", async () => {
+  const asked: Served[] = [];
+
+  const page = renderPart(
+    web,
+    "overlay",
+    {},
+    { hash: "#session-1?artifact=a1", fetch: servingCanvas(asked) },
+  );
+
+  await openCanvas(page);
+
+  act(() => {
+    named(page, "Sticky")?.click();
+  });
+
+  const dialog = (): HTMLDialogElement | undefined =>
+    [...page.querySelectorAll("dialog")].find(
+      (each) => each.querySelector("h2")?.textContent === "New sticky",
+    );
+
+  await drawn(() => dialog() !== undefined);
+
+  typeInto(dialog()?.querySelector("textarea") ?? null, "Inline error?");
+
+  act(() => {
+    [...(dialog()?.querySelectorAll("button") ?? [])]
+      .find((each) => each.textContent === "Pink")
+      ?.click();
+  });
+
+  await act(async () => {
+    dialog()?.querySelector("form")?.requestSubmit();
+    await until(() => asked.some(({ method }) => method === "POST"));
+  });
+
+  expect(asked.find(({ method }) => method === "POST")).toMatchObject({
+    url: "/api/ext/artifacts/artifacts/a1/stickies",
+    body: { page: "flows", text: "Inline error?", color: "pink" },
+  });
+
+  const mine = named(
+    page,
+    "Sticky from You: A separate failed screen?. Arrow keys move it.",
+  );
+
+  act(() => {
+    mine?.focus();
+  });
+
+  expect(mine?.getAttribute("aria-current")).toBe("true");
+
+  pressKey("ArrowDown", mine);
+
+  await act(async () =>
+    until(() => asked.some(({ method }) => method === "PUT")),
+  );
+
+  expect(asked.find(({ method }) => method === "PUT")).toEqual({
+    url: "/api/ext/artifacts/artifacts/a1/stickies/s1",
+    method: "PUT",
+    body: { x: 620, y: 340 },
+  });
+
+  expect(mine?.style.top).toBe("340px");
+
+  act(() => {
+    named(page, "Edit sticky")?.click();
+  });
+
+  await drawn(() =>
+    [...page.querySelectorAll("dialog h2")].some(
+      (each) => each.textContent === "Edit sticky",
+    ),
+  );
+
+  act(() => {
+    named(page, "Delete sticky")?.click();
+  });
+
+  await act(async () =>
+    until(() => asked.some(({ method }) => method === "DELETE")),
+  );
+
+  expect(asked.find(({ method }) => method === "DELETE")?.url).toBe(
+    "/api/ext/artifacts/artifacts/a1/stickies/s1",
+  );
+
+  act(() => {
+    named(page, "Sticky from Bo: Apple Pay first")?.focus();
+  });
+
+  expect(named(page, "Edit sticky")).toBeUndefined();
+  expect(named(page, "Delete sticky")).toBeUndefined();
+});
+
+test("a board opens on its own with the comments made on it, and Play follows its links to other boards", async () => {
+  const asked: Served[] = [];
+
+  const comments: Comment[] = [
+    thread({
+      id: "t1",
+      file: "Pay.html",
+      quote: "Card number",
+      element: "#card",
+      body: "Inline error here",
+    }),
+    thread({ id: "t2", file: "Cart.html", body: "Cart is fine" }),
+  ];
+
+  const page = renderPart(
+    web,
+    "overlay",
+    {},
+    {
+      hash: "#session-1?artifact=a1",
+      fetch: servingCanvas(asked, { comments: () => comments }),
+    },
+  );
+
+  await openCanvas(page);
+
+  act(() => {
+    named(
+      page,
+      "Open B. Payment, changed in this version, 1 open comment",
+    )?.click();
+  });
+
+  await drawn(() => page.querySelector("h3")?.textContent === "B. Payment");
+
+  expect(page.textContent).toContain("Checkout redesign · board 2 of 2");
+
+  let board = boardFrame(page, "Pay.html");
+
+  expect(board.frame).not.toBeNull();
+
+  commentMode(page);
+  await drawn(() => page.textContent.includes("Inline error here"));
+
+  expect(
+    page.querySelector("aside[aria-label=Comments]")?.textContent,
+  ).not.toContain("Cart is fine");
+
+  expect(
+    board
+      .told()
+      .filter((each) => each.pipoca === "pins")
+      .at(-1),
+  ).toMatchObject({ pins: [{ n: 1, selector: "#card" }] });
+
+  board.tell({
+    pipoca: "element",
+    selector: "#pay",
+    label: "Pay €48.00",
+    rect,
+  });
+
+  const box = (): HTMLFormElement | null =>
+    page.querySelector("form[aria-label='New comment']");
+
+  await drawn(() => box() !== null);
+
+  typeInto(
+    box()?.querySelector("textarea[aria-label='Comment text']") ?? null,
+    "Orange?",
+  );
+
+  await act(async () => {
+    box()?.requestSubmit();
+    await until(() => asked.some(({ method }) => method === "POST"));
+  });
+
+  expect(asked.find(({ method }) => method === "POST")?.body).toEqual({
+    version: 2,
+    body: "Orange?",
+    kind: "comment",
+    toPi: false,
+    quote: "Pay €48.00",
+    element: "#pay",
+    file: "Pay.html",
+  });
+
+  board.tell({ pipoca: "board", path: "Cart.html" });
+  expect(page.querySelector("h3")?.textContent).toBe("B. Payment");
+
+  act(() => {
+    named(page, "Play")?.click();
+  });
+
+  board = boardFrame(page, "Pay.html");
+  board.tell({ pipoca: "board", path: "Cart.html" });
+
+  await drawn(() => page.querySelector("h3")?.textContent === "A. Cart");
+  expect(boardFrame(page, "Cart.html").frame).not.toBeNull();
+
+  boardFrame(page, "Cart.html").tell({
+    pipoca: "board",
+    path: "Elsewhere.html",
+  });
+
+  expect(page.querySelector("h3")?.textContent).toBe("A. Cart");
+
+  act(() => {
+    named(page, "Next board")?.click();
+  });
+
+  expect(page.querySelector("h3")?.textContent).toBe("B. Payment");
+
+  act(() => {
+    named(page, "Back to the canvas")?.click();
+  });
+
+  await openCanvas(page);
+});
+
+test("Compare shows the boards a version changed side by side, from the canvas or from one board", async () => {
+  const asked: Served[] = [];
+
+  const page = renderPart(
+    web,
+    "overlay",
+    {},
+    { hash: "#session-1?artifact=a1", fetch: servingCanvas(asked) },
+  );
+
+  await openCanvas(page);
+
+  act(() => {
+    named(page, "Open A. Cart")?.click();
+  });
+
+  await drawn(() => page.querySelector("h3")?.textContent === "A. Cart");
+  expect(named(page, "Compare")).toBeUndefined();
+
+  act(() => {
+    named(page, "Next board")?.click();
+  });
+
+  act(() => {
+    named(page, "Compare")?.click();
+  });
+
+  await drawn(() => page.textContent.includes("Comparing B. Payment"));
+
+  expect(asked.map(({ url }) => url)).toContain(
+    "/api/ext/artifacts/artifacts/a1/canvas?v=2&against=1",
+  );
+
+  const sides = (): (string | null)[] =>
+    [...page.querySelectorAll("section[aria-label='B. Payment'] iframe")].map(
+      (each) => each.getAttribute("src"),
+    );
+
+  expect(sides()).toEqual([
+    "/api/ext/artifacts/artifacts/a1/view?v=1&path=Pay.html",
+    "/api/ext/artifacts/artifacts/a1/view?v=2&path=Pay.html",
+  ]);
+
+  act(() => {
+    named(page, "Back to latest")?.click();
+  });
+
+  await drawn(() => page.querySelector("h3")?.textContent === "B. Payment");
+});
+
+test("a canvas whose canvas.json is broken says why instead of drawing it", async () => {
+  const asked: Served[] = [];
+
+  const page = renderPart(
+    web,
+    "overlay",
+    {},
+    {
+      hash: "#session-1?artifact=a1",
+      fetch: servingCanvas(asked, {
+        view: {
+          canvas: null,
+          error: "canvas.json isn't valid JSON: Unexpected token",
+          stickies: [],
+          changed: [],
+          added: [],
+          removed: [],
+          shared: [],
+          against: null,
+        },
+      }),
+    },
+  );
+
+  await drawn(() => page.textContent.includes("This canvas can't be drawn"));
+
+  expect(page.querySelector("[role=alert]")?.textContent).toContain(
+    "canvas.json isn't valid JSON: Unexpected token",
+  );
+});
+
+function canvasWith(o: {
+  readonly canvas?: object;
+  readonly stickies?: readonly object[];
+  readonly view?: object;
+}) {
+  return {
+    ...checkoutCanvas,
+    ...o.view,
+    canvas: { ...checkoutCanvas.canvas, ...o.canvas },
+    stickies: o.stickies ?? checkoutCanvas.stickies,
+  };
+}
+
+function surfaceOf(page: HTMLElement): HTMLElement | undefined {
+  return (
+    page.querySelector<HTMLElement>("[aria-roledescription=canvas]") ??
+    undefined
+  );
+}
+
+function tool(page: HTMLElement, name: string): HTMLButtonElement | undefined {
+  return [
+    ...page.querySelectorAll<HTMLButtonElement>(
+      "[role=toolbar][aria-label=Canvas] button",
+    ),
+  ].find((each) => each.textContent === name);
+}
+
+test("a canvas opens on the page its canvas.json launches, with that page's notes and headings sized by their level", async () => {
+  const asked: Served[] = [];
+
+  const page = renderPart(
+    web,
+    "overlay",
+    {},
+    {
+      hash: "#session-1?artifact=a1",
+      fetch: servingCanvas(asked, {
+        view: canvasWith({
+          canvas: {
+            launch: "phone",
+            notes: [
+              ...checkoutCanvas.canvas.notes,
+              {
+                id: "t2",
+                x: 0,
+                y: -200,
+                w: 360,
+                text: "Phone",
+                page: "phone",
+                heading: 1,
+                color: "blue",
+              },
+              {
+                id: "t3",
+                x: 0,
+                y: -100,
+                w: 360,
+                text: "Small screens",
+                page: "phone",
+                heading: 2,
+                color: "blue",
+              },
+            ],
+          },
+        }),
+      }),
+    },
+  );
+
+  await openCanvas(page);
+
+  expect(
+    [...page.querySelectorAll("nav[aria-label=Boards] button")].map(
+      (each) => each.textContent,
+    ),
+  ).toEqual(["C. Phone"]);
+
+  expect(
+    [
+      ...page.querySelectorAll("[aria-roledescription=canvas] [role=heading]"),
+    ].map((each) => [
+      each.textContent,
+      each.getAttribute("aria-level"),
+      each.className.includes("text-[72px]"),
+      each.className.includes("text-[48px]"),
+    ]),
+  ).toEqual([
+    ["Phone", "3", true, false],
+    ["Small screens", "4", false, true],
+  ]);
+
+  expect(page.textContent).not.toContain("Checkout flow");
+  expect(page.querySelector("[role=note]")).toBeNull();
+});
+
+test("a canvas of one page has no page tabs", async () => {
+  const asked: Served[] = [];
+
+  const page = renderPart(
+    web,
+    "overlay",
+    {},
+    {
+      hash: "#session-1?artifact=a1",
+      fetch: servingCanvas(asked, {
+        view: canvasWith({
+          canvas: {
+            pages: [{ id: "flows", name: "Flows" }],
+            boards: checkoutCanvas.canvas.boards.slice(0, 2),
+          },
+        }),
+      }),
+    },
+  );
+
+  await openCanvas(page);
+
+  expect(page.querySelector("[role=tablist][aria-label=Pages]")).toBeNull();
+
+  expect(page.querySelectorAll("nav[aria-label=Boards] button")).toHaveLength(
+    2,
+  );
+});
+
+test("arrow keys pan a canvas every way but not from what's on it, the zoom is said aloud, and board titles stay small when zoomed out", async () => {
+  const asked: Served[] = [];
+
+  const page = renderPart(
+    web,
+    "overlay",
+    {},
+    { hash: "#session-1?artifact=a1", fetch: servingCanvas(asked) },
+  );
+
+  await openCanvas(page);
+
+  const surface = surfaceOf(page);
+
+  const announced = (): string | null | undefined =>
+    page.querySelector("[aria-live=polite]")?.textContent;
+
+  expect(announced()).toBe("Zoom 100%");
+
+  for (const [key, moved] of [
+    ["ArrowLeft", "translate(80px, 40px)"],
+    ["ArrowRight", "translate(40px, 40px)"],
+    ["ArrowUp", "translate(40px, 80px)"],
+    ["ArrowDown", "translate(40px, 40px)"],
+  ] as const) {
+    pressKey(key, surface);
+    expect(layer(page)).toBe(`${moved} scale(1)`);
+  }
+
+  const layered = page.querySelector<HTMLElement>(
+    "[aria-roledescription=canvas] > div",
+  );
+
+  expect(layered?.textContent).toContain("B. Paymentchanged in this version");
+
+  const others = named(page, "Sticky from Bo: Apple Pay first");
+
+  act(() => {
+    others?.focus();
+  });
+
+  const before = layer(page);
+  const top = others?.style.top;
+
+  pressKey("ArrowLeft", others);
+  pressKey("+", others);
+
+  expect(layer(page)).toBe(before);
+  expect(others?.style.top).toBe(top);
+
+  pressKey("0", surface);
+
+  for (let times = 0; times < 8; times += 1) {
+    pressKey("-", surface);
+  }
+
+  expect(announced()).toBe("Zoom 17%");
+
+  const title = (): HTMLElement | undefined =>
+    [
+      ...page.querySelectorAll<HTMLElement>(
+        "[aria-roledescription=canvas] span[aria-hidden]",
+      ),
+    ].find((each) => each.textContent === "A. Cart");
+
+  expect(title()?.style.fontSize).toBe("60px");
+
+  pressKey("-", surface);
+  expect(title()).toBeUndefined();
+
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 450)));
+  expect(asked.some(({ method }) => method === "PUT")).toBe(false);
+});
+
+test("tabbing to a board or sticky off screen brings it into view, and a person's own sticky steps by the zoom and saves once it rests", async () => {
+  const asked: Served[] = [];
+
+  const page = renderPart(
+    web,
+    "overlay",
+    {},
+    { hash: "#session-1?artifact=a1", fetch: servingCanvas(asked) },
+  );
+
+  await openCanvas(page);
+
+  const surface = surfaceOf(page);
+
+  act(() => {
+    named(page, "Open B. Payment, changed in this version")?.focus();
+  });
+
+  expect(layer(page)).toBe("translate(-2000px, -450px) scale(1)");
+
+  const mine = named(
+    page,
+    "Sticky from You: A separate failed screen?. Arrow keys move it.",
+  );
+
+  act(() => {
+    mine?.focus();
+  });
+
+  expect(layer(page)).toBe("translate(-800px, -410px) scale(1)");
+
+  pressKey("+", surface);
+  pressKey("ArrowDown", mine);
+  pressKey("ArrowDown", mine);
+  pressKey("ArrowRight", mine);
+
+  expect(mine?.style.top).toBe("346px");
+  expect(mine?.style.left).toBe("628px");
+  expect(asked.some(({ method }) => method === "PUT")).toBe(false);
+
+  await act(async () =>
+    until(() => asked.some(({ method }) => method === "PUT")),
+  );
+
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 450)));
+
+  expect(asked.filter(({ method }) => method === "PUT")).toEqual([
+    {
+      url: "/api/ext/artifacts/artifacts/a1/stickies/s1",
+      method: "PUT",
+      body: { x: 628, y: 346 },
+    },
+  ]);
+});
+
+test("dragging from someone else's sticky pans the canvas, and dragging their own moves it", async () => {
+  const asked: Served[] = [];
+
+  const page = renderPart(
+    web,
+    "overlay",
+    {},
+    { hash: "#session-1?artifact=a1", fetch: servingCanvas(asked) },
+  );
+
+  await openCanvas(page);
+
+  const pointer = (type: string, on: Element | undefined, x: number): void => {
+    act(() => {
+      on?.dispatchEvent(
+        new PointerEvent(type, {
+          bubbles: true,
+          pointerId: 1,
+          clientX: x,
+          clientY: 0,
+        }),
+      );
+    });
+  };
+
+  const others = named(page, "Sticky from Bo: Apple Pay first");
+
+  pointer("pointerdown", others, 0);
+  pointer("pointermove", others, 50);
+  pointer("pointerup", others, 50);
+
+  expect(layer(page)).toBe("translate(90px, 40px) scale(1)");
+
+  const mine = named(
+    page,
+    "Sticky from You: A separate failed screen?. Arrow keys move it.",
+  );
+
+  pointer("pointerdown", mine, 0);
+  pointer("pointermove", mine, 30);
+  pointer("pointerup", mine, 30);
+
+  expect(layer(page)).toBe("translate(90px, 40px) scale(1)");
+
+  await act(async () =>
+    until(() => asked.some(({ method }) => method === "PUT")),
+  );
+
+  expect(asked.find(({ method }) => method === "PUT")?.body).toEqual({
+    x: 650,
+    y: 330,
+  });
+});
+
+test("a new sticky is yellow unless chosen and goes where the person looks, and editing one sends what it says now", async () => {
+  const asked: Served[] = [];
+
+  const page = renderPart(
+    web,
+    "overlay",
+    {},
+    { hash: "#session-1?artifact=a1", fetch: servingCanvas(asked) },
+  );
+
+  await openCanvas(page);
+
+  act(() => {
+    tool(page, "Sticky")?.click();
+  });
+
+  const dialog = (title: string): HTMLDialogElement | undefined =>
+    [...page.querySelectorAll("dialog")].find(
+      (each) => each.querySelector("h2")?.textContent === title,
+    );
+
+  await drawn(() => dialog("New sticky") !== undefined);
+
+  typeInto(
+    dialog("New sticky")?.querySelector("textarea") ?? null,
+    "Fewer steps",
+  );
+
+  await act(async () => {
+    dialog("New sticky")?.querySelector("form")?.requestSubmit();
+    await until(() => asked.some(({ method }) => method === "POST"));
+  });
+
+  expect(asked.find(({ method }) => method === "POST")?.body).toEqual({
+    page: "flows",
+    x: -220,
+    y: -120,
+    text: "Fewer steps",
+    color: "yellow",
+  });
+
+  act(() => {
+    named(
+      page,
+      "Sticky from You: A separate failed screen?. Arrow keys move it.",
+    )?.focus();
+  });
+
+  act(() => {
+    tool(page, "Edit sticky")?.click();
+  });
+
+  await drawn(() => dialog("Edit sticky") !== undefined);
+
+  const field = dialog("Edit sticky")?.querySelector("textarea") ?? null;
+
+  expect(field?.value).toBe("A separate failed screen?");
+
+  typeInto(field, "One failed screen");
+
+  await act(async () => {
+    dialog("Edit sticky")?.querySelector("form")?.requestSubmit();
+    await until(() => asked.some(({ method }) => method === "PUT"));
+  });
+
+  expect(asked.find(({ method }) => method === "PUT")).toEqual({
+    url: "/api/ext/artifacts/artifacts/a1/stickies/s1",
+    method: "PUT",
+    body: { text: "One failed screen", color: "yellow" },
+  });
+});
+
+test("someone who may delete another's sticky can delete it but not edit it, and stickies on a page that's gone are listed", async () => {
+  const asked: Served[] = [];
+
+  const page = renderPart(
+    web,
+    "overlay",
+    {},
+    {
+      hash: "#session-1?artifact=a1",
+      fetch: servingCanvas(asked, {
+        view: canvasWith({
+          stickies: [
+            { ...checkoutCanvas.stickies[1], deletable: true },
+            {
+              ...checkoutCanvas.stickies[1],
+              id: "s3",
+              page: "old",
+              text: "Where did this go?",
+              deletable: true,
+            },
+          ],
+        }),
+      }),
+    },
+  );
+
+  await openCanvas(page);
+
+  act(() => {
+    named(page, "Sticky from Bo: Apple Pay first")?.focus();
+  });
+
+  expect(tool(page, "Edit sticky")).toBeUndefined();
+  expect(tool(page, "Delete sticky")).toBeDefined();
+
+  const lost = page.querySelector(
+    "section[aria-label='Stickies on a page that no longer exists']",
+  );
+
+  expect(lost?.textContent).toContain("Bo: Where did this go?");
+  expect(surfaceOf(page)?.textContent).not.toContain("Where did this go?");
+
+  act(() => {
+    lost?.querySelector("button")?.click();
+  });
+
+  expect(lost?.querySelector("button")?.getAttribute("aria-current")).toBe(
+    "true",
+  );
+
+  act(() => {
+    tool(page, "Delete sticky")?.click();
+  });
+
+  await act(async () =>
+    until(() => asked.some(({ method }) => method === "DELETE")),
+  );
+
+  expect(asked.find(({ method }) => method === "DELETE")?.url).toBe(
+    "/api/ext/artifacts/artifacts/a1/stickies/s3",
+  );
+});
+
+test("a comment on the whole canvas is written over it, Move and Comment switch commenting, and a board opened while commenting is commented on as a board", async () => {
+  const asked: Served[] = [];
+
+  const page = renderPart(
+    web,
+    "overlay",
+    {},
+    { hash: "#session-1?artifact=a1", fetch: servingCanvas(asked) },
+  );
+
+  await openCanvas(page);
+
+  expect(tool(page, "Move")?.getAttribute("aria-pressed")).toBe("true");
+  expect(page.querySelector("aside[aria-label=Comments]")).toBeNull();
+
+  act(() => {
+    tool(page, "Comment")?.click();
+  });
+
+  await drawn(() => page.querySelector("aside[aria-label=Comments]") !== null);
+
+  expect(tool(page, "Comment")?.getAttribute("aria-pressed")).toBe("true");
+
+  expect(
+    page.querySelector("aside[aria-label=Comments]")?.textContent,
+  ).toContain(
+    "Open a board to comment on part of it, or comment on the whole canvas.",
+  );
+
+  act(() => {
+    named(page, "Comment on the whole canvas")?.click();
+  });
+
+  const box = (): HTMLFormElement | null =>
+    page.querySelector(
+      "section[aria-label='Comment on the whole canvas'] form[aria-label='New comment']",
+    );
+
+  await drawn(() => box() !== null);
+
+  expect(box()?.textContent).toContain("On the whole canvas");
+
+  typeInto(
+    box()?.querySelector("textarea[aria-label='Comment text']") ?? null,
+    "Fewer boards?",
+  );
+
+  await act(async () => {
+    box()?.requestSubmit();
+    await until(() => asked.some(({ method }) => method === "POST"));
+  });
+
+  expect(asked.find(({ method }) => method === "POST")?.body).toEqual({
+    version: 2,
+    body: "Fewer boards?",
+    kind: "comment",
+    toPi: false,
+  });
+
+  act(() => {
+    named(page, "Open A. Cart")?.click();
+  });
+
+  await drawn(() => page.querySelector("h3")?.textContent === "A. Cart");
+
+  expect(
+    page.querySelector("aside[aria-label=Comments]")?.textContent,
+  ).toContain("Select text or click part of the board to comment on it.");
+
+  act(() => {
+    named(page, "Comment on the whole board")?.click();
+  });
+
+  await drawn(
+    () => page.querySelector("form[aria-label='New comment']") !== null,
+  );
+
+  expect(
+    page.querySelector("form[aria-label='New comment']")?.textContent,
+  ).toContain("On the whole board");
+
+  act(() => {
+    named(page, "Back to the canvas")?.click();
+  });
+
+  await openCanvas(page);
+
+  act(() => {
+    tool(page, "Move")?.click();
+  });
+
+  await drawn(() => page.querySelector("aside[aria-label=Comments]") === null);
+});
+
+test("a thread on another board opens that board, and a board hides the switch to the canvas's files", async () => {
+  const asked: Served[] = [];
+
+  const page = renderPart(
+    web,
+    "overlay",
+    {},
+    {
+      hash: "#session-1?artifact=a1",
+      fetch: servingCanvas(asked, {
+        artifact: canvasArtifact({
+          history: viewed(2).history.map((each) => ({ ...each, files: 4 })),
+        }),
+        comments: () => [
+          thread({ id: "t2", file: "Cart.html", body: "Cart is fine" }),
+        ],
+      }),
+    },
+  );
+
+  await openCanvas(page);
+
+  expect(named(page, "Files 4")).toBeDefined();
+
+  commentMode(page);
+  await drawn(() => page.textContent.includes("Cart is fine"));
+
+  act(() => {
+    page.querySelector<HTMLButtonElement>("[data-thread='t2'] button")?.click();
+  });
+
+  await drawn(() => page.querySelector("h3")?.textContent === "A. Cart");
+
+  expect(named(page, "Files 4")).toBeUndefined();
+
+  act(() => {
+    named(page, "Play")?.click();
+  });
+
+  boardFrame(page, "Cart.html").tell({ pipoca: "board", path: "Pay.html" });
+
+  await drawn(() => page.querySelector("h3")?.textContent === "B. Payment");
+
+  expect(named(page, "Play")?.getAttribute("aria-pressed")).toBe("true");
+});
+
+test("Compare shows added boards beside the version without them, removed ones beside the one without them, and what shared files changed", async () => {
+  const asked: Served[] = [];
+
+  const added = {
+    file: "New.html",
+    x: 0,
+    y: 1000,
+    w: 1280,
+    h: 800,
+    title: "D. Receipt",
+    page: "flows",
+  };
+
+  const page = renderPart(
+    web,
+    "overlay",
+    {},
+    {
+      hash: "#session-1?artifact=a1",
+      fetch: servingCanvas(asked, {
+        view: canvasWith({
+          canvas: { boards: [...checkoutCanvas.canvas.boards, added] },
+          view: {
+            added: ["New.html"],
+            removed: [{ ...added, file: "Gone.html", title: "E. Failed" }],
+            shared: ["app.css"],
+          },
+        }),
+      }),
+    },
+  );
+
+  await openCanvas(page);
+
+  act(() => {
+    versionMenu(page)?.click();
+  });
+
+  act(() => {
+    item(page, "Compare versions…")?.click();
+  });
+
+  await drawn(() => page.textContent.includes("Comparing two versions"));
+
+  await drawn(
+    () => page.querySelector("section[aria-label='D. Receipt']") !== null,
+  );
+
+  const sides = (title: string): (string | null)[] =>
+    [
+      ...page.querySelectorAll(
+        `section[aria-label='${title}'] iframe, section[aria-label='${title}'] .border-dashed`,
+      ),
+    ].map((each) => each.getAttribute("src") ?? each.textContent);
+
+  expect(sides("B. Payment")).toEqual([
+    "/api/ext/artifacts/artifacts/a1/view?v=1&path=Pay.html",
+    "/api/ext/artifacts/artifacts/a1/view?v=2&path=Pay.html",
+  ]);
+
+  expect(sides("D. Receipt")).toEqual([
+    "Not in version 1",
+    "/api/ext/artifacts/artifacts/a1/view?v=2&path=New.html",
+  ]);
+
+  expect(sides("E. Failed")).toEqual([
+    "/api/ext/artifacts/artifacts/a1/view?v=1&path=Gone.html",
+    "Not in version 2",
+  ]);
+
+  expect(page.querySelector("[role=note]")?.textContent).toBe(
+    "app.css changed too, so boards that use it may look different.",
+  );
+
+  expect(
+    page.querySelector("section[aria-label='A. Cart'] h3")?.textContent,
+  ).toBe("A. Cartmay have changed");
+
+  act(() => {
+    named(page, "Back to latest")?.click();
+  });
+
+  await openCanvas(page);
+
+  act(() => {
+    named(page, "Open A. Cart")?.click();
+  });
+
+  await drawn(() => page.querySelector("h3")?.textContent === "A. Cart");
+
+  act(() => {
+    named(page, "Compare")?.click();
+  });
+
+  await drawn(() => page.textContent.includes("Comparing A. Cart"));
+
+  expect(
+    [...page.querySelectorAll("section[aria-label]")].map((each) =>
+      each.getAttribute("aria-label"),
+    ),
+  ).toEqual(["A. Cart"]);
+});
+
+test("a pointer let go outside the canvas still lets Tab bring a board into view", async () => {
+  const asked: Served[] = [];
+
+  const page = renderPart(
+    web,
+    "overlay",
+    {},
+    { hash: "#session-1?artifact=a1", fetch: servingCanvas(asked) },
+  );
+
+  await openCanvas(page);
+
+  act(() => {
+    surfaceOf(page)?.dispatchEvent(
+      new PointerEvent("pointerdown", { bubbles: true, pointerId: 1 }),
+    );
+  });
+
+  act(() => {
+    dispatchEvent(new PointerEvent("pointerup", { pointerId: 1 }));
+  });
+
+  act(() => {
+    named(page, "Open B. Payment, changed in this version")?.focus();
+  });
+
+  expect(layer(page)).toBe("translate(-2000px, -450px) scale(1)");
 });

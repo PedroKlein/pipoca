@@ -161,6 +161,12 @@
   --color-canvas: #ffffff;
   /* What a presenter shows while they blank the screen. */
   --color-blank: #000000;
+  /* Paper stickies on a design canvas, the same in either theme. */
+  --color-sticky-yellow: #fff3c4;
+  --color-sticky-pink: #ffe1ea;
+  --color-sticky-green: #ddf5e3;
+  --color-sticky-blue: #e8f1ff;
+  --color-on-sticky: #1a1712;
   --color-butter: var(--butter);
   --color-on-butter: var(--on-butter);
   --color-transparent: transparent;

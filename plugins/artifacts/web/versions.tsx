@@ -38,6 +38,8 @@ import {
 } from "../src/artifacts";
 import { type DiffLine, lineDiff, type Span, textChanges } from "../src/diff";
 import { audienceLabel, byline, versionChoices } from "./chrome";
+import type { CanvasView } from "../src/canvas";
+import { ChangedBoards } from "./canvas";
 import { base, Frame } from "./collaborate";
 
 // A version, or one file of it, as it downloads or shows.
@@ -107,6 +109,7 @@ export function Compare({
   titleId,
   version,
   since,
+  board,
   onBack,
   onClose,
 }: {
@@ -114,13 +117,16 @@ export function Compare({
   readonly mode: ViewerMode;
   readonly titleId: string | undefined;
   readonly version: number;
+  readonly board?: string | undefined;
   // The older side to start from, such as the last approved version.
   readonly since?: number | undefined;
   readonly onBack: () => void;
   readonly onClose: () => void;
 }): ReactElement {
+  const api = useApi(plugin);
   const now = useNow();
-  const text = isText(artifact.kind);
+  const canvas = artifact.type === "canvas";
+  const text = isText(artifact.kind) && (!canvas || board !== undefined);
   const [how, setHow] = useState<How>("side");
 
   const [pair, setPair] = useState(() => {
@@ -137,8 +143,20 @@ export function Compare({
   const key = `${artifact.id}:${String(from)}:${String(to)}`;
 
   // Marks are a nicety: without them both versions still show.
+  const { value: drawn } = useLoaded(
+    async (): Promise<CanvasView | null> =>
+      canvas
+        ? api
+            .get<CanvasView>(
+              `artifacts/${artifact.id}/canvas?v=${String(to)}&against=${String(from)}`,
+            )
+            .catch(() => null)
+        : null,
+    `${key}:canvas`,
+  );
+
   const { value: marks } = useLoaded(async (): Promise<Marks | null> => {
-    if (!text) {
+    if (!text || canvas) {
       return null;
     }
 
@@ -162,8 +180,18 @@ export function Compare({
     async (): Promise<readonly DiffLine[] | "long" | "failed"> =>
       how === "source"
         ? Promise.all([
-            fetched(artifact.id, from, "download", entryOf(artifact, from)),
-            fetched(artifact.id, to, "download", entryOf(artifact, to)),
+            fetched(
+              artifact.id,
+              from,
+              "download",
+              board ?? entryOf(artifact, from),
+            ),
+            fetched(
+              artifact.id,
+              to,
+              "download",
+              board ?? entryOf(artifact, to),
+            ),
           ]).then(
             ([before, after]) => lineDiff(before, after) ?? "long",
             () => "failed",
@@ -269,7 +297,11 @@ export function Compare({
           mode={mode}
           titleId={titleId}
           title={artifact.title}
-          line="Comparing two versions"
+          line={
+            board === undefined
+              ? "Comparing two versions"
+              : `Comparing ${[...(drawn?.canvas?.boards ?? []), ...(drawn?.removed ?? [])].find(({ file }) => file === board)?.title ?? board}`
+          }
         />
         {picker("from", from)}
         <Icon name="arrow-right" className="size-3.5 text-fg-dim" />
@@ -287,7 +319,17 @@ export function Compare({
         )}
         {mode !== "window" && <ViewerClose onClose={onClose} focus={false} />}
       </header>
-      {how === "side" ? (
+      {how === "side" && canvas && (
+        <ChangedBoards
+          artifact={artifact}
+          view={drawn}
+          board={board}
+          from={from}
+          to={to}
+          sideName={strip}
+        />
+      )}
+      {how === "side" && !canvas && (
         <div className="grid min-h-0 flex-1 grid-cols-2 bg-panel max-md:grid-cols-1">
           {[from, to].map((number, side) => (
             <section
@@ -307,9 +349,8 @@ export function Compare({
             </section>
           ))}
         </div>
-      ) : (
-        <DiffView lines={lines} />
       )}
+      {how === "source" && <DiffView lines={lines} />}
     </div>
   );
 }

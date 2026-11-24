@@ -555,6 +555,9 @@ export interface Comment {
   readonly quote: string;
   // The element it's on, as a selector in its version, or empty.
   readonly element: string;
+  // The file of its version it's on, such as a canvas's board, or empty
+  // for the entry.
+  readonly file: string;
   readonly body: string;
   // On a thread: who last sent it to Pi, or null.
   readonly sentBy: string | null;
@@ -681,6 +684,8 @@ export interface Published {
   readonly title: string;
   readonly version: number;
   readonly kind: Kind;
+  // What's wrong with a canvas's canvas.json, for Pi to fix.
+  readonly problems?: readonly string[];
 }
 
 export function kindLabel(kind: Kind): string {

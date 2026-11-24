@@ -7526,6 +7526,278 @@ test("shows a deck Pi published one slide at a time with its notes, builds its s
   await overlayClosed();
 }, 30_000);
 
+test("draws a design canvas Pi published, pans and zooms it, takes stickies, and opens a board on its own that plays its links", async () => {
+  const folder = join(root, "artifact-canvas");
+  const boards = join(folder, "checkout");
+  await mkdir(boards, { recursive: true });
+
+  const screen = (title: string, body: string): string =>
+    `<!doctype html><html><head><link rel="stylesheet" href="app.css"><title>${title}</title></head><body><h1>${title}</h1>${body}</body></html>`;
+
+  await writeFile(
+    join(boards, "app.css"),
+    "body { margin: 0; padding: 32px; font: 16px system-ui; background: rgb(255, 255, 255); color: rgb(29, 36, 51); } a { display: inline-block; padding: 12px 20px; background: rgb(29, 36, 51); color: rgb(255, 255, 255); border-radius: 8px; text-decoration: none; }\n",
+  );
+
+  await writeFile(
+    join(boards, "Cart.html"),
+    screen("Cart", '<p>2 items · €48.00</p><a href="Pay.html">Checkout</a>'),
+  );
+
+  await writeFile(
+    join(boards, "Pay.html"),
+    screen(
+      "Payment",
+      '<p>Card number</p><a id="pay" href="Receipt.html">Pay €48.00</a>',
+    ),
+  );
+
+  await writeFile(
+    join(boards, "Receipt.html"),
+    screen(
+      "Receipt",
+      '<p>Paid. A receipt is on its way.</p><a href="Cart.html">Done</a> <a href="/elsewhere" target="_blank">Help</a>',
+    ),
+  );
+
+  await writeFile(
+    join(boards, "canvas.json"),
+    JSON.stringify({
+      title: "Checkout redesign",
+      pages: [
+        { id: "flows", name: "Flows" },
+        { id: "phone", name: "Phone" },
+      ],
+      boards: {
+        "Cart.html": {
+          x: 0,
+          y: 0,
+          w: 1280,
+          h: 800,
+          title: "A. Cart",
+          page: "flows",
+        },
+        "Pay.html": {
+          x: 1360,
+          y: 0,
+          w: 1280,
+          h: 800,
+          title: "B. Payment",
+          page: "flows",
+        },
+        "Receipt.html": {
+          x: 2720,
+          y: 0,
+          w: 1280,
+          h: 800,
+          title: "C. Receipt",
+          page: "flows",
+        },
+      },
+      order: ["Cart.html", "Pay.html", "Receipt.html"],
+      notes: {
+        t1: {
+          x: 0,
+          y: -260,
+          text: "Checkout flow",
+          kind: "title1",
+          page: "flows",
+        },
+        n1: {
+          x: 1360,
+          y: 880,
+          text: "The error is inline on B now.",
+          page: "flows",
+        },
+      },
+    }),
+  );
+
+  faux.setResponses([
+    fauxAssistantMessage(
+      [
+        fauxToolCall("publish_artifact", {
+          path: "checkout",
+          entry: "Cart.html",
+          title: "Checkout redesign",
+        }),
+      ],
+      { stopReason: "toolUse" },
+    ),
+    fauxAssistantMessage([fauxText("Published the mockups")]),
+  ]);
+
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto(server.url.href);
+  await page.getByRole("button", { name: "New session" }).click();
+  const form = page.locator("form#create");
+
+  await pickWorkspace(form, folder);
+  await form.getByRole("button", { name: "Start session" }).click();
+  await page.locator("#status", { hasText: "idle" }).waitFor();
+
+  const box = page.locator("#prompt-text");
+  await box.fill("publish the mockups");
+  await box.press("Enter");
+  await page.getByText("Published the mockups").waitFor();
+
+  await page.getByRole("link", { name: /Checkout redesign/ }).click();
+
+  const viewer = page.getByRole("dialog", { name: "Checkout redesign" });
+  const list = viewer.getByRole("navigation", { name: "Boards" });
+  const surface = viewer.getByRole("application");
+
+  await viewer.getByText("Design canvas · 3 boards").waitFor();
+
+  expect(await list.getByRole("button").allInnerTexts()).toEqual([
+    "A. Cart",
+    "B. Payment",
+    "C. Receipt",
+  ]);
+
+  await viewer.getByText("Checkout flow").waitFor();
+
+  await viewer
+    .getByRole("note", { name: "Note from Pi: The error is inline on B now." })
+    .waitFor();
+
+  // Each board draws in its own sandboxed frame, with the folder's files.
+  const tile = await (
+    await surface.locator("iframe[src$='path=Pay.html']").elementHandle()
+  ).contentFrame();
+
+  if (tile === null) {
+    throw new Error("no board frame");
+  }
+
+  await tile.locator("h1", { hasText: "Payment" }).waitFor();
+
+  expect(
+    await tile.evaluate("getComputedStyle(document.body).backgroundColor"),
+  ).toBe("rgb(255, 255, 255)");
+
+  // The canvas fits its boards, and keys zoom it and fit it again.
+  const zoom = viewer.getByRole("toolbar", { name: "Zoom" });
+  const fit = await zoom.getByRole("button").nth(1).innerText();
+
+  expect(Number.parseInt(fit, 10)).toBeLessThan(40);
+
+  await surface.focus();
+  await page.keyboard.press("+");
+  await page.keyboard.press("+");
+
+  expect(await zoom.getByRole("button").nth(1).innerText()).not.toBe(fit);
+
+  await page.keyboard.press("0");
+  expect(await zoom.getByRole("button").nth(1).innerText()).toBe(fit);
+
+  // A sticky goes where the person looks, as theirs.
+  await viewer.getByRole("button", { name: "Sticky", exact: true }).click();
+  const sticky = page.getByRole("dialog", { name: "New sticky" });
+
+  await sticky
+    .getByRole("textbox")
+    .fill("Do we need a separate failed screen?");
+
+  await sticky.getByRole("button", { name: "Add sticky" }).click();
+  await sticky.waitFor({ state: "detached" });
+
+  const mine = viewer.getByRole("button", {
+    name: "Sticky from You: Do we need a separate failed screen?. Arrow keys move it.",
+  });
+
+  await mine.waitFor();
+
+  const before = await mine.boundingBox();
+
+  await mine.focus();
+  await page.keyboard.press("ArrowRight");
+
+  await until(
+    async () => (await mine.boundingBox())?.x ?? 0,
+    (x) => x > (before?.x ?? 0),
+  );
+
+  // A board opens on its own, and Play follows its links.
+  await list.getByRole("button", { name: "B. Payment" }).click();
+  await viewer.getByRole("heading", { name: "B. Payment" }).waitFor();
+  await viewer.getByText("Checkout redesign · board 2 of 3").waitFor();
+
+  await viewer.getByRole("button", { name: "Play", exact: true }).click();
+
+  const played = await (
+    await viewer.locator("iframe[src$='path=Pay.html']").elementHandle()
+  ).contentFrame();
+
+  await played?.getByRole("link", { name: "Pay €48.00" }).click();
+  await viewer.getByRole("heading", { name: "C. Receipt" }).waitFor();
+
+  // Only a plain click on a link to another board of the canvas follows it.
+  const receipt = await (
+    await viewer.locator("iframe[src$='path=Receipt.html']").elementHandle()
+  ).contentFrame();
+
+  for (const [name, held] of [
+    ["Done", ["Shift"]],
+    ["Help", []],
+  ] as const) {
+    const popup = page.context().waitForEvent("page");
+
+    await receipt?.getByRole("link", { name }).click({ modifiers: [...held] });
+
+    await (await popup).close();
+  }
+
+  expect(await viewer.locator("h3").innerText()).toBe("C. Receipt");
+
+  await viewer.getByRole("button", { name: "Previous board" }).click();
+  await viewer.getByRole("heading", { name: "B. Payment" }).waitFor();
+
+  await viewer.getByRole("button", { name: "Back to the canvas" }).click();
+  await surface.waitFor();
+
+  // On a phone the canvas fills the screen without the list of boards.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await surface.waitFor();
+  expect(await list.isVisible()).toBe(false);
+
+  // There Fit fits the first board, and the toolbars keep clear of each
+  // other.
+  await viewer.getByRole("button", { name: "Fit", exact: true }).click();
+
+  const first = await surface
+    .getByRole("button", { name: "Open A. Cart" })
+    .boundingBox();
+
+  const room = await surface.boundingBox();
+
+  expect(first?.x ?? 0).toBeGreaterThanOrEqual(room?.x ?? 0);
+
+  expect((first?.x ?? 0) + (first?.width ?? 0)).toBeLessThanOrEqual(
+    (room?.x ?? 0) + (room?.width ?? 0),
+  );
+
+  const tools = await viewer
+    .getByRole("toolbar", { name: "Canvas" })
+    .boundingBox();
+
+  const zooms = await zoom.boundingBox();
+
+  expect(
+    (tools?.y ?? 0) + (tools?.height ?? 0) <= (zooms?.y ?? 0) ||
+      (zooms?.y ?? 0) + (zooms?.height ?? 0) <= (tools?.y ?? 0) ||
+      (tools?.x ?? 0) + (tools?.width ?? 0) <= (zooms?.x ?? 0),
+  ).toBe(true);
+
+  await surface.getByRole("button", { name: "Open A. Cart" }).click();
+  await viewer.getByRole("heading", { name: "A. Cart" }).waitFor();
+  await viewer.getByRole("button", { name: "Back to the canvas" }).click();
+  await page.setViewportSize({ width: 1280, height: 900 });
+
+  await page.keyboard.press("Escape");
+  await overlayClosed();
+}, 30_000);
+
 test("picks a built-in template under Artifacts › New and starts it with Pi in a new Session", async () => {
   faux.setResponses([
     fauxAssistantMessage(

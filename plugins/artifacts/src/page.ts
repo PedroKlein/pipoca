@@ -221,6 +221,21 @@ addEventListener("message", (event) => {
 });
 })();</script>`;
 
+export const board = (root: string): string => `<script>(() => {
+const root = ${JSON.stringify(root).replaceAll("<", "\\u003c")};
+document.addEventListener("click", (event) => {
+  if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+  const link = event.target.closest?.("a[href]");
+  if (link === null || link === undefined) return;
+  const to = new URL(link.getAttribute("href"), location.href);
+  if (to.origin !== location.origin || !to.pathname.startsWith(root)) return;
+  event.preventDefault();
+  let path;
+  try { path = decodeURIComponent(to.pathname.slice(root.length)); } catch { return; }
+  parent.postMessage({ pipoca: "board", path }, "*");
+});
+})();</script>`;
+
 export const deck = `<script>(() => {
 ${selectorOf}
 const look = document.createElement("style");

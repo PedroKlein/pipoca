@@ -64,6 +64,16 @@ import {
   type Version,
 } from "./artifacts";
 import { activityLog } from "./activity";
+import {
+  boardHeight,
+  boardWidth,
+  type Canvas,
+  type CanvasBoard,
+  canvasOf,
+  type CanvasView,
+  peopleColors,
+  type Sticky,
+} from "./canvas";
 import { lineDiff } from "./diff";
 import { presences, presentations } from "./presence";
 import { rendered } from "./render";
@@ -118,6 +128,7 @@ interface CommentRow {
   readonly kind: CommentKind;
   readonly quote: string;
   readonly element: string;
+  readonly file: string;
   readonly body: string;
   readonly sent_to_pi: number;
   readonly sent_by_user_id: string | null;
@@ -126,6 +137,17 @@ interface CommentRow {
   readonly resolved_by_pi: number;
   readonly asked_at: number | null;
   readonly told_at: number | null;
+  readonly created_at: number;
+}
+
+interface StickyRow {
+  readonly id: string;
+  readonly author_user_id: string | null;
+  readonly page: string;
+  readonly x: number;
+  readonly y: number;
+  readonly text: string;
+  readonly color: (typeof peopleColors)[number];
   readonly created_at: number;
 }
 
@@ -1084,12 +1106,13 @@ export const server = defineServer(
     // relative path loads beside it.
     routes.get(
       "artifacts/:id/view",
-      { auth: "person", query: version },
+      { auth: "person", query: versionFile },
       async ({ caller, params, query }) => {
         const artifact = theirs(params.id, caller);
         const found = versionOf(artifact, query.v);
 
         const shown = shownOf(artifact.id, found);
+        const page = fileOf(artifact.id, found, query.path ?? shown.page).path;
 
         if (found.files > 1) {
           const grant = grantFor(artifact.id, found.number, caller.person.id);
@@ -1097,7 +1120,7 @@ export const server = defineServer(
           return new Response(null, {
             status: 302,
             headers: {
-              location: `files/${grant}/${shown.page.split("/").map(encodeURIComponent).join("/")}`,
+              location: `files/${grant}/${page.split("/").map(encodeURIComponent).join("/")}`,
               "cache-control": "no-store",
             },
           });
@@ -1129,9 +1152,10 @@ export const server = defineServer(
         const base = `${where.host}${where.pathname}/`;
 
         const shown = shownOf(artifact.id, found);
+        const boarded = shown.type === "canvas" && /\.html?$/i.test(file.path);
 
         const served =
-          file.path === shown.page
+          file.path === shown.page || boarded
             ? rendered(
                 kindOf(file.path) ?? "html",
                 file.path,
@@ -1140,6 +1164,7 @@ export const server = defineServer(
                 {
                   base,
                   slides: shown.type === "slides",
+                  ...(boarded && { board: `${where.pathname}/` }),
                 },
               )
             : previewAsset(file.path, kept, { scriptHosts, base });
@@ -1215,6 +1240,284 @@ export const server = defineServer(
           ),
           maxBytes: maxFileBytes(),
         };
+      },
+    );
+
+    const canvasFor = async (
+      artifact: Row,
+      found: VersionRow,
+    ): Promise<{ canvas: Canvas | null; error: string | null }> => {
+      const files = filesOf(artifact.id, found.number);
+      const index = files.find(({ path }) => path === "canvas.json");
+
+      if (index === undefined) {
+        throw new NotFound(`version ${String(found.number)} isn't a canvas`);
+      }
+
+      const read = canvasOf(
+        new TextDecoder().decode(
+          await content({ number: found.number, hash: index.hash }),
+        ),
+        files.map(({ path }) => path),
+      );
+
+      return "error" in read
+        ? { canvas: null, error: read.error }
+        : { canvas: read.canvas, error: null };
+    };
+
+    // What a comment can be on: a board of a canvas, or any file of a
+    // folder.
+    const onFile = async (
+      artifact: Row,
+      found: VersionRow,
+      file: string | undefined,
+      hint = "",
+    ): Promise<void> => {
+      if (file === undefined) {
+        return;
+      }
+
+      const files = filesOf(artifact.id, found.number);
+
+      const allowed = files.some(({ path }) => path === "canvas.json")
+        ? ((await canvasFor(artifact, found)).canvas?.boards ?? []).map(
+            (each) => each.file,
+          )
+        : files.map(({ path }) => path);
+
+      if (!allowed.includes(file)) {
+        throw new BadRequest(
+          `Version ${String(found.number)} has no ${file}${hint}.`,
+        );
+      }
+    };
+
+    const stickiesOf = (artifact: Row, reader: string | null): Sticky[] => {
+      const steering = reader !== null && steers(artifact, reader);
+
+      return store
+        .all<StickyRow>(
+          "select * from artifacts_stickies where artifact_id = ? order by created_at, id",
+          artifact.id,
+        )
+        .map((each) => ({
+          id: each.id,
+          x: each.x,
+          y: each.y,
+          text: each.text,
+          page: each.page,
+          color: each.color,
+          author: personName(each.author_user_id, reader),
+          yours: each.author_user_id !== null && each.author_user_id === reader,
+          deletable: steering || each.author_user_id === reader,
+          createdAt: each.created_at,
+        }));
+    };
+
+    // A canvas's boards, pages and Pi's notes from its canvas.json, the
+    // stickies people put on it, and the boards that changed since another
+    // version, the one before unless against says.
+    routes.get(
+      "artifacts/:id/canvas",
+      {
+        auth: "person",
+        query: Type.Object({
+          v: Type.Optional(Type.Integer({ minimum: 1 })),
+          against: Type.Optional(Type.Integer({ minimum: 1 })),
+        }),
+      },
+      async ({ caller, params, query }): Promise<CanvasView> => {
+        const artifact = theirs(params.id, caller);
+        const found = versionOf(artifact, query.v);
+        const read = await canvasFor(artifact, found);
+
+        const against =
+          query.against ?? (found.number > 1 ? found.number - 1 : undefined);
+
+        const older =
+          against === undefined ? undefined : versionOf(artifact, against);
+
+        const was =
+          older === undefined
+            ? undefined
+            : await canvasFor(artifact, older).catch(() => undefined);
+
+        const before = new Map(
+          (older === undefined ? [] : filesOf(artifact.id, older.number)).map(
+            (each) => [each.path, each.hash],
+          ),
+        );
+
+        const hashes = new Map(
+          filesOf(artifact.id, found.number).map((each) => [
+            each.path,
+            each.hash,
+          ]),
+        );
+
+        const boards = (read.canvas?.boards ?? []).map(({ file }) => file);
+
+        // An older canvas.json that can't be read leaves its HTML files as
+        // its boards.
+        const wasBoards: readonly CanvasBoard[] =
+          was?.canvas?.boards ??
+          [...before.keys()]
+            .filter((path) => /\.html?$/i.test(path))
+            .map((file) => ({
+              file,
+              x: 0,
+              y: 0,
+              w: boardWidth,
+              h: boardHeight,
+              title: file,
+              page: "",
+            }));
+
+        const boardsBefore = new Set(wasBoards.map(({ file }) => file));
+        const drawn = new Set([...boards, ...boardsBefore, "canvas.json"]);
+
+        return {
+          ...read,
+          stickies: stickiesOf(artifact, caller.person.id),
+          changed: boards.filter(
+            (file) =>
+              boardsBefore.has(file) && before.get(file) !== hashes.get(file),
+          ),
+          added:
+            older === undefined
+              ? []
+              : boards.filter((file) => !boardsBefore.has(file)),
+          removed:
+            older === undefined
+              ? []
+              : wasBoards.filter(({ file }) => !boards.includes(file)),
+          shared:
+            older === undefined
+              ? []
+              : [...new Set([...before.keys(), ...hashes.keys()])]
+                  .filter(
+                    (path) =>
+                      !drawn.has(path) && before.get(path) !== hashes.get(path),
+                  )
+                  .sort(),
+          against: against ?? null,
+        };
+      },
+    );
+
+    const sticky = Type.Object({
+      page: Type.String({ minLength: 1, maxLength: 200 }),
+      x: Type.Number({ minimum: -1e7, maximum: 1e7 }),
+      y: Type.Number({ minimum: -1e7, maximum: 1e7 }),
+      text: Type.String({ minLength: 1, maxLength: 2000 }),
+      color: Type.Optional(StringEnum(peopleColors)),
+    });
+
+    routes.post(
+      "artifacts/:id/stickies",
+      { auth: "person", body: sticky, changes: ["artifacts"] },
+      async ({ caller, params, body }) => {
+        const artifact = commenter(params.id, caller);
+        const { canvas } = await canvasFor(artifact, versionOf(artifact));
+
+        if (canvas?.pages.some(({ id }) => id === body.page) !== true) {
+          throw new BadRequest(`This canvas has no page ${body.page}.`);
+        }
+
+        const id = Bun.randomUUIDv7();
+        const now = clock.now();
+
+        store.run(
+          "insert into artifacts_stickies (id, artifact_id, author_user_id, page, x, y, text, color, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          id,
+          artifact.id,
+          caller.person.id,
+          body.page,
+          body.x,
+          body.y,
+          body.text,
+          body.color ?? "yellow",
+          now,
+          now,
+        );
+
+        return { id };
+      },
+    );
+
+    const stickyOn = (artifact: Row, id: string): StickyRow => {
+      const found = store.get<StickyRow>(
+        "select * from artifacts_stickies where id = ? and artifact_id = ?",
+        id,
+        artifact.id,
+      );
+
+      if (found === undefined) {
+        throw new NotFound(`no sticky ${id}`);
+      }
+
+      return found;
+    };
+
+    const stickyChange = Type.Partial(Type.Omit(sticky, ["page"]));
+
+    const changeSticky = (
+      found: StickyRow,
+      body: {
+        readonly x?: number;
+        readonly y?: number;
+        readonly text?: string;
+        readonly color?: StickyRow["color"];
+      },
+    ): void => {
+      store.run(
+        "update artifacts_stickies set x = ?, y = ?, text = ?, color = ?, updated_at = ? where id = ?",
+        body.x ?? found.x,
+        body.y ?? found.y,
+        body.text ?? found.text,
+        body.color ?? found.color,
+        clock.now(),
+        found.id,
+      );
+    };
+
+    routes.put(
+      "artifacts/:id/stickies/:sticky",
+      { auth: "person", body: stickyChange, changes: ["artifacts"] },
+      ({ caller, params, body }) => {
+        const artifact = commenter(params.id, caller);
+        const found = stickyOn(artifact, params.sticky);
+
+        if (found.author_user_id !== caller.person.id) {
+          throw new Forbidden("Only its author changes a sticky.");
+        }
+
+        changeSticky(found, body);
+
+        return { id: found.id };
+      },
+    );
+
+    routes.delete(
+      "artifacts/:id/stickies/:sticky",
+      { auth: "person", changes: ["artifacts"] },
+      ({ caller, params }) => {
+        const artifact = commenter(params.id, caller);
+        const found = stickyOn(artifact, params.sticky);
+
+        if (
+          found.author_user_id !== caller.person.id &&
+          !steers(artifact, caller.person.id)
+        ) {
+          throw new Forbidden(
+            "Only its author and people who can act in its Session take a sticky off.",
+          );
+        }
+
+        store.run("delete from artifacts_stickies where id = ?", found.id);
+
+        return { deleted: found.id };
       },
     );
 
@@ -1831,6 +2134,7 @@ export const server = defineServer(
       byPi: each.by_pi === 1,
       quote: each.quote,
       element: each.element,
+      file: each.file,
       body: each.body,
       sentBy:
         each.sent_to_pi === 1 ? personName(each.sent_by_user_id, reader) : null,
@@ -2133,6 +2437,7 @@ export const server = defineServer(
           body: Type.String({ minLength: 1, maxLength: 10_000 }),
           quote: Type.Optional(Type.String({ maxLength: 2000 })),
           element: Type.Optional(Type.String({ maxLength: 4000 })),
+          file: Type.Optional(Type.String({ minLength: 1, maxLength: 1024 })),
           kind: Type.Optional(
             Type.Union([
               Type.Literal("comment"),
@@ -2146,7 +2451,7 @@ export const server = defineServer(
         }),
         changes: ["artifacts"],
       },
-      ({ caller, params, body }) => {
+      async ({ caller, params, body }) => {
         const artifact = commenter(params.id, caller);
         const found = versionOf(artifact, body.version);
 
@@ -2160,6 +2465,8 @@ export const server = defineServer(
         if (body.element !== undefined && body.quote === undefined) {
           throw new BadRequest("Name the element in quote.");
         }
+
+        await onFile(artifact, found, body.file);
 
         const open = parent === undefined || parent.resolved_at === null;
 
@@ -2185,7 +2492,7 @@ export const server = defineServer(
         const id = Bun.randomUUIDv7();
 
         store.run(
-          "insert into artifacts_comments (id, artifact_id, version, parent_id, author_user_id, kind, quote, element, body, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          "insert into artifacts_comments (id, artifact_id, version, parent_id, author_user_id, kind, quote, element, file, body, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
           id,
           artifact.id,
           found.number,
@@ -2195,6 +2502,7 @@ export const server = defineServer(
           parent === undefined ? (body.kind ?? "comment") : "comment",
           parent === undefined ? (body.quote ?? "") : "",
           parent === undefined ? (body.element ?? "") : "",
+          parent === undefined ? (body.file ?? "") : parent.file,
           body.body,
           clock.now(),
         );
@@ -3001,6 +3309,29 @@ export const server = defineServer(
       return found;
     };
 
+    const canvasProblems = async (
+      id: string,
+      number: number,
+    ): Promise<{ problems?: readonly string[] }> => {
+      const artifact = row(id);
+
+      if (
+        artifact === undefined ||
+        !filesOf(id, number).some(({ path }) => path === "canvas.json")
+      ) {
+        return {};
+      }
+
+      const read = await canvasFor(artifact, versionOf(artifact, number));
+
+      const problems =
+        read.error === null ? read.canvas?.problems : [read.error];
+
+      return problems === undefined || problems.length === 0
+        ? {}
+        : { problems };
+    };
+
     routes.post(
       "session/artifacts",
       {
@@ -3054,6 +3385,7 @@ export const server = defineServer(
             title: body.title ?? artifact.title,
             version: number,
             kind: kindOf(body.name) ?? "html",
+            ...(await canvasProblems(artifact.id, number)),
           };
         }
 
@@ -3068,7 +3400,13 @@ export const server = defineServer(
           body.note,
         );
 
-        return { id, title, version: 1, kind: kindOf(body.name) ?? "html" };
+        return {
+          id,
+          title,
+          version: 1,
+          kind: kindOf(body.name) ?? "html",
+          ...(await canvasProblems(id, 1)),
+        };
       },
     );
 
@@ -3112,6 +3450,7 @@ export const server = defineServer(
         body: Type.Object({
           text: Type.String({ minLength: 1, maxLength: 10_000 }),
           quote: Type.Optional(Type.String({ minLength: 1, maxLength: 2000 })),
+          file: Type.Optional(Type.String({ minLength: 1, maxLength: 1024 })),
           kind: Type.Optional(
             Type.Union([
               Type.Literal("comment"),
@@ -3139,17 +3478,25 @@ export const server = defineServer(
           );
         }
 
+        await onFile(
+          artifact,
+          latest,
+          body.file,
+          " board: name a board from read_artifact",
+        );
+
         const id = Bun.randomUUIDv7();
         const author = caller.session.startedBy;
 
         store.run(
-          "insert into artifacts_comments (id, artifact_id, version, author_user_id, by_pi, kind, quote, body, created_at) values (?, ?, ?, ?, 1, ?, ?, ?, ?)",
+          "insert into artifacts_comments (id, artifact_id, version, author_user_id, by_pi, kind, quote, file, body, created_at) values (?, ?, ?, ?, 1, ?, ?, ?, ?, ?)",
           id,
           artifact.id,
           latest.number,
           author,
           body.kind ?? "comment",
           body.quote ?? "",
+          body.file ?? "",
           body.text,
           clock.now(),
         );
@@ -3238,6 +3585,65 @@ export const server = defineServer(
         );
       }
     };
+
+    // Pi moves and removes people's stickies in the artifact's own Session;
+    // elsewhere it may only what whoever started the Session may.
+    const piSticky = (
+      caller: SessionCaller,
+      id: string,
+      stickyId: string,
+      removing: boolean,
+    ): StickyRow => {
+      const artifact = sessionArtifact(caller, id);
+
+      piWrites(caller, artifact);
+
+      const found = stickyOn(artifact, stickyId);
+      const { startedBy } = caller.session;
+
+      if (
+        artifact.session_id !== caller.session.id &&
+        found.author_user_id !== startedBy &&
+        !(removing && startedBy !== null && steers(artifact, startedBy))
+      ) {
+        throw new Forbidden(
+          "Only the artifact's own Session moves or removes someone else's sticky.",
+        );
+      }
+
+      return found;
+    };
+
+    routes.put(
+      "session/artifacts/:id/stickies/:sticky",
+      {
+        auth: "session",
+        body: Type.Partial(Type.Pick(sticky, ["x", "y"])),
+        changes: ["artifacts"],
+      },
+      ({ caller, params, body }) => {
+        const found = piSticky(caller, params.id, params.sticky, false);
+
+        changeSticky(found, {
+          ...(body.x !== undefined && { x: body.x }),
+          ...(body.y !== undefined && { y: body.y }),
+        });
+
+        return { id: found.id };
+      },
+    );
+
+    routes.delete(
+      "session/artifacts/:id/stickies/:sticky",
+      { auth: "session", changes: ["artifacts"] },
+      ({ caller, params }) => {
+        const found = piSticky(caller, params.id, params.sticky, true);
+
+        store.run("delete from artifacts_stickies where id = ?", found.id);
+
+        return { deleted: found.id };
+      },
+    );
 
     const piThread = (caller: SessionCaller, id: string): CommentRow => {
       const found = store.get<CommentRow>(
@@ -3442,14 +3848,18 @@ export const server = defineServer(
         const found = versionOf(artifact, query.v);
         const decision = (await docOf(artifact, null, found))?.decision;
         const asked = decisionThread(artifact);
+        const files = filesOf(artifact.id, found.number);
 
         return {
           version: found.number,
           entry: found.name,
-          files: filesOf(artifact.id, found.number).map(({ path, size }) => ({
-            path,
-            size,
-          })),
+          files: files.map(({ path, size }) => ({ path, size })),
+          ...(files.some(({ path }) => path === "canvas.json") && {
+            canvas: {
+              ...(await canvasFor(artifact, found)),
+              stickies: stickiesOf(artifact, null),
+            },
+          }),
           ...(decision !== undefined && {
             decision: {
               ...decision,

@@ -1,10 +1,11 @@
 import { preview } from "@pipoca/plugins";
 import type { Kind } from "./artifacts";
-import { deck, selection } from "./page";
+import { board as boardScript, deck, selection } from "./page";
 
 // The document an artifact's frame shows, which tells the viewer what the
 // person selects or clicks, to comment on it. A folder's page may load its
-// files from base.
+// files from base. A canvas's board tells the viewer the links it follows
+// to the other boards under root.
 export function rendered(
   kind: Kind,
   name: string,
@@ -13,12 +14,17 @@ export function rendered(
   {
     base,
     slides = false,
-  }: { readonly base?: string; readonly slides?: boolean } = {},
+    board,
+  }: {
+    readonly base?: string;
+    readonly slides?: boolean;
+    readonly board?: string;
+  } = {},
 ): Response {
   return preview(name, content, {
     kind,
     scriptHosts,
-    script: slides ? `${selection}${deck}` : selection,
+    script: `${selection}${slides ? deck : ""}${board === undefined ? "" : boardScript(board)}`,
     ...(base !== undefined && { base }),
   });
 }
