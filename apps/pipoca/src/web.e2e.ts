@@ -7340,6 +7340,11 @@ test("shows a deck Pi published one slide at a time with its notes, builds its s
     .getByRole("button", { name: "Comment on the whole page" })
     .waitFor();
 
+  await until(
+    async () => inside.evaluate("document.documentElement.style.cursor"),
+    (cursor) => cursor === "crosshair",
+  );
+
   await stage.getByRole("button", { name: "Poll" }).press("ArrowRight");
   await page.waitForTimeout(200);
 
