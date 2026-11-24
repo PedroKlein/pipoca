@@ -433,6 +433,19 @@ function Count({
   );
 }
 
+// Opens one section's detail in the open panel, such as from a summary's
+// "3 more".
+export function useShowSection(): ((name: string) => void) | undefined {
+  const panel = useContext(PanelContext);
+
+  return (
+    panel &&
+    ((name) => {
+      panel.show(true, name);
+    })
+  );
+}
+
 // The header's button that opens the panel on a small screen, where there
 // is no rail, with a dot when a section needs the person.
 export function SessionPanelButton(): ReactElement | null {

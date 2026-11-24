@@ -3,6 +3,8 @@ import { act, type ReactElement, useState } from "react";
 import { definePlugin } from "../src/definition";
 import {
   defineWeb,
+  FilesRow,
+  FilesSection,
   SessionPanel,
   SessionPanelGroup,
   SessionSection,
@@ -194,4 +196,45 @@ test("Sessions side by side share one panel, which shows the one opened or used 
   click(page, "Open the thread");
 
   expect(railed()).toEqual(["Open panel", "coordinator things"]);
+});
+
+const listed = defineWeb(sections, {
+  slots: {
+    "session.panel": () => (
+      <FilesSection name="made" order={10} title="Made by Pi" count={4}>
+        {() =>
+          ["a.md", "b.md", "c.md", "d.md"].map((name) => (
+            <FilesRow key={name} name={name} onOpen={() => undefined} />
+          ))
+        }
+      </FilesSection>
+    ),
+  },
+});
+
+test("a summary's “more” opens the Files detail with every row", () => {
+  const page = renderPart(listed, "session.panel", {});
+
+  click(page, "Open panel");
+
+  const rows = (): string[] =>
+    [
+      ...(page
+        .querySelector("[role=complementary]")
+        ?.querySelectorAll("section[aria-label='Made by Pi'] button") ?? []),
+    ].map((each) => each.textContent);
+
+  expect(rows()).toEqual(["a.md", "b.md", "2 more"]);
+
+  act(() => {
+    [...page.querySelectorAll<HTMLButtonElement>("button")]
+      .find((each) => each.textContent === "2 more")
+      ?.click();
+  });
+
+  expect(
+    page.querySelector("[role=complementary]")?.getAttribute("aria-label"),
+  ).toBe("Files");
+
+  expect(rows()).toEqual(["a.md", "b.md", "c.md", "d.md"]);
 });
