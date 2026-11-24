@@ -298,7 +298,7 @@ test("a Project folder file opens in the viewer at its current copy, steps throu
   await settle(() => page.querySelector("iframe") !== null);
 
   expect(page.querySelector("iframe")?.getAttribute("src")).toBe(
-    `/api/ext/projects/projects/p1/file/view?path=a.md&v=${"0".repeat(64)}`,
+    `/api/ext/projects/projects/p1/file/view?path=a.md`,
   );
 
   expect(page.textContent).toContain("1 of 2 files in the folder");

@@ -94,7 +94,9 @@ function previewHeaders(
 ): Headers {
   const headers = new Headers({
     "x-content-type-options": "nosniff",
-    "cache-control": "private, max-age=31536000, immutable",
+    // Its headers change with a release or the admins' script hosts, and
+    // a browser keeps a copy it may cache for good, so it always asks.
+    "cache-control": "private, no-cache",
     "referrer-policy": "no-referrer",
   });
 
@@ -203,16 +205,13 @@ const mermaid = "cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.min.js";
 export const previewQuery = Type.Object({
   path: Type.String({ minLength: 1 }),
   as: Type.Optional(Type.Literal("text")),
-  // The file's hash, so a page cached for one copy isn't shown for the next.
-  v: Type.Optional(Type.String()),
 });
 
-// A kept file's preview route's answer: refused over previewBytes, and
-// cached for good only when asked for at its own hash.
+// A kept file's preview route's answer, refused over previewBytes.
 export async function filePreview(
-  file: { readonly path: string; readonly hash: string; readonly size: number },
+  file: { readonly path: string; readonly size: number },
   read: () => Promise<Uint8Array>,
-  query: { readonly as?: "text"; readonly v?: string },
+  query: { readonly as?: "text" },
 ): Promise<Response> {
   if (file.size > previewBytes) {
     throw new HttpError(
@@ -230,10 +229,6 @@ export async function filePreview(
 
   if (shown === undefined) {
     throw new NotFound(`no preview of ${file.path}`);
-  }
-
-  if (query.v !== file.hash) {
-    shown.headers.set("cache-control", "no-cache");
   }
 
   return shown;

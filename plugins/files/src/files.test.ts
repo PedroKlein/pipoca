@@ -336,21 +336,9 @@ test("a file opens as the page a viewer shows, or as its source, and only for pe
   expect((await view("book.xlsx")).status).toBe(404);
   expect((await view("huge.txt")).status).toBe(413);
 
-  expect((await view("p95.csv&v=abc")).headers.get("cache-control")).toBe(
-    "no-cache",
+  expect((await view("p95.csv")).headers.get("cache-control")).toBe(
+    "private, no-cache",
   );
-
-  const hash = (
-    await t
-      .as("ana")
-      .get<{ files: { path: string; hash: string }[] }>(
-        `sessions/${host.id}/files`,
-      )
-  ).files.find(({ path }) => path === "p95.csv")?.hash;
-
-  expect(
-    (await view(`p95.csv&v=${hash ?? ""}`)).headers.get("cache-control"),
-  ).toContain("immutable");
 
   expect((await view("p95.csv", "bo")).status).toBe(404);
   expect((await view("gone.csv")).status).toBe(404);
