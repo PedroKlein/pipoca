@@ -125,38 +125,32 @@ test("shows an item that can't be picked without running it", () => {
   expect(page.querySelector('[role="menu"]')).not.toBeNull();
 });
 
-test("an open menu shifts to stay 16px inside the screen, and again as the screen changes", () => {
-  let place = { at: 0, left: -40, width: 320 };
+test("an open menu shifts to stay 16px inside the screen, to the fraction of a pixel, and again as the screen changes", () => {
+  let place = { at: 0, left: -40.5, width: 320.25 };
   const screen = 1000;
 
-  const measure = (
-    name: "offsetLeft" | "offsetWidth" | "clientWidth",
-    of: (element: HTMLElement) => number,
-  ): (() => void) => {
-    const was =
-      Object.getOwnPropertyDescriptor(HTMLElement.prototype, name) ??
-      Object.getOwnPropertyDescriptor(Element.prototype, name);
+  const was =
+    Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientWidth") ??
+    Object.getOwnPropertyDescriptor(Element.prototype, "clientWidth");
 
-    Object.defineProperty(HTMLElement.prototype, name, {
-      configurable: true,
-      get(this: HTMLElement) {
-        return of(this);
-      },
-    });
+  Object.defineProperty(HTMLElement.prototype, "clientWidth", {
+    configurable: true,
+    get(this: HTMLElement) {
+      return this === document.documentElement ? screen : 0;
+    },
+  });
 
-    return () => {
-      if (was === undefined) {
-        Reflect.deleteProperty(HTMLElement.prototype, name);
-      } else {
-        Object.defineProperty(HTMLElement.prototype, name, was);
-      }
-    };
-  };
+  const computed = getComputedStyle;
 
-  const menuOnly =
-    (of: () => number) =>
-    (element: HTMLElement): number =>
-      element.getAttribute("role") === "menu" ? of() : 0;
+  const styled = spyOn(globalThis, "getComputedStyle").mockImplementation(
+    (element, pseudo) =>
+      element.getAttribute("role") === "menu"
+        ? ({
+            left: `${String(place.left)}px`,
+            width: `${String(place.width)}px`,
+          } as CSSStyleDeclaration)
+        : computed(element, pseudo),
+  );
 
   const boxed = spyOn(
     HTMLElement.prototype,
@@ -164,17 +158,16 @@ test("an open menu shifts to stay 16px inside the screen, and again as the scree
   ).mockImplementation(() => new DOMRect(place.at, 0, 0, 0));
 
   const restore = [
-    measure(
-      "offsetLeft",
-      menuOnly(() => place.left),
-    ),
-    measure(
-      "offsetWidth",
-      menuOnly(() => place.width),
-    ),
-    measure("clientWidth", (element) =>
-      element === document.documentElement ? screen : 0,
-    ),
+    () => {
+      if (was === undefined) {
+        Reflect.deleteProperty(HTMLElement.prototype, "clientWidth");
+      } else {
+        Object.defineProperty(HTMLElement.prototype, "clientWidth", was);
+      }
+    },
+    () => {
+      styled.mockRestore();
+    },
   ];
 
   try {
@@ -186,7 +179,7 @@ test("an open menu shifts to stay 16px inside the screen, and again as the scree
     const menu = (): HTMLElement => byRole(page, "menu", "Design system");
 
     click(button);
-    expect(menu().style.translate).toBe("56px 0");
+    expect(menu().style.translate).toBe("56.5px 0");
 
     click(button);
     place = { at: screen - 100, left: 0, width: 300 };

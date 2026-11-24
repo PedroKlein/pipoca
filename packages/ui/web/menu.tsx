@@ -130,9 +130,15 @@ export function Menu({
     }
 
     const place = (): void => {
+      // Its computed left and width, unlike offsetLeft and offsetWidth,
+      // keep the fractions of a pixel the anchor's box has.
+      const style = getComputedStyle(element);
       const width = document.documentElement.clientWidth;
-      const left = anchor.getBoundingClientRect().left + element.offsetLeft;
-      const right = left + element.offsetWidth;
+
+      const left =
+        anchor.getBoundingClientRect().left + Number.parseFloat(style.left);
+
+      const right = left + Number.parseFloat(style.width);
 
       const by =
         left < gutter ? gutter - left : Math.min(0, width - gutter - right);
