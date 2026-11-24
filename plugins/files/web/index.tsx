@@ -25,6 +25,7 @@ import {
   ViewerTitle,
 } from "@pipoca/plugins/web";
 import {
+  Button,
   FileButton,
   Dialog,
   ErrorText,
@@ -624,13 +625,19 @@ function UploadNotice({ text }: { readonly text: string }): ReactElement {
 
 // The outputs Pi's turn wrote, as cards under its reply, like Claude Code's
 // attached files. Each opens in the viewer.
+// A turn that saves many files shows a few, so they don't bury the chat.
+const savedShown = 4;
+
 function SavedCards({ data, session }: NoticeProps): ReactElement {
   const { open } = useOverlay();
+  const [all, setAll] = useState(false);
   const { files = [] } = (data ?? {}) as Partial<SavedNoticeData>;
+  const shown = all ? files : files.slice(0, savedShown);
+  const more = files.length - shown.length;
 
   return (
     <ul aria-label="Files Pi saved" className="flex flex-wrap gap-2 py-1">
-      {files.map((file) => (
+      {shown.map((file) => (
         <li key={file.path} className="min-w-0">
           <FileCard
             title={file.path}
@@ -641,6 +648,19 @@ function SavedCards({ data, session }: NoticeProps): ReactElement {
           />
         </li>
       ))}
+      {more > 0 && (
+        <li>
+          <Button
+            variant="ghost"
+            className="h-10"
+            onClick={() => {
+              setAll(true);
+            }}
+          >
+            {plural(more, "more file", "more files")}
+          </Button>
+        </li>
+      )}
     </ul>
   );
 }
