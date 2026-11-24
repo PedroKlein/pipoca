@@ -63,7 +63,9 @@ import {
   DocStatusPill,
   type Outline,
   OutlineNav,
+  decisionLines,
   ReviewBar,
+  VoteBar,
 } from "./doc";
 import { useDock, usePhone } from "./dock";
 import { FolderFiles } from "./folder";
@@ -471,6 +473,12 @@ function Shown({
       ? newest
       : undefined;
 
+  // As the version menu names it: an edit, or a version and its label.
+  const fromPiSaved =
+    fromPi === undefined || versionOf(artifact, fromPi.number) === null
+      ? "edited it"
+      : `published ${saveName(artifact, fromPi.number).replace(/^V/, "v")}`;
+
   const steers = artifact.access === "steer";
   const dock = useDock();
   const phone = usePhone();
@@ -864,6 +872,11 @@ function Shown({
       )?.number
     : undefined;
 
+  const lines =
+    doc?.decision === undefined || !latest
+      ? undefined
+      : decisionLines(doc.decision);
+
   const versions = versionItems(artifact, shown, now, onVersion, () => {
     setBody("compare");
   });
@@ -1139,8 +1152,8 @@ function Shown({
           <DocStatusPill
             doc={doc}
             steers={steers}
-            onStatus={(status) => {
-              put("status", { status });
+            onStatus={(status, option) => {
+              put("status", { status, option });
             }}
           />
         )}
@@ -1312,7 +1325,7 @@ function Shown({
           >
             <Icon name="check" className="size-3.5 text-done" />
             <span className="min-w-0 flex-1 truncate">
-              {fromPi.by} published version {fromPi.number}
+              {fromPi.by} {fromPiSaved}
               {fromPi.note !== "" && ` · “${fromPi.note}”`}
             </span>
             {fromPi.number > 1 && (
@@ -1324,7 +1337,9 @@ function Shown({
                   setBody("compare");
                 }}
               >
-                Compare with {fromPi.number - 1}
+                {artifact.living
+                  ? "Compare with the save before"
+                  : `Compare with ${String(fromPi.number - 1)}`}
               </Button>
             )}
             <Button
@@ -1387,6 +1402,26 @@ function Shown({
                   setBody("compare");
                 }
           }
+        />
+      )}
+      {doc?.decision !== undefined && (
+        <VoteBar
+          doc={doc}
+          decision={doc.decision}
+          steers={steers}
+          onVote={(option) => {
+            put("vote", { option });
+          }}
+          onDecide={(option) => {
+            put("status", { status: "decided", option });
+          }}
+          onSaveAsIs={() => {
+            put("status", {
+              status: "decided",
+              option: doc.decision?.chosen?.key,
+              ask: false,
+            });
+          }}
         />
       )}
       {problem !== undefined && (
@@ -1522,6 +1557,7 @@ function Shown({
                   setOutline({ ...next, on: page });
                 }}
                 goto={goto}
+                lines={lines}
               />
               {writing(area, 1)}
             </div>

@@ -111,6 +111,15 @@ A design doc, spec or plan is an artifact people review. Pi marks one with front
 - The outline lists the sections with the threads open in each. **Open questions** rolls up Question threads, and Comments gets a **Questions** tab.
 - With Comments open, each card sits in the margin beside its passage and follows the page as it scrolls.
 
+### Decision records
+
+A decision record is a design doc (`doc: design`) with an **Options** section, such as one started from the Decision record template. Each heading under Options is an option, named by its letter when it reads `Option A: …` or `A. …`.
+
+- Under each option's heading the page shows who voted for it, and the status says how many have voted, such as **In review · 2 of 3 voted**. Anyone who can comment on the record, and every reviewer, picks one option under **Your vote** or presses **Abstain**, and can change their vote until it's decided. People who can only view it see the votes.
+- Votes stay through edits. A vote for an option a later edit takes out doesn't count while the option is gone, and counts again if it comes back. Someone who can no longer comment on it or review it no longer counts.
+- Pi keeps the **Open questions** section to the open Question threads on the record, which `read_artifact` lists with the votes.
+- Whoever steers the Session presses **Mark Decided: A** on the option most voted for, picks one from **Mark Decided** when none leads, or picks **Decided: Option B, …** from the status. Pi is asked in a Decision thread to write the Decision section from that option, the votes and the discussion. The saves Pi makes once it has heard, until it resolves the thread, stay Decided and are labelled "Decided by Ana". Deciding again meanwhile asks in the same thread. **Save as is** makes the text as it is that version instead and closes the thread, and without a Session to ask that happens at once. Resolving the Decision thread before Pi has saved does the same, and when Pi resolves it first, its next save is the version decided too. A decided record keeps naming its option even if a later save renames it or takes the Options section out. A person's edit before Pi's save opens the record again.
+
 ### Activity
 
 The **Activity** page, pinned in the sidebar with the number unread, tells you what happened on artifacts you can see, and when someone names you in [team work](team.md) you can see.

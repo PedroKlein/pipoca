@@ -207,6 +207,22 @@ select artifact_id, number, name, hash, size from artifacts_versions;`,
   saved_by text references users (id) on delete set null,
   created_at integer not null
 ) strict, without rowid;`,
+    // 14: votes on a decision record's options, by the key each option's
+    // heading gives it, or abstaining as null (ADR 0085). The option it is
+    // decided on, the thread that asks Pi to write its Decision section, and
+    // the save that is the version decided, null until there is one.
+    `create table artifacts_votes (
+  artifact_id text not null references artifacts_artifacts (id) on delete cascade,
+  user_id text not null references users (id) on delete cascade,
+  option text,
+  voted_at integer not null,
+  primary key (artifact_id, user_id)
+) strict, without rowid;
+
+alter table artifacts_artifacts add column decided_option text;
+alter table artifacts_artifacts add column decided_title text;
+alter table artifacts_artifacts add column decision_thread_id text references artifacts_comments (id) on delete set null;
+alter table artifacts_artifacts add column decided_save integer;`,
   ],
   events: {
     // ADR 0081: mentions, review requests and replies, for the plugins that

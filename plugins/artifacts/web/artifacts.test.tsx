@@ -2723,6 +2723,7 @@ function frameOf(page: HTMLElement): {
   readonly told: () => readonly {
     pipoca?: string;
     pins?: unknown;
+    lines?: unknown;
     on?: boolean;
     section?: number;
   }[];
@@ -4613,6 +4614,479 @@ test("a design doc says so, shows its status and reviewers, and a reviewer appro
   );
 });
 
+const queueOptions = [
+  {
+    key: "A",
+    title: "Postgres table",
+    heading: "Option A: Postgres table",
+    summary: "No new service.",
+    voters: ["Ana", "You"],
+  },
+  {
+    key: "B",
+    title: "NATS JetStream",
+    heading: "Option B: NATS JetStream",
+    summary: "Fast.",
+    voters: [],
+  },
+  {
+    key: "C",
+    title: "change nothing",
+    heading: "Option C: change nothing",
+    summary: "",
+    voters: [],
+  },
+];
+
+function decisionDoc(decision: object = {}, doc: object = {}) {
+  return designDoc({
+    reviewers: [
+      { name: "Ana", you: false, verdict: null },
+      { name: "Rui", you: false, verdict: null },
+      { name: "Bo", you: true, verdict: null },
+    ],
+    decision: {
+      options: queueOptions,
+      abstained: [],
+      yours: { option: "A" },
+      votes: true,
+      votedReviewers: 2,
+      chosen: null,
+      writing: false,
+      ...decision,
+    },
+    ...doc,
+  });
+}
+
+async function openDecision(shown: object, asked: Served[] = []) {
+  const page = renderPart(
+    web,
+    "overlay",
+    {},
+    { hash: "#session-1?artifact=a1", fetch: serving(shown, asked) },
+  );
+
+  await drawn(() => page.querySelector("[aria-label=Votes]") !== null);
+
+  return page;
+}
+
+const putsOf = (asked: readonly Served[]): Served[] =>
+  asked.filter(({ method }) => method === "PUT");
+
+test("a decision record says how many voted in its status and its row, and its page writes who voted under each option", async () => {
+  const page = await openDecision(
+    decisionDoc({
+      options: queueOptions.map((each) =>
+        each.key === "A" ? { ...each, voters: ["Ana"] } : each,
+      ),
+      abstained: ["Rui"],
+      yours: null,
+    }),
+  );
+
+  expect(named(page, "Status: In review · 2 of 3 voted")).toBeDefined();
+
+  const votes = page.querySelector<HTMLElement>("[aria-label=Votes]");
+
+  expect(readOut(votes ?? page)).toStartWith(
+    "Options 2 of 3 voted · Rui abstained",
+  );
+
+  expect(votes?.querySelector("h3")).toBeNull();
+
+  const frame = frameOf(page);
+
+  act(() => {
+    page.querySelector("iframe")?.dispatchEvent(new Event("load"));
+  });
+
+  expect(frame.told().find((each) => each.pipoca === "lines")).toEqual({
+    pipoca: "lines",
+    lines: [
+      { heading: "Option A: Postgres table", text: "Ana", strong: true },
+      { heading: "Option B: NATS JetStream", text: "No votes", strong: false },
+      { heading: "Option C: change nothing", text: "No votes", strong: false },
+      {
+        heading: "Open questions",
+        text: "Kept by Pi from the threads",
+        strong: false,
+      },
+    ],
+  });
+});
+
+test("a reader votes for an option of a decision record or abstains, and sees which they chose", async () => {
+  const asked: Served[] = [];
+  const page = await openDecision(decisionDoc(), asked);
+  const mine = page.querySelector<HTMLElement>("[aria-label='Your vote']");
+
+  expect(
+    [...(mine?.querySelectorAll("button") ?? [])].map((each) => [
+      each.textContent,
+      each.getAttribute("aria-pressed"),
+    ]),
+  ).toEqual([
+    ["A", "true"],
+    ["B", "false"],
+    ["C", "false"],
+    ["Abstain", "false"],
+  ]);
+
+  act(() => {
+    named(page, "Option B, NATS JetStream")?.click();
+  });
+
+  act(() => {
+    named(page, "Abstain")?.click();
+  });
+
+  await drawn(() => putsOf(asked).length === 2);
+
+  expect(putsOf(asked)).toEqual([
+    {
+      url: "/api/ext/artifacts/artifacts/a1/vote",
+      method: "PUT",
+      body: { option: "B" },
+    },
+    {
+      url: "/api/ext/artifacts/artifacts/a1/vote",
+      method: "PUT",
+      body: { option: null },
+    },
+  ]);
+
+  const abstaining = await openDecision(
+    decisionDoc({ yours: { option: null } }),
+  );
+
+  expect(named(abstaining, "Abstain")?.getAttribute("aria-pressed")).toBe(
+    "true",
+  );
+
+  expect(
+    named(abstaining, "Option A, Postgres table")?.getAttribute("aria-pressed"),
+  ).toBe("false");
+});
+
+test("whoever steers marks a decision record Decided on the option most voted for, or picks one when none leads", async () => {
+  const asked: Served[] = [];
+
+  const page = await openDecision(
+    decisionDoc({
+      options: queueOptions.map((each) => ({
+        ...each,
+        voters: { A: ["Ana"], B: ["Bo", "Rui"], C: [] }[each.key] ?? [],
+      })),
+    }),
+    asked,
+  );
+
+  expect(named(page, "Mark Decided: A")).toBeUndefined();
+
+  act(() => {
+    named(page, "Mark Decided: B")?.click();
+  });
+
+  await drawn(() => putsOf(asked).length === 1);
+
+  expect(putsOf(asked)[0]).toEqual({
+    url: "/api/ext/artifacts/artifacts/a1/status",
+    method: "PUT",
+    body: { status: "decided", option: "B" },
+  });
+
+  const tied = await openDecision(
+    decisionDoc({
+      options: queueOptions.map((each) => ({
+        ...each,
+        voters: { A: [], B: ["Bo"], C: ["Rui"] }[each.key] ?? [],
+      })),
+    }),
+  );
+
+  expect(
+    buttons(tied).some((each) => each.textContent.startsWith("Mark Decided:")),
+  ).toBe(false);
+
+  act(() => {
+    named(tied, "Mark Decided")?.click();
+  });
+
+  expect(menuItems(tied).map(readOut)).toEqual([
+    "Option B, NATS JetStream",
+    "Option C, change nothing",
+    "Option A, Postgres table",
+  ]);
+
+  const none = await openDecision(
+    decisionDoc({
+      options: queueOptions.map((each) => ({ ...each, voters: [] })),
+      yours: null,
+    }),
+  );
+
+  expect(named(none, "Mark Decided")).toBeDefined();
+});
+
+test("a decision record's status menu decides on any of its options and checks the one it's decided on", async () => {
+  const asked: Served[] = [];
+  const page = await openDecision(decisionDoc(), asked);
+
+  act(() => {
+    named(page, "Status: In review · 2 of 3 voted")?.click();
+  });
+
+  expect(menuItems(page).map(readOut)).toEqual([
+    "Draft",
+    "In review",
+    "Decided: Option A, Postgres table",
+    "Decided: Option B, NATS JetStream",
+    "Decided: Option C, change nothing",
+  ]);
+
+  act(() => {
+    item(page, "Decided: Option B")?.click();
+  });
+
+  await drawn(() => putsOf(asked).length === 1);
+
+  expect(putsOf(asked)[0]).toMatchObject({
+    url: "/api/ext/artifacts/artifacts/a1/status",
+    body: { status: "decided", option: "B" },
+  });
+
+  const settled = await openDecision(
+    decisionDoc(
+      { chosen: { key: "B", title: "NATS JetStream" } },
+      { status: "decided" },
+    ),
+  );
+
+  act(() => {
+    named(settled, "Status: Decided")?.click();
+  });
+
+  expect(
+    menuItems(settled).map((each) => each.getAttribute("aria-checked")),
+  ).toEqual(["false", "false", "false", "true", "false"]);
+
+  // Its colours are the status's own.
+  expect(named(settled, "Status: Decided")?.className).not.toContain(
+    "bg-transparent",
+  );
+});
+
+test("someone who only views a decision record sees the votes and gives none", async () => {
+  const page = await openDecision({
+    ...decisionDoc(
+      { yours: null, votes: false, abstained: ["Rui"] },
+      { reviewers: [] },
+    ),
+    access: "view",
+  });
+
+  expect(page.querySelector("[aria-label='Your vote']")).toBeNull();
+  expect(named(page, "Mark Decided: A")).toBeUndefined();
+
+  expect(readOut(page.querySelector("[aria-label=Votes]") ?? page)).toBe(
+    "Options 3 voted · Rui abstained",
+  );
+});
+
+test("a decided record names its option while Pi writes the Decision section, and Save as is keeps the text as it is", async () => {
+  const asked: Served[] = [];
+
+  const page = await openDecision(
+    decisionDoc(
+      { chosen: { key: "A", title: "Postgres table" }, writing: true },
+      { status: "decided" },
+    ),
+    asked,
+  );
+
+  const votes = page.querySelector<HTMLElement>("[aria-label=Votes]");
+
+  expect(votes?.querySelector("[role=status]")?.textContent).toBe(
+    "Decided on Option A, Postgres table. Pi is writing the Decision section",
+  );
+
+  expect(page.querySelector("[aria-label='Your vote']")).toBeNull();
+  expect(named(page, "Mark Decided")).toBeUndefined();
+
+  const frame = frameOf(page);
+
+  act(() => {
+    page.querySelector("iframe")?.dispatchEvent(new Event("load"));
+  });
+
+  expect(frame.told().find((each) => each.pipoca === "lines")).toMatchObject({
+    lines: [{ text: "Ana, You", badge: "Decided" }, {}, {}, {}],
+  });
+
+  act(() => {
+    named(page, "Save as is")?.click();
+  });
+
+  await drawn(() => putsOf(asked).length === 1);
+
+  expect(putsOf(asked)[0]).toMatchObject({
+    url: "/api/ext/artifacts/artifacts/a1/status",
+    body: { status: "decided", option: "A", ask: false },
+  });
+});
+
+test("marking a decision record Decided moves focus to what it says now", async () => {
+  const shown: object = decisionDoc();
+  const page = await openDecision(shown);
+
+  act(() => {
+    named(page, "Mark Decided: A")?.click();
+  });
+
+  Object.assign(
+    shown,
+    decisionDoc(
+      { chosen: { key: "A", title: "Postgres table" }, writing: true },
+      { status: "decided" },
+    ),
+  );
+
+  act(() => {
+    changed("artifacts.artifacts");
+  });
+
+  await drawn(() => document.activeElement?.getAttribute("role") === "status");
+
+  expect(document.activeElement?.textContent).toStartWith(
+    "Decided on Option A",
+  );
+});
+
+test("an option keyed by its heading's text shows that text", async () => {
+  const asked: Served[] = [];
+
+  const page = await openDecision(
+    decisionDoc({
+      options: [
+        {
+          key: "Keep retries",
+          title: "Keep retries",
+          heading: "Keep retries",
+          summary: "",
+          voters: [],
+        },
+      ],
+      yours: null,
+    }),
+    asked,
+  );
+
+  expect(named(page, "Keep retries")?.textContent).toBe("Keep retries");
+
+  act(() => {
+    named(page, "Keep retries")?.click();
+  });
+
+  await drawn(() => putsOf(asked).length === 1);
+  expect(putsOf(asked)[0]).toMatchObject({ body: { option: "Keep retries" } });
+});
+
+test("a doc's own Open questions section stands for the outline's roll-up", async () => {
+  const page = renderPart(
+    web,
+    "overlay",
+    {},
+    {
+      hash: "#session-1?artifact=a1",
+      width: 1280,
+      fetch: serving(designDoc(), [], { comments: () => questions }),
+    },
+  );
+
+  await drawn(() => page.querySelector("iframe") !== null);
+
+  const frame = frameOf(page);
+
+  frame.tell({
+    pipoca: "outline",
+    sections: [
+      { text: "Context", level: 2, threads: [1] },
+      { text: "Open questions", level: 2, threads: [] },
+    ],
+    tops: [],
+    scrolled: 0,
+  });
+
+  const outline = page.querySelector<HTMLElement>("nav[aria-label=Outline]");
+
+  await drawn(() => (outline?.querySelectorAll("li").length ?? 0) > 0);
+
+  expect(
+    [...(outline?.querySelectorAll("li") ?? [])].map(
+      (each) => each.textContent,
+    ),
+  ).toEqual(["Context1 open", "Open questions1 open"]);
+
+  act(() => {
+    if (outline !== null) {
+      buttons(outline)
+        .find((each) => each.textContent.startsWith("Open questions"))
+        ?.click();
+    }
+  });
+
+  await drawn(
+    () => page.querySelector("[aria-label='Open questions']") !== null,
+  );
+
+  expect(frame.told().some((each) => each.pipoca === "goto")).toBe(false);
+});
+
+test("reviewers who voted are counted by who they are, not by the names shown", async () => {
+  const page = await openDecision(
+    decisionDoc({
+      options: queueOptions.map((each) => ({ ...each, voters: ["Ana"] })),
+      votedReviewers: 1,
+    }),
+  );
+
+  expect(named(page, "Status: In review · 1 of 3 voted")).toBeDefined();
+});
+
+test("a decided record whose Options section is gone still names its option, and can be saved as is", async () => {
+  const asked: Served[] = [];
+
+  const page = await openDecision(
+    decisionDoc(
+      {
+        options: [],
+        chosen: { key: "A", title: "Postgres table" },
+        writing: true,
+      },
+      { status: "decided" },
+    ),
+    asked,
+  );
+
+  expect(
+    page.querySelector("[aria-label=Votes] [role=status]")?.textContent,
+  ).toBe(
+    "Decided on Option A, Postgres table. Pi is writing the Decision section",
+  );
+
+  act(() => {
+    named(page, "Save as is")?.click();
+  });
+
+  await drawn(() => putsOf(asked).length === 1);
+
+  expect(putsOf(asked)[0]).toMatchObject({
+    body: { status: "decided", option: "A", ask: false },
+  });
+});
+
 test("whoever steers a design doc sets its status and reviewers, and marks or unmarks it", async () => {
   const asked: Served[] = [];
 
@@ -5170,6 +5644,58 @@ test("a version Pi publishes while the artifact is open says so and compares it 
   await drawn(
     () => page.querySelector("[aria-label='Back to version 4']") !== null,
   );
+});
+
+test("a save Pi makes on a living doc is named as the version menu names it", async () => {
+  let served: object = {
+    ...artifact({ versions: 1, living: true }),
+    ...viewed(1),
+  };
+
+  const page = renderPart(
+    { ...web, slots },
+    "page",
+    { path: "a1" },
+    {
+      hash: "#plugin/artifacts/a1",
+      fetch: lively(async (url) => {
+        await Promise.resolve();
+
+        return url.endsWith("/comments")
+          ? Response.json({ comments: [] })
+          : Response.json(served);
+      }),
+    },
+  );
+
+  await drawn(() => versionMenu(page) !== undefined);
+
+  const banner = (): string =>
+    page.querySelector("[aria-label='New version'] span")?.textContent ?? "";
+
+  const saved = (label: string | null, saves: number): void => {
+    const shown = viewed(saves);
+
+    served = {
+      ...artifact({ versions: saves, living: true }),
+      ...shown,
+      history: shown.history.map((each) =>
+        each.number === saves ? { ...each, label } : each,
+      ),
+    };
+
+    act(() => {
+      changed("artifacts.artifacts");
+    });
+  };
+
+  saved(null, 2);
+  await drawn(() => banner() !== "");
+  expect(banner()).toBe("Pi edited it");
+
+  saved("Decided by Ana", 3);
+  await drawn(() => banner() !== "Pi edited it");
+  expect(banner()).toBe("Pi published version 1 · Decided by Ana");
 });
 
 test("a Markdown doc lists its versions, then its edits by person and hour, names the latest as a version, and compares what changed since approval", async () => {

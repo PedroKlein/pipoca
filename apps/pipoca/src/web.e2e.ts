@@ -7912,6 +7912,131 @@ test("reads a design doc with its status, an outline of its sections and its com
   );
 }, 30_000);
 
+test("votes on a decision record's options and marks it Decided, and Pi's Decision section is the version decided", async () => {
+  const folder = join(root, "decision-record");
+  await mkdir(folder, { recursive: true });
+
+  const record = (decision: string): string =>
+    `---\ndoc: design\nstatus: in review\n---\n# Pick a queue for webhooks v2\n\n## Context\n\nRetries today live in the request path.\n\n## Options\n\n### Option A: Postgres table + SKIP LOCKED\n\nNo new service. Order per customer by key.\n\n### Option B: NATS JetStream\n\nFast, one more thing to run.\n\n### Option C: Keep in-process retries\n\nCheapest, loses work on restart.\n\n## Open questions\n\n- Who owns the dead-letter view?\n\n## Decision\n\n${decision}\n`;
+
+  await writeFile(
+    join(folder, "decision.md"),
+    record("Filled when someone marks it Decided."),
+  );
+
+  faux.setResponses([
+    fauxAssistantMessage(
+      [
+        fauxToolCall("publish_artifact", {
+          path: "decision.md",
+          title: "Pick a queue",
+        }),
+      ],
+      { stopReason: "toolUse" },
+    ),
+    fauxAssistantMessage([fauxText("Published the decision record")]),
+  ]);
+
+  await page.goto(server.url.href);
+  await page.getByRole("button", { name: "New session" }).click();
+  const form = page.locator("form#create");
+
+  await pickWorkspace(form, folder);
+  await form.getByRole("button", { name: "Start session" }).click();
+  await page.locator("#status", { hasText: "idle" }).waitFor();
+
+  const box = page.locator("#prompt-text");
+  await box.fill("write the decision record");
+  await box.press("Enter");
+  await page.getByText("Published the decision record").waitFor();
+
+  const card = page.getByRole("link", { name: /Pick a queue/ });
+  const id = ((await card.getAttribute("href")) ?? "").split("/").at(-1) ?? "";
+
+  await card.click();
+
+  const viewer = page.getByRole("dialog", { name: "Pick a queue" });
+  const votes = viewer.getByRole("region", { name: "Votes" });
+  const frame = viewer.frameLocator("iframe");
+  const lines = frame.locator("pipoca-line");
+
+  // Who voted for each option shows under its heading in the page.
+  await until(
+    async () => lines.allTextContents(),
+    (said) => said.length === 4,
+  );
+
+  expect(await lines.allTextContents()).toEqual([
+    "No votes",
+    "No votes",
+    "No votes",
+    "Kept by Pi from the threads",
+  ]);
+
+  const mine = viewer.getByRole("group", { name: "Your vote" });
+
+  await mine.getByRole("button", { name: "Option B, NATS JetStream" }).click();
+
+  await mine
+    .getByRole("button", { name: "Option A, Postgres table + SKIP LOCKED" })
+    .click();
+
+  await until(
+    async () => lines.first().textContent(),
+    (said) => said === "You",
+  );
+
+  await viewer
+    .getByRole("button", { name: "Status: In review · 1 voted" })
+    .waitFor();
+
+  expect(
+    await mine
+      .getByRole("button", { name: "Option A, Postgres table + SKIP LOCKED" })
+      .getAttribute("aria-pressed"),
+  ).toBe("true");
+
+  // The page's own Open questions section stands for the roll-up.
+  expect(
+    await viewer
+      .getByRole("navigation", { name: "Outline" })
+      .getByRole("button", { name: /^Open questions/ })
+      .count(),
+  ).toBe(1);
+
+  // Decided, Pi is asked to write the Decision section, and its save is the
+  // version decided.
+  await writeFile(
+    join(folder, "decision.md"),
+    record("Option A: no new service to run, and order per customer holds."),
+  );
+
+  faux.setResponses([
+    fauxAssistantMessage(
+      [fauxToolCall("publish_artifact", { path: "decision.md", id })],
+      { stopReason: "toolUse" },
+    ),
+    fauxAssistantMessage([fauxText("Wrote the Decision section")]),
+  ]);
+
+  await votes.getByRole("button", { name: "Mark Decided: A" }).click();
+
+  await frame.getByText("no new service to run").waitFor();
+  await viewer.getByRole("button", { name: "Status: Decided" }).waitFor();
+  await lines.first().getByText("Decided", { exact: true }).waitFor();
+  expect(await mine.count()).toBe(0);
+
+  // Focus moves to what it says now.
+  await votes.locator("[role=status]:focus").waitFor();
+
+  await viewer.getByRole("button", { name: /Versions$/ }).click();
+
+  await page
+    .getByRole("menu")
+    .getByText(/Decided by/)
+    .waitFor();
+}, 30_000);
+
 test("edits a Markdown artifact beside its preview and compares the versions with the changed words marked", async () => {
   const folder = join(root, "plan");
   await mkdir(folder, { recursive: true });
