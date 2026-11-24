@@ -1,7 +1,13 @@
 import { expect, test } from "bun:test";
+import {
+  type FileActionsProps,
+  FilesSection,
+  type MountedSession,
+  useFileItem,
+} from "@pipoca/plugins/web";
 import { renderPart, sessionWith } from "@pipoca/plugins/web/testing";
 import { until } from "@pipoca/testing/until";
-import { act } from "react";
+import { act, type ReactElement } from "react";
 import type { SessionFile } from "../src/files";
 import { web } from "./index";
 
@@ -934,4 +940,104 @@ test("a turn that saved many files shows four cards, and the rest on asking", ()
   });
 
   expect(cards()).toHaveLength(6);
+});
+
+function Publisher(): ReactElement {
+  useFileItem((file) => ({
+    label: "Publish as artifact",
+    run: () => {
+      published.push(file);
+    },
+  }));
+
+  return (
+    <FilesSection
+      name="artifacts"
+      order={10}
+      title="Artifacts"
+      count={1}
+      covers={["a".repeat(64)]}
+    >
+      {() => <p>Mismatches</p>}
+    </FilesSection>
+  );
+}
+
+const published: FileActionsProps[] = [];
+const SessionFiles = web.slots?.["session.panel"];
+
+const withArtifacts = {
+  ...web,
+  slots: {
+    "session.panel": ({ session }: { readonly session: MountedSession }) => (
+      <>
+        <Publisher />
+        {SessionFiles !== undefined && <SessionFiles session={session} />}
+      </>
+    ),
+  },
+};
+
+test("what Pi made leaves out the files an artifact shows until asked, and a row's menu opens, downloads and publishes it", async () => {
+  renderPart(
+    withArtifacts,
+    "session.panel",
+    { session: sessionWith({}) },
+    { fetch: listing },
+  );
+
+  const button = await filesButton();
+
+  act(() => {
+    button.click();
+  });
+
+  const made = (): string | undefined =>
+    menu()?.querySelector("section[aria-label='Made by Pi · outputs/']")
+      ?.textContent;
+
+  await settle(() => menu()?.textContent.includes("Show them") === true);
+
+  expect(made()).toBe("");
+
+  expect(menu()?.textContent).toContain(
+    "1 file is part of the artifacts above. Show them",
+  );
+
+  act(() => {
+    [...(menu()?.querySelectorAll("button") ?? [])]
+      .find((each) => each.textContent === "Show them")
+      ?.click();
+  });
+
+  expect(made()).toBe("Made by Pi · outputs/mismatches.csv84 KB");
+
+  act(() => {
+    menu()
+      ?.querySelector<HTMLButtonElement>(
+        "button[aria-label='More for mismatches.csv']",
+      )
+      ?.click();
+  });
+
+  const items = [...document.querySelectorAll("[role=menuitem]")];
+
+  expect(items.map((each) => each.textContent)).toEqual([
+    "Open",
+    "Download",
+    "Publish as artifact",
+  ]);
+
+  act(() => {
+    (items[2] as HTMLElement | undefined)?.click();
+  });
+
+  expect(published).toEqual([
+    {
+      session: "session-1",
+      file: "mismatches.csv",
+      download:
+        "/api/ext/files/sessions/session-1/files/outputs?path=mismatches.csv",
+    },
+  ]);
 });

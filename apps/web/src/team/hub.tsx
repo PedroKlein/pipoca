@@ -1,6 +1,7 @@
-import { type ReactElement, type ReactNode, useState } from "react";
+import { type ReactElement, type ReactNode, useEffect, useState } from "react";
 import { useMe, useQuery } from "../data/hooks";
 import { NewSessionDialog } from "../shell/new-session";
+import { type FirstMessage, listenNewSession } from "../shell/new-session-text";
 import { PluginBoundary } from "../plugin-boundary";
 import { guarded } from "../plugins";
 import { SessionView } from "../session/session-view";
@@ -16,6 +17,8 @@ import { MenuButton, PluginFrame } from "../shell/plugin-page";
 // The team's own workspace, apart from a person's work, with a sidebar of
 // the same shape as theirs. Its pages are layouts of the panels plugins give
 // it (ADRs 0065 and 0067).
+const noFirstMessage: FirstMessage = { text: "", attachments: [] };
+
 export function TeamHub({ route }: { readonly route: Route }): ReactElement {
   const { admin } = useMe();
   const people = useQuery("people.list").data ?? [];
@@ -25,6 +28,18 @@ export function TeamHub({ route }: { readonly route: Route }): ReactElement {
     useQuery("environments.list", { query: { scope: "team" } }).data ?? [];
 
   const [starting, setStarting] = useState(false);
+  const [first, setFirst] = useState<FirstMessage>(noFirstMessage);
+
+  // A plugin's start, such as a template, begins team work here.
+  useEffect(
+    () =>
+      listenNewSession((asked) => {
+        setFirst(asked);
+        setStarting(true);
+      }),
+    [],
+  );
+
   const [drawer, setDrawer] = useState(false);
   const [drawerRoute, setDrawerRoute] = useState(route);
   const hub = useHubPages();
@@ -219,8 +234,11 @@ export function TeamHub({ route }: { readonly route: Route }): ReactElement {
       <NewSessionDialog
         open={starting}
         team
+        text={first.text}
+        attachments={first.attachments}
         onClose={() => {
           setStarting(false);
+          setFirst(noFirstMessage);
         }}
       />
     </>

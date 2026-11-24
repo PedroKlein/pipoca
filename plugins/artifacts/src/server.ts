@@ -455,6 +455,13 @@ export const server = defineServer(
           ? all.filter(({ label }) => label !== null).length
           : all.length,
         updatedAt: artifact.updated_at,
+        hashes: store
+          .all<{ hash: string }>(
+            "select hash from artifacts_versions where artifact_id = ? union select hash from artifacts_files where artifact_id = ?",
+            artifact.id,
+            artifact.id,
+          )
+          .map(({ hash }) => hash),
         openedAt:
           viewer === null
             ? null

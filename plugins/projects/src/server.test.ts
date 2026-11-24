@@ -604,11 +604,14 @@ test("a thread's Files menu lists what it wrote in the Project folder, which ope
     project: { id: s.project.id, name: "Shop" },
     written: [{ path: "notes/provider.md", hash }],
     count: 2,
+    threads: [],
   });
 
+  // The coordinator's Files list every thread's too.
   expect(await ana.get(`sessions/${s.coordinator.id}/folder`)).toMatchObject({
     written: [],
     count: 2,
+    threads: [{ id: thread.id }],
   });
 
   expect(await s.t.as("bo").get(`sessions/${thread.id}/folder`)).toEqual({

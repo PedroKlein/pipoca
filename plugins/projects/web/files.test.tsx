@@ -1,7 +1,13 @@
 import { expect, test } from "bun:test";
-import { AttachMenu } from "@pipoca/plugins/web";
+import {
+  AttachMenu,
+  FilesRow,
+  FilesSection,
+  type MountedSession,
+  useFilesSessions,
+} from "@pipoca/plugins/web";
 import { renderPart, sessionWith } from "@pipoca/plugins/web/testing";
-import { act } from "react";
+import { act, type ReactElement } from "react";
 import { web } from "./index";
 
 // The page's change stream, which tells nothing here.
@@ -89,6 +95,106 @@ test("a Session's panel has a Project folder section with what it wrote there, w
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 10));
   });
+});
+
+function Listed({ own }: { readonly own: string }): ReactElement {
+  const sessions = useFilesSessions(own);
+
+  return (
+    <FilesSection name="made" order={20} title="Made by Pi" count={1}>
+      {() =>
+        sessions.map(({ id, title }) => (
+          <FilesRow key={id} name={`${id} ${title}`} onOpen={() => undefined} />
+        ))
+      }
+    </FilesSection>
+  );
+}
+
+const ProjectParts = web.slots?.["session.panel"];
+
+const withListed = {
+  ...web,
+  slots: {
+    "session.panel": ({ session }: { readonly session: MountedSession }) => (
+      <>
+        {ProjectParts !== undefined && <ProjectParts session={session} />}
+        <Listed own={session.id} />
+      </>
+    ),
+  },
+};
+
+test("a coordinator's Files list every thread's, and the Thread filter picks one", async () => {
+  renderPart(
+    withListed,
+    "session.panel",
+    { session: sessionWith({}) },
+    {
+      fetch: async () => {
+        await Promise.resolve();
+
+        return Response.json({
+          ...folder,
+          written: [],
+          threads: [
+            { id: "t1", title: "Compare latency" },
+            { id: "t2", title: "Fix checkout" },
+          ],
+        });
+      },
+    },
+  );
+
+  await settle(
+    () => document.querySelector("button[aria-label^='Files']") !== null,
+  );
+
+  await settle(
+    () =>
+      document
+        .querySelector("section[aria-label='Made by Pi']")
+        ?.textContent.includes("t2") === true,
+  );
+
+  act(() => {
+    document
+      .querySelector<HTMLButtonElement>("button[aria-label^='Files']")
+      ?.click();
+  });
+
+  const rows = (): string[] =>
+    [
+      ...document.querySelectorAll(
+        "[role=complementary] section[aria-label='Made by Pi'] button",
+      ),
+    ].map((each) => each.textContent);
+
+  expect(rows()).toEqual([
+    "session-1 Coordinator",
+    "t1 Compare latency",
+    "t2 Fix checkout",
+  ]);
+
+  const thread = document.querySelector<HTMLSelectElement>(
+    "select[aria-label=Thread]",
+  );
+
+  expect([...(thread?.options ?? [])].map((each) => each.textContent)).toEqual([
+    "All threads",
+    "Coordinator",
+    "Compare latency",
+    "Fix checkout",
+  ]);
+
+  act(() => {
+    if (thread !== null) {
+      thread.value = "t2";
+      thread.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+  });
+
+  expect(rows()).toEqual(["t2 Fix checkout"]);
 });
 
 test("a Session outside a Project has no Project folder section", async () => {

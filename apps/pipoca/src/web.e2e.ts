@@ -4822,9 +4822,11 @@ test("creates a Project and shares a file through its folder", async () => {
   await page.goto(`${server.url.href}#${threadId}`);
   await side.waitFor();
 
-  expect(
-    await page.getByRole("navigation", { name: "Session panel" }).count(),
-  ).toBe(1);
+  // The rail draws once the thread's sections load, and only one shows.
+  const rails = page.getByRole("navigation", { name: "Session panel" });
+
+  await rails.first().waitFor();
+  expect(await rails.count()).toBe(1);
 
   expect(new URL(page.url()).hash).toEndWith(`/${threadId}`);
 
@@ -5365,13 +5367,17 @@ test("opens what Pi's turn saved from the card under its reply, publishes it as 
   await page.keyboard.press("Escape");
   await overlayClosed();
 
-  await page.getByRole("button", { name: "Files, 2" }).click();
+  // The file it was published from now shows as the artifact only.
+  await page.getByRole("button", { name: "Files, 1" }).click();
 
-  await page
-    .getByRole("complementary", { name: "Files" })
+  const files = page.getByRole("complementary", { name: "Files" });
+
+  await files
     .getByRole("region", { name: "Artifacts" })
-    .getByRole("button", { name: /^joined\.csv/ })
+    .getByRole("link", { name: /joined\.csv/ })
     .waitFor();
+
+  await files.getByText("1 file is part of the artifacts above.").waitFor();
 
   await page.getByRole("button", { name: "Close panel" }).click();
 
@@ -7929,6 +7935,29 @@ test("picks a built-in template under Artifacts › New and starts it with Pi in
 
   await page.getByText("Who is the audience?").waitFor();
 }, 30_000);
+
+test("starts team work from a template on the team hub's Artifacts page", async () => {
+  await page.goto(`${server.url.href}#team/plugin/artifacts/team-artifacts`);
+  await page.getByRole("button", { name: "New", exact: true }).click();
+
+  const picker = page.getByRole("dialog", { name: "New artifact" });
+
+  await picker
+    .getByRole("radiogroup", { name: "Templates" })
+    .locator("label", { hasText: "Slide deck" })
+    .click();
+
+  await picker
+    .getByRole("button", { name: "Start with Pi in a new Session…" })
+    .click();
+
+  const starter = page.getByRole("dialog", { name: "Start team work" });
+  const task = starter.locator("form#create").getByRole("textbox").first();
+
+  expect(await task.inputValue()).toBe("Start from the Slide deck template.");
+
+  await starter.getByText("template · Slides").waitFor();
+});
 
 test("saves an artifact as a template from the viewer's More menu, which shows as a template and in the picker", async () => {
   const folder = join(root, "template-folder");

@@ -1,9 +1,12 @@
 import { expect, spyOn, test } from "bun:test";
 import {
   AttachMenu,
+  FilesRow,
+  FilesSection,
   frameSandbox,
   type MountedSession,
   type SessionPartProps,
+  useFileItems,
 } from "@pipoca/plugins/web";
 import {
   drafts,
@@ -13,7 +16,7 @@ import {
   sessionWith,
 } from "@pipoca/plugins/web/testing";
 import { until } from "@pipoca/testing/until";
-import { act, type ReactElement, useState } from "react";
+import { act, type ReactElement, useEffect, useState } from "react";
 import type {
   ActivityItem,
   ArtifactSummary,
@@ -1703,6 +1706,7 @@ function artifact(o: Partial<ArtifactSummary> = {}): ArtifactSummary {
     living: false,
     named: o.versions ?? 1,
     updatedAt: 0,
+    hashes: [],
     openedAt: null,
     ...o,
   };
@@ -4334,8 +4338,9 @@ test("a file that can't be an artifact, such as a spreadsheet, offers no Publish
   expect(page.querySelector("button")).toBeNull();
 });
 
-test("the Files menu lists the Session's artifacts first, and one opens over the page", async () => {
+test("the panel's Files shows the Session's artifacts first as cards, one opens over the page, and its menu copies its link", async () => {
   const asked: string[] = [];
+  const copied: string[] = [];
 
   renderPart(
     web,
@@ -4360,17 +4365,59 @@ test("the Files menu lists the Session's artifacts first, and one opens over the
 
   expect(asked).toEqual(["/api/ext/artifacts/artifacts?sessions=session-1"]);
 
+  // The page is set up by now, with its own navigator.
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: {
+      writeText: async (text: string) => {
+        await Promise.resolve();
+        copied.push(text);
+      },
+    },
+  });
+
   act(() => {
     document
       .querySelector<HTMLButtonElement>("[aria-label='Files, 1']")
       ?.click();
   });
 
-  const row = document.querySelector<HTMLButtonElement>(
-    "section[aria-label=Artifacts] button",
-  );
+  const card = (): HTMLAnchorElement | null =>
+    document.querySelector<HTMLAnchorElement>(
+      "section[aria-label=Artifacts] a",
+    );
 
-  expect(row?.textContent).toBe("Checkout latencyv4");
+  expect(card()?.textContent).toBe("PageCheckout latency");
+
+  expect(
+    document.querySelector("section[aria-label=Artifacts]")?.textContent,
+  ).toContain("Checkout latencyv4");
+
+  act(() => {
+    document
+      .querySelector<HTMLButtonElement>(
+        "button[aria-label='More for Checkout latency']",
+      )
+      ?.click();
+  });
+
+  expect(
+    [...document.querySelectorAll("[role=menuitem]")].map(
+      (each) => each.textContent,
+    ),
+  ).toEqual(["Open", "Copy link"]);
+
+  act(() => {
+    [...document.querySelectorAll<HTMLButtonElement>("[role=menuitem]")]
+      .find((each) => each.textContent === "Copy link")
+      ?.click();
+  });
+
+  await drawn(() => copied.length > 0);
+
+  expect(copied).toEqual([
+    `${location.origin}${location.pathname}#plugin/artifacts/a1`,
+  ]);
 
   const filter = document.querySelector<HTMLInputElement>(
     "input[aria-label='Filter files']",
@@ -4391,19 +4438,120 @@ test("the Files menu lists the Session's artifacts first, and one opens over the
 
   typed("plan");
 
-  expect(
-    document.querySelectorAll("section[aria-label=Artifacts] button"),
-  ).toHaveLength(0);
+  expect(card()).toBeNull();
 
   typed("latency");
 
   act(() => {
-    document
-      .querySelector<HTMLButtonElement>("section[aria-label=Artifacts] button")
-      ?.click();
+    card()?.click();
   });
 
   expect(location.hash).toBe("#session-1?artifact=a1");
+});
+
+function MadeByPi(): ReactElement {
+  const items = useFileItems();
+
+  return (
+    <FilesSection name="made" order={20} title="Made by Pi" count={2}>
+      {() =>
+        ["latency.csv", "book.xlsx"].map((file) => (
+          <FilesRow
+            key={file}
+            name={file}
+            actions={items({
+              session: "session-1",
+              file,
+              download: `/api/ext/files/x?path=${file}`,
+            })}
+            onOpen={() => undefined}
+          />
+        ))
+      }
+    </FilesSection>
+  );
+}
+
+const SessionArtifacts = web.slots?.["session.panel"];
+
+const withFiles = {
+  ...web,
+  slots: {
+    "session.panel": ({ session }: { readonly session: MountedSession }) => (
+      <>
+        {SessionArtifacts !== undefined && (
+          <SessionArtifacts session={session} />
+        )}
+        <MadeByPi />
+      </>
+    ),
+  },
+};
+
+test("a file Pi made publishes as an artifact from its row's menu, and opens", async () => {
+  const asked: string[] = [];
+
+  renderPart(
+    withFiles,
+    "session.panel",
+    { session: sessionWith({}) },
+    {
+      hash: "#session-1",
+      fetch: async (url, init) => {
+        await Promise.resolve();
+        asked.push(`${init?.method ?? "GET"} ${url}`);
+
+        if (url.includes("/api/ext/files/")) {
+          return new Response("day,ms\n");
+        }
+
+        if (url.includes("/finish")) {
+          return Response.json({ hash: "b".repeat(64) });
+        }
+
+        if (url.includes("_blobs/browser/")) {
+          return Response.json({ offset: 7 });
+        }
+
+        return init?.method === "POST"
+          ? Response.json({ id: "a9", title: "latency.csv", version: 1 })
+          : Response.json({ artifacts: [] });
+      },
+    },
+  );
+
+  await drawn(() => document.querySelector("[aria-label='Files, 2']") !== null);
+
+  act(() => {
+    document
+      .querySelector<HTMLButtonElement>("[aria-label='Files, 2']")
+      ?.click();
+  });
+
+  const items = (file: string): string[] => {
+    act(() => {
+      document
+        .querySelector<HTMLButtonElement>(
+          `button[aria-label='More for ${file}']`,
+        )
+        ?.click();
+    });
+
+    return [...document.querySelectorAll("[role=menuitem]")].map(
+      (each) => each.textContent,
+    );
+  };
+
+  expect(items("book.xlsx")).toEqual([]);
+  expect(items("latency.csv")).toEqual(["Publish as artifact"]);
+
+  await act(async () => {
+    document.querySelector<HTMLButtonElement>("[role=menuitem]")?.click();
+    await until(() => location.hash.includes("artifact=a9"));
+  });
+
+  expect(asked).toContain("POST /api/ext/artifacts/artifacts");
+  expect(location.hash).toBe("#session-1?artifact=a9");
 });
 
 test("the + menu attaches an artifact as text that names its id and version for Pi", async () => {
@@ -5602,7 +5750,9 @@ test("a link to another thread of the artifact open in the window opens that thr
   function Moving(): ReactElement {
     const [path, setPath] = useState("a1/comments/t1");
 
-    go = setPath;
+    useEffect(() => {
+      go = setPath;
+    }, []);
 
     return <Page path={path} />;
   }

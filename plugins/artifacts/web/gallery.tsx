@@ -269,10 +269,13 @@ function audienceOf(artifact: ArtifactSummary): string {
 
 // The first screen of the latest version, drawn small in a sandbox, once
 // the card scrolls into view; a PDF shows its kind only.
-function FirstScreen({
+export function FirstScreen({
   artifact,
+  className = "h-37.5",
 }: {
   readonly artifact: ArtifactSummary;
+  // Its height.
+  readonly className?: string;
 }): ReactElement {
   const box = useRef<HTMLSpanElement>(null);
   const [seen, setSeen] = useState(false);
@@ -305,7 +308,8 @@ function FirstScreen({
       ref={box}
       aria-hidden="true"
       className={cn(
-        "relative block h-37.5 overflow-hidden border-b border-line",
+        "relative block overflow-hidden border-b border-line",
+        className,
         artifact.kind !== "pdf" && seen ? "bg-canvas" : "bg-elevated",
       )}
     >

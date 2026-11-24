@@ -237,6 +237,19 @@ export function folderRoutes(
           .writtenBy(project.id, `session:${params.id}`)
           .flatMap((path) => byPath.get(path) ?? []),
         count: files.length,
+        // A coordinator's Files list every thread's too.
+        threads:
+          member?.role === "coordinator"
+            ? store
+                .threads(project.id)
+                .filter(({ sessionId }) =>
+                  sessions.sees(sessionId, caller.person.id),
+                )
+                .map(({ sessionId, title }) => ({
+                  id: sessionId,
+                  title: sessions.get(sessionId)?.title ?? title,
+                }))
+            : [],
       };
     },
   );

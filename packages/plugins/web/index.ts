@@ -37,7 +37,18 @@ export {
   useAttachOpen,
 } from "./attach-menu";
 export { FileCard } from "./file-card";
-export { FilesMenu, FilesMenuHost, FilesRow, FilesSection } from "./files-menu";
+export {
+  FilesMenu,
+  FilesMenuHost,
+  FilesRow,
+  type FilesSession,
+  FilesSection,
+  useAddFilesSessions,
+  useCoveredFiles,
+  useFileItem,
+  useFileItems,
+  useFilesSessions,
+} from "./files-menu";
 export {
   FileViewer,
   frameSandbox,

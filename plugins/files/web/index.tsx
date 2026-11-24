@@ -13,6 +13,9 @@ import {
   type SessionFilesProps,
   uploadBlob,
   useApi,
+  useCoveredFiles,
+  useFileItems,
+  useFilesSessions,
   useLoaded,
   useNow,
   useOverlay,
@@ -133,6 +136,39 @@ function useSessionFiles(sessionId: string): Kept | undefined {
   ).value;
 }
 
+// The files of the other Sessions the Files section lists, such as a
+// Project coordinator's threads.
+function useOtherFiles(
+  sessions: readonly { readonly id: string; readonly title: string }[],
+): readonly Listed[] {
+  const api = useApi(plugin);
+  const key = sessions.map(({ id }) => id).join(",");
+
+  return (
+    useLoaded(
+      async () =>
+        Promise.all(
+          sessions.map(async ({ id, title }) => ({
+            id,
+            title,
+            ...(await api.get<Kept>(
+              `sessions/${encodeURIComponent(id)}/files`,
+            )),
+          })),
+        ),
+      `others:${key}`,
+      { changes: ["files"] },
+    ).value ?? noOthers
+  );
+}
+
+interface Listed extends Kept {
+  readonly id: string;
+  readonly title: string;
+}
+
+const noOthers: readonly Listed[] = [];
+
 const unsavedNote = "retrying when the runner is back";
 
 // What the header's Files menu lists for the Session: what Pi made, what
@@ -144,13 +180,29 @@ function SessionFiles({
   readonly session: MountedSession;
 }): ReactElement {
   const listed = useSessionFiles(session.id);
+  const sessions = useFilesSessions(session.id);
+  const ownShown = sessions.some(({ id }) => id === session.id);
+  const own = sessions.find(({ id }) => id === session.id)?.title ?? "";
+  const others = useOtherFiles(sessions.filter(({ id }) => id !== session.id));
+
   const kept = listed?.files ?? none;
+
+  const all: readonly Listed[] = [
+    ...(ownShown && listed !== undefined
+      ? [{ ...listed, id: session.id, title: own }]
+      : []),
+    ...others,
+  ];
+
   const state = useSessionState<FilesState>(session, "files");
   const unsaved = state?.unsaved ?? [];
   const api = useApi(plugin);
   const { open } = useOverlay();
   const [uploadProblem, setUploadProblem] = useState<string>();
   const [sending, setSending] = useState(false);
+  const covered = useCoveredFiles();
+  const [showCovered, setShowCovered] = useState(false);
+  const fileItems = useFileItems();
 
   const { value: limits } = useLoaded(
     async () => api.get<Limits>("limits"),
@@ -174,32 +226,68 @@ function SessionFiles({
       !kept.some((file) => file.place === "outputs" && file.path === path),
   );
 
+  const hidden = (file: SessionFile): boolean =>
+    file.place === "outputs" && !showCovered && covered.has(file.hash);
+
+  const entries = all.flatMap((each) =>
+    each.files.map((file) => ({ ...file, from: each })),
+  );
+
+  const hiddenCount = entries.filter(hidden).length;
+
   const rows = (place: Place) => (filter: string) => {
-    const shown = kept.filter(
+    const shown = entries.filter(
       (file) =>
-        file.place === place && file.path.toLowerCase().includes(filter),
+        file.place === place &&
+        !hidden(file) &&
+        [file.path, file.from.title].some((text) =>
+          text.toLowerCase().includes(filter),
+        ),
     );
 
     return shown.length === 0
       ? null
-      : shown.map((file) => (
-          <FilesRow
-            key={file.path}
-            name={file.path}
-            detail={
-              place === "outputs" && unsaved.includes(file.path)
-                ? "not saved"
-                : size(file.size)
-            }
-            onOpen={() => {
-              open({ session: session.id, file: `${place}/${file.path}` });
-            }}
-          />
-        ));
+      : shown.map((file) => {
+          const { id, title, steers } = file.from;
+          const download = `/api/ext/files/sessions/${id}/files/${place}?path=${encodeURIComponent(file.path)}`;
+
+          const show = (): void => {
+            open({ session: id, file: `${place}/${file.path}` });
+          };
+
+          return (
+            <FilesRow
+              key={`${id}:${file.path}`}
+              name={file.path}
+              detail={[
+                ...(title === "" ? [] : [title]),
+                id === session.id &&
+                place === "outputs" &&
+                unsaved.includes(file.path)
+                  ? "not saved"
+                  : size(file.size),
+              ].join(" · ")}
+              actions={[
+                { label: "Open", icon: "file", run: show },
+                {
+                  label: "Download",
+                  icon: "download",
+                  run: () => {
+                    downloadFrom(download, file.path);
+                  },
+                },
+                ...(steers
+                  ? fileItems({ session: id, file: file.path, download })
+                  : []),
+              ]}
+              onOpen={show}
+            />
+          );
+        });
   };
 
   const count = (place: Place): number =>
-    kept.filter((file) => file.place === place).length;
+    entries.filter((file) => file.place === place && !hidden(file)).length;
 
   const over = limits !== undefined && limits.kept > limits.perPersonBytes;
 
@@ -212,6 +300,24 @@ function SessionFiles({
         count={count("outputs") + waiting.length}
       >
         {rows("outputs")}
+      </FilesSection>
+      <FilesSection name="outputs-covered" order={21} count={0}>
+        {() =>
+          hiddenCount === 0 ? null : (
+            <p className="px-1 text-caption text-fg-dim">
+              {`${plural(hiddenCount, "file is", "files are")} part of the artifacts above. `}
+              <button
+                type="button"
+                className="text-accent hover:underline"
+                onClick={() => {
+                  setShowCovered(true);
+                }}
+              >
+                Show them
+              </button>
+            </p>
+          )
+        }
       </FilesSection>
       <FilesSection
         name="uploads"
@@ -288,6 +394,14 @@ function SessionFiles({
       </FilesSection>
     </>
   );
+}
+
+function downloadFrom(url: string, path: string): void {
+  const link = document.createElement("a");
+
+  link.href = url;
+  link.download = path.split("/").at(-1) ?? path;
+  link.click();
 }
 
 // A checkout's changes Pi didn't push, which the next pod puts back.
