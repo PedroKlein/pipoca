@@ -31,6 +31,11 @@ test("a link button draws as underlined text", () => {
   expect(buttonClass({ variant: "link" })).not.toContain("border");
 });
 
+test("a bare button leaves its colours to the caller", () => {
+  expect(buttonClass({ variant: "bare" })).toContain("border-transparent");
+  expect(buttonClass({ variant: "bare" })).not.toMatch(/\bbg-|\btext-(fg|on)/);
+});
+
 test("an extra small icon button is a square mark beside text", () => {
   const classes = buttonClass({ size: "xs", iconOnly: true }).split(" ");
 

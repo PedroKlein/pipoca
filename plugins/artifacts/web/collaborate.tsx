@@ -83,6 +83,13 @@ export type Picked =
 // composer, which the person sends or not (ADR 0078); pages Pipoca draws
 // also say what the person selected or clicked to comment on, and pin the
 // threads.
+export interface Line {
+  readonly heading: string;
+  readonly text: string;
+  readonly strong: boolean;
+  readonly badge?: string;
+}
+
 export function Frame({
   artifact,
   version,
@@ -96,6 +103,7 @@ export function Frame({
   onOutline,
   goto,
   changes,
+  lines,
   slide,
   onDeck,
   onPinned,
@@ -130,6 +138,9 @@ export function Frame({
         readonly spans: readonly (Span & { readonly text: string })[];
       }
     | undefined;
+  // Lines the page writes under its headings, such as who voted for an
+  // option of a decision record.
+  readonly lines?: readonly Line[] | undefined;
   readonly slide?: At | undefined;
   readonly onDeck?: (deck: {
     readonly slides: readonly Slide[];
@@ -291,6 +302,7 @@ export function Frame({
 
   // Pinning redraws the page, so only for pins that changed.
   const pinned = JSON.stringify(pins ?? []);
+  const written = JSON.stringify(lines ?? []);
 
   const tell = useCallback(() => {
     const window = frame.current?.contentWindow;
@@ -301,7 +313,12 @@ export function Frame({
       { pipoca: "pins", pins: JSON.parse(pinned) as unknown, badges },
       "*",
     );
-  }, [badges, commenting, pinned]);
+
+    window?.postMessage(
+      { pipoca: "lines", lines: JSON.parse(written) as unknown },
+      "*",
+    );
+  }, [badges, commenting, pinned, written]);
 
   useEffect(tell, [tell]);
 
