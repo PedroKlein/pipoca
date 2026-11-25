@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import type { GitLogin } from "@pipoca/protocol";
 
 // The hosts a Session signs in to: its owner's connections (ADR 0043), and
@@ -19,10 +20,13 @@ export function hostLogins(
 // Lets git authenticate to each host over https, for clones, the Session's
 // pushes and Profile packages. For each host, the empty helper first stops the
 // machine's own helpers, so none answers with another login or keeps the
-// token. The entries follow any the environment already has.
+// token. The entries follow any the environment already has. With a tokens
+// folder, git reads each host's token from its file there on each use, so the
+// tokens can change while the Session runs.
 export function gitCredentials(
   logins: readonly GitLogin[],
   environment: Readonly<Record<string, string | undefined>>,
+  tokens?: string,
 ): Readonly<Record<string, string>> {
   if (logins.length === 0) {
     return {};
@@ -31,6 +35,11 @@ export function gitCredentials(
   const count = Number(environment["GIT_CONFIG_COUNT"] ?? 0);
   const first = Number.isSafeInteger(count) && count > 0 ? count : 0;
 
+  const password = (index: number): string =>
+    tokens === undefined
+      ? `$${tokenVariable(index)}`
+      : `$(cat "$${tokensVariable}/${String(index)}")`;
+
   const entries = logins.flatMap(({ host }, index) => {
     const key = `credential.https://${host}.helper`;
 
@@ -38,18 +47,25 @@ export function gitCredentials(
       [key, ""],
       [
         key,
-        `!f() { test "$1" = get && echo username=x-access-token && echo "password=$${tokenVariable(index)}"; }; f`,
+        `!f() { test "$1" = get && echo username=x-access-token && echo "password=${password(index)}"; }; f`,
       ],
     ];
   });
 
   const github = logins.find(({ host }) => host === "github.com");
 
+  const secrets =
+    tokens === undefined
+      ? {
+          ...Object.fromEntries(
+            logins.map(({ token }, index) => [tokenVariable(index), token]),
+          ),
+          ...(github && { GH_TOKEN: github.token }),
+        }
+      : { [tokensVariable]: tokens };
+
   return {
-    ...Object.fromEntries(
-      logins.map(({ token }, index) => [tokenVariable(index), token]),
-    ),
-    ...(github && { GH_TOKEN: github.token }),
+    ...secrets,
     GIT_CONFIG_COUNT: String(first + entries.length),
     ...Object.fromEntries(
       entries.flatMap(([key, value], index) => [
@@ -60,28 +76,46 @@ export function gitCredentials(
   };
 }
 
-// gh's config folder, by file, for the hosts other than github.com, which gh
-// reads from GH_TOKEN. Undefined when there are none. Without a config.yml at
-// version 1, gh tries to migrate hosts.yml and asks each host who signed in.
-export function ghConfig(
+// What a Session's own git and gh sign in with: variables that point them at
+// files in dir, by path from dir, which they read on each use. Writing the
+// files again with fresh tokens reaches the running Session, since an App's
+// installation tokens expire within the hour. Logins added later keep the
+// earlier ones' order, so git still finds each host's token. Without a
+// config.yml at version 1, gh tries to migrate hosts.yml and asks each host
+// who signed in.
+export function sessionCredentials(
   logins: readonly GitLogin[],
-): Readonly<Record<string, string>> | undefined {
-  const enterprise = logins.filter(({ host }) => host !== "github.com");
-
-  if (enterprise.length === 0) {
-    return undefined;
+  environment: Readonly<Record<string, string | undefined>>,
+  dir: string,
+): {
+  readonly variables: Readonly<Record<string, string>>;
+  readonly files: Readonly<Record<string, string>>;
+} {
+  if (logins.length === 0) {
+    return { variables: {}, files: {} };
   }
 
   return {
-    "config.yml": 'version: "1"\n',
-    "hosts.yml": enterprise
-      .map(
-        ({ host, token }) =>
-          `${JSON.stringify(host)}:\n  oauth_token: ${JSON.stringify(token)}\n  git_protocol: https\n`,
-      )
-      .join(""),
+    variables: {
+      ...gitCredentials(logins, environment, join(dir, "tokens")),
+      GH_CONFIG_DIR: join(dir, "gh"),
+    },
+    files: {
+      ...Object.fromEntries(
+        logins.map(({ token }, index) => [`tokens/${String(index)}`, token]),
+      ),
+      "gh/config.yml": 'version: "1"\n',
+      "gh/hosts.yml": logins
+        .map(
+          ({ host, token }) =>
+            `${JSON.stringify(host)}:\n  oauth_token: ${JSON.stringify(token)}\n  git_protocol: https\n`,
+        )
+        .join(""),
+    },
   };
 }
+
+const tokensVariable = "PIPOCA_GIT_TOKENS";
 
 function tokenVariable(index: number): string {
   return `PIPOCA_GIT_TOKEN_${String(index)}`;

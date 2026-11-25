@@ -103,6 +103,9 @@ export interface TestSession {
   readonly report: (events: readonly unknown[]) => Promise<void>;
   // What its runner signed git in with when it last took the Session.
   readonly gitLogins: () => readonly GitLogin[];
+  // What its runner signs git in with now, as it asks while the Session
+  // runs.
+  readonly currentGitLogins: () => Promise<readonly GitLogin[]>;
   // A person's message to Pi, as one of the test's people sends it. It has
   // reached the host, when the host is online, once this settles.
   readonly send: (personId: string, text: string) => Promise<void>;

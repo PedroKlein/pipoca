@@ -1842,15 +1842,27 @@ export class Sessions {
   }
 
   #gitLoginsOf(session: StoredSession): Pick<Assignment, "gitLogins"> {
+    const logins = this.#loginsOf(session);
+
+    return logins.length > 0 ? { gitLogins: logins } : {};
+  }
+
+  // The git logins a Session's runner signs git and gh in with as they are
+  // now, since an App's installation tokens expire while the Session runs.
+  gitLogins(id: string): readonly GitLogin[] | undefined {
+    const session = this.#store.get(id);
+
+    return session && this.#loginsOf(session);
+  }
+
+  #loginsOf(session: StoredSession): readonly GitLogin[] {
     // Team work signs git in only as a technical user that admins let the
     // team use, never as a person (ADR 0067).
     const person = session.startedBy;
     const own: Owner | null = person === null ? null : `person:${person}`;
     const owner = this.#team(session) ? "team" : own;
 
-    const logins = owner === null ? [] : this.#gitLogins(owner, session);
-
-    return logins.length > 0 ? { gitLogins: logins } : {};
+    return owner === null ? [] : this.#gitLogins(owner, session);
   }
 
   // What a runner downloads for a Profile (ADR 0041).
