@@ -176,6 +176,17 @@ function polledRepository() {
 
 // The host's REST API, which knows one person's token and one App.
 function fakeHost(now: () => number) {
+  let firstToken: number | undefined;
+
+  // A new installation token each hour after the first.
+  const hoursOf = (time: number): string => {
+    firstToken ??= time;
+
+    const hours = Math.floor((time - firstToken) / 3_600_000);
+
+    return hours === 0 ? "" : `_${String(hours)}h`;
+  };
+
   const pull: Pull = {
     checks: "pending",
     mergeable: true,
@@ -237,9 +248,11 @@ function fakeHost(now: () => number) {
         return signedByApp(authorization)
           ? Response.json(
               {
-                token: (await request.text()).includes('"permissions"')
-                  ? "ghs_reading"
-                  : "ghs_installation",
+                token: `${
+                  (await request.text()).includes('"permissions"')
+                    ? "ghs_reading"
+                    : "ghs_installation"
+                }${hoursOf(now())}`,
                 expires_at: new Date(now() + 3_600_000).toISOString(),
               },
               { status: 201 },
@@ -1461,6 +1474,31 @@ test("signs a Session acting as a GitHub App in as it, and commits as its bot", 
     name: "pipoca-bot[bot]",
     email: `99+pipoca-bot[bot]@users.noreply.${host}`,
   });
+});
+
+test("keeps a running Session's App login fresh after its first installation token expires", async () => {
+  await using run = await start();
+  const { t } = run;
+
+  await connected(t);
+  await createApp(t);
+
+  const acting = await t.session({
+    owner: person("pedro"),
+    actsAs: { plugin: "git-hosts", name: "pipoca-bot" },
+    workspace: {
+      kind: "clone",
+      repository: `https://${host}/acme/dotfiles.git`,
+    },
+  });
+
+  expect(acting.gitLogins()).toEqual([{ host, token: "ghs_installation" }]);
+
+  await t.clock.advance("1h");
+
+  expect(await acting.currentGitLogins()).toEqual([
+    { host, token: "ghs_installation_1h" },
+  ]);
 });
 
 test("gives no git login to a Session acting as a technical user its person may not use", async () => {

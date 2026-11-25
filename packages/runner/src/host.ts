@@ -1,5 +1,5 @@
-import { mkdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, rename, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import type { GitLogin, Log, SessionStart, Workspace } from "@pipoca/protocol";
 import {
   hostSession,
@@ -8,14 +8,15 @@ import {
   type SessionOptions,
 } from "@pipoca/sessionhost";
 import {
-  ghConfig,
   gitCredentials,
   hostLogins,
   prepareWorkspace,
+  sessionCredentials,
   withoutGitTokens,
 } from "@pipoca/workspaces";
 import {
   type Agent,
+  fetchGitLogins,
   fetchTranscript,
   httpSessionStream,
   reportStartFailure,
@@ -54,6 +55,10 @@ export interface Machine {
   ) => Promise<string | undefined>;
 }
 
+// Within an App's installation tokens' hour, and the server keeps its own
+// copies fresh for at least 45 minutes.
+const loginRefreshMs = 10 * 60_000;
+
 export interface Running {
   readonly stop: () => Promise<void>;
   // Stops the Session at once, leaving its running tools unanswered.
@@ -70,6 +75,10 @@ export interface Attempt {
 
 interface Prepared {
   readonly sessionDir: string;
+  // What the Session's own git and gh sign in with, and the folder of the
+  // files they read.
+  readonly logins: readonly GitLogin[];
+  readonly gitDir: string;
   readonly image: string | undefined;
   readonly variables: Readonly<Record<string, string>>;
   readonly session: Omit<SessionOptions, "models">;
@@ -98,9 +107,30 @@ export async function startSession(
       log,
     );
 
-    return (
-      prepared && (await launch(machine, assignment, prepared, attempt, log))
+    if (prepared === undefined) {
+      return undefined;
+    }
+
+    const running = await launch(machine, assignment, prepared, attempt, log);
+
+    const stopRefresh = refreshLogins(
+      machine,
+      assignment,
+      prepared,
+      attempt,
+      log,
     );
+
+    return {
+      stop: async () => {
+        stopRefresh();
+        await running.stop();
+      },
+      halt: async () => {
+        stopRefresh();
+        await running.halt();
+      },
+    };
   } catch (error) {
     log("session failed to start", { error: String(error) });
 
@@ -181,26 +211,37 @@ async function prepare(
     log("transcript restored from the server", { lines: restored });
   }
 
-  const proposes = assignment.proposes === true;
+  const logins = ownLogins(assignment, assignment.gitLogins ?? []);
 
-  // A Session that proposes keeps only the logins that just read, so not
-  // the Environment's GH_TOKEN, which made its workspace.
-  const ownLogins = (
-    proposes ? (assignment.gitLogins ?? []) : gitLogins
-  ).filter(({ cloneOnly }) => cloneOnly !== true);
+  const own =
+    assignment.proposes === true ? withoutGitTokens(environment) : environment;
 
-  const own = proposes ? withoutGitTokens(environment) : environment;
+  const gitDir = join(sessionDir, "git");
+
+  const credentials = sessionCredentials(
+    logins,
+    { ...process.env, ...own },
+    gitDir,
+  );
 
   // Written after the restore, which may drop the Session's folder.
+  await writeFiles(gitDir, credentials.files);
+
+  // gh prefers GH_TOKEN to its config, which a refresh keeps fresh.
+  const github = logins.some(({ host }) => host === "github.com");
+
   const variables = {
-    ...own,
+    ...Object.fromEntries(
+      Object.entries(own).filter(([name]) => !github || name !== "GH_TOKEN"),
+    ),
     ...(docs !== undefined && { PIPOCA_DOCS: docs }),
-    ...gitCredentials(ownLogins, { ...process.env, ...own }),
-    ...(await writeGhConfig(join(sessionDir, "gh"), ownLogins)),
+    ...credentials.variables,
   };
 
   return {
     sessionDir,
+    logins,
+    gitDir,
     image,
     variables,
     session: {
@@ -338,22 +379,85 @@ async function sessionBinary(machine: Machine): Promise<SessionBinary> {
       };
 }
 
-// gh's own config folder for the Session, when it has hosts besides
-// github.com, which gh reads from GH_TOKEN.
-async function writeGhConfig(
-  dir: string,
+// The logins the Session's own git and gh get. A Session that proposes keeps
+// only the logins that just read, so not the Environment's GH_TOKEN, which
+// made its workspace.
+function ownLogins(
+  assignment: SessionStart,
   logins: readonly GitLogin[],
-): Promise<Readonly<Record<string, string>>> {
-  const files = ghConfig(logins);
-  if (files === undefined) {
-    return {};
+): readonly GitLogin[] {
+  return (
+    assignment.proposes === true
+      ? logins
+      : hostLogins(logins, assignment.environment.variables)
+  ).filter(({ cloneOnly }) => cloneOnly !== true);
+}
+
+// An App's installation tokens expire within the hour, so the Session's git
+// and gh get the server's current ones while it runs. A host the Session
+// started without waits for its next start.
+function refreshLogins(
+  machine: Machine,
+  assignment: SessionStart,
+  prepared: Prepared,
+  attempt: Attempt,
+  log: Log,
+): () => void {
+  if (prepared.logins.length === 0) {
+    return () => undefined;
   }
 
-  await mkdir(dir, { recursive: true });
+  const tokens = new Map(
+    prepared.logins.map(({ host, token }) => [host, token]),
+  );
 
+  const refresh = async (): Promise<void> => {
+    const fresh = await fetchGitLogins(machine.agent.server, assignment);
+
+    for (const { host, token } of ownLogins(assignment, fresh)) {
+      if (tokens.has(host)) {
+        tokens.set(host, token);
+      }
+    }
+
+    const logins = [...tokens].map(([host, token]) => ({ host, token }));
+
+    await writeFiles(
+      prepared.gitDir,
+      sessionCredentials(logins, {}, prepared.gitDir).files,
+    );
+
+    log("git logins refreshed", { hosts: logins.length });
+  };
+
+  const timer = setInterval(() => {
+    if (!attempt.current()) {
+      clearInterval(timer);
+
+      return;
+    }
+
+    refresh().catch((error: unknown) => {
+      log("git logins not refreshed", { error: String(error) });
+    });
+  }, loginRefreshMs);
+
+  return () => {
+    clearInterval(timer);
+  };
+}
+
+// Each file through a temporary one, so git never reads half a token.
+async function writeFiles(
+  dir: string,
+  files: Readonly<Record<string, string>>,
+): Promise<void> {
   for (const [name, content] of Object.entries(files)) {
-    await writeFile(join(dir, name), content, { mode: 0o600 });
-  }
+    const path = join(dir, name);
+    const temporary = `${path}.tmp`;
 
-  return { GH_CONFIG_DIR: dir };
+    await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+    await writeFile(temporary, content, { mode: 0o600 });
+    await rename(temporary, path);
+  }
 }

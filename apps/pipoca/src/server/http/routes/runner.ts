@@ -233,6 +233,15 @@ export function runnerRoutes({
 
       return files;
     },
+    "runner.gitLogins": ({ params: { id } }) => {
+      const gitLogins = sessions.gitLogins(id);
+
+      if (gitLogins === undefined) {
+        throw new NotFound("Not found.");
+      }
+
+      return { gitLogins: [...gitLogins] };
+    },
     // The docs every Session gets as files (ADR 0052).
     "runner.docs": () => {
       const docs = sessions.docs();

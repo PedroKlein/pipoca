@@ -647,6 +647,13 @@ export async function pluginTest(
         }),
       queued: () => queuedText.all(host.id) as { text: string }[],
       gitLogins: () => host.gitLogins,
+      currentGitLogins: async () => {
+        const { gitLogins } = await json<{ gitLogins: GitLogin[] }>(
+          request(`/runner/sessions/${host.id}/git-logins`, runner(host.token)),
+        );
+
+        return gitLogins;
+      },
       send: async (personId, text) => {
         const sent = await request(
           `/api/sessions/${host.id}/commands`,

@@ -9,6 +9,7 @@ import {
   type RouteKey,
   type Joined,
   type SessionStart,
+  type GitLogin,
   type Command,
   type LiveEvent,
   type LivePost,
@@ -199,6 +200,23 @@ export async function fetchTranscript(
   });
 
   return entries;
+}
+
+// The Session's git logins as they are now.
+export async function fetchGitLogins(
+  server: string,
+  assignment: SessionStart,
+): Promise<readonly GitLogin[]> {
+  const { gitLogins } = await call(
+    { server, token: assignment.token },
+    "runner.gitLogins",
+    {
+      params: { id: assignment.sessionId },
+      signal: AbortSignal.timeout(requestTimeoutMs),
+    },
+  );
+
+  return gitLogins;
 }
 
 // An installed plugin's Session part, asked for by its bundle's hash (ADR

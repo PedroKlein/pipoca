@@ -81,6 +81,7 @@ import {
 } from "./plugins";
 import type { RouteSpec } from "./route";
 import {
+  gitLogin,
   joined,
   joinRequest,
   livePost,
@@ -1235,6 +1236,14 @@ export const routes = {
     path: "/runner/sessions/:id/profile",
     auth: "session",
     response: profileFiles,
+  },
+  // The Session's git logins as they are now, since an App's installation
+  // tokens expire while the Session runs.
+  "runner.gitLogins": {
+    method: "GET",
+    path: "/runner/sessions/:id/git-logins",
+    auth: "session",
+    response: Type.Object({ gitLogins: Type.Array(gitLogin) }),
   },
   // The docs every Session gets as files (ADR 0052).
   "runner.docs": {

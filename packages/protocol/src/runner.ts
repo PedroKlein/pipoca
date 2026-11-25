@@ -76,7 +76,7 @@ export const listedProviders = Type.Object({
 
 export type ListedProviders = Wire<typeof listedProviders>;
 
-const gitLogin = Type.Object({
+export const gitLogin = Type.Object({
   host: Type.String(),
   token: Type.String(),
   // Only for making the workspace: the Session's own git and gh never get

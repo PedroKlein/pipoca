@@ -1,5 +1,5 @@
 export {
-  ghConfig,
+  sessionCredentials,
   gitCredentials,
   hostLogins,
   withoutGitTokens,
