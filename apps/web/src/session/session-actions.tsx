@@ -51,6 +51,10 @@ export function SessionActions({
     }).catch(report);
   };
 
+  const restart = (): void => {
+    request("sessions.restart", { params: { id: session.id } }).catch(report);
+  };
+
   const removeWorkspace = (): void => {
     request("sessions.workspace.remove", { params: { id: session.id } }).catch(
       report,
@@ -71,6 +75,32 @@ export function SessionActions({
           />
         }
         items={[
+          ...(archived
+            ? []
+            : [
+                {
+                  label: "Restart",
+                  icon: "rotate-ccw",
+                  run: () => {
+                    if (session.status !== "running") {
+                      restart();
+
+                      return;
+                    }
+
+                    void ask({
+                      title: "Restart this Session?",
+                      description:
+                        "Pi stops the turn it's on and starts again with the same chat.",
+                      confirm: "Restart",
+                    }).then((yes) => {
+                      if (yes) {
+                        restart();
+                      }
+                    });
+                  },
+                } as const,
+              ]),
           archived
             ? {
                 label: "Unarchive",

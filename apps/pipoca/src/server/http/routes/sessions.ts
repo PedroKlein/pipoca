@@ -282,13 +282,13 @@ export function sessionRoutes({
 
       return session;
     },
-    "sessions.retry": ({ params: { id }, caller }) => {
+    "sessions.restart": ({ params: { id }, caller }) => {
       reached(id, caller, canSteer);
 
-      const retried = ok(sessions.retry(id));
-      log("session start retried", { sessionId: id });
+      const restarted = ok(sessions.restart(id));
+      log("session restarted", { sessionId: id });
 
-      return retried;
+      return restarted;
     },
     "sessions.workspace.remove": ({ params: { id }, caller }) => {
       reached(id, caller, canManage);

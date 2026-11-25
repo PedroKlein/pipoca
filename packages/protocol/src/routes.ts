@@ -1079,10 +1079,10 @@ export const routes = {
       },
     },
   },
-  // Starts a Session that failed to start again.
-  "sessions.retry": {
+  // Starts a Session again on its runner, with its chat.
+  "sessions.restart": {
     method: "POST",
-    path: "/api/sessions/:id/retry",
+    path: "/api/sessions/:id/restart",
     auth: "person",
     response: session,
   },
