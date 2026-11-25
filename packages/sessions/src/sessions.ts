@@ -202,7 +202,6 @@ export type Rejection =
   | "offline"
   | "archived"
   | "not_kept"
-  | "not_failed"
   | "unknown_environment"
   | "unreachable_host"
   | "no_folders"
@@ -977,9 +976,11 @@ export class Sessions {
     return { ok: true, value: this.#view(unarchived) };
   }
 
-  // Queues a Session that failed to start again, as the same Session, so its
-  // workspace and transcript stay.
-  retry(id: string): Result<Session> {
+  // Starts a Session again as the same Session, so its workspace and
+  // transcript stay: one that failed to start, or one whose runner should
+  // start it over with what the server holds now, such as fresh git logins.
+  // A running turn stops.
+  restart(id: string): Result<Session> {
     const session = this.#store.get(id);
     if (!session) {
       return { ok: false, reason: "not_found" };
@@ -987,10 +988,6 @@ export class Sessions {
 
     if (session.archivedAt !== null) {
       return { ok: false, reason: "archived" };
-    }
-
-    if (session.status !== "failed") {
-      return { ok: false, reason: "not_failed" };
     }
 
     const queued: StoredSession = { ...session, status: "queued", error: null };

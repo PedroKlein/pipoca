@@ -4002,6 +4002,33 @@ test("makes a Profile and starts a session that follows its instructions", async
   expect(request).toContain("Answer like a pirate.");
 }, 30_000);
 
+test("restarts a session from its menu as a new attempt", async () => {
+  await page.goto(server.url.href);
+
+  await page.getByRole("button", { name: "New session" }).click();
+  const form = page.locator("form#create");
+
+  await pickWorkspace(form, root);
+  await form.getByRole("button", { name: "Start session" }).click();
+  await page.locator("#status", { hasText: "idle" }).waitFor();
+  const id = new URL(page.url()).hash.slice(1);
+
+  await page.getByRole("button", { name: "Session actions" }).click();
+  await page.getByRole("menuitem", { name: "Restart" }).click();
+
+  await until(async () => {
+    const response = await page.request.get(
+      new URL(`/api/sessions/${id}`, server.url).href,
+    );
+
+    const { generation, status } = (await response.json()) as Session;
+
+    return generation === 2 && status === "idle";
+  });
+
+  await page.locator("#status", { hasText: "idle" }).waitFor();
+});
+
 test("archives a session, shows it only with archived sessions and unarchives it", async () => {
   await page.goto(server.url.href);
 

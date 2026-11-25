@@ -152,7 +152,7 @@ export function StartFailedNotice({
   readonly session: Session;
 }): ReactElement | null {
   const retry = useAction(async () =>
-    request("sessions.retry", { params: { id: session.id } }),
+    request("sessions.restart", { params: { id: session.id } }),
   );
 
   if (session.status !== "failed") {

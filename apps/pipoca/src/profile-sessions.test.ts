@@ -218,7 +218,7 @@ test("a package that can't be installed stops the Session, naming it", async () 
   expect(failed.error).toContain(`package ${missing} failed to install`);
 });
 
-test("a Session that failed to start starts again on retry", async () => {
+test("a Session that failed to start starts again on restart", async () => {
   const kit = join(root, "late-kit");
   const session = await sessionWith({ packages: [kit] });
 
@@ -237,23 +237,12 @@ test("a Session that failed to start starts again on retry", async () => {
   );
 
   const retried = await json<Session>(
-    server.api(`/api/sessions/${session.id}/retry`, { method: "POST" }),
+    server.api(`/api/sessions/${session.id}/restart`, { method: "POST" }),
   );
 
   expect(retried).toMatchObject({ status: "queued", error: null });
 
   await sessionUntil(session.id, ({ status }) => status === "idle");
-});
-
-test("only a failed Session can be retried", async () => {
-  const session = await sessionWith({});
-  await sessionUntil(session.id, ({ status }) => status === "idle");
-
-  const retried = await server.api(`/api/sessions/${session.id}/retry`, {
-    method: "POST",
-  });
-
-  expect(retried.status).toBe(409);
 });
 
 test("a machine deletes a deleted Profile's folder once its Sessions stop", async () => {
