@@ -1650,6 +1650,49 @@ test("checks several repositories out side by side on the session's branch", asy
   expect(again.checkouts).toEqual(checkouts);
 });
 
+test("moves a clone with uncommitted work next to a repository added to its Session", async () => {
+  const second = join(root, "second");
+  await repositoryAt(second);
+  const dir = join(root, "workspaces", "s1");
+
+  await prepareWorkspace(
+    { kind: "clone", repository, branch: "pipoca/s1" },
+    { dir, folders: [] },
+    noLog,
+  );
+
+  await writeFile(join(dir, "draft.txt"), "unsaved\n");
+
+  const { cwd, checkouts } = await prepareWorkspace(
+    {
+      kind: "repositories",
+      branch: "pipoca/s1",
+      repositories: [{ repository }, { repository: second }],
+    },
+    { dir, folders: [] },
+    noLog,
+  );
+
+  expect(cwd).toBe(dir);
+
+  expect(checkouts.map(({ path }) => path)).toEqual([
+    join(dir, "origin"),
+    join(dir, "second"),
+  ]);
+
+  expect(await readFile(join(dir, "origin", "draft.txt"), "utf8")).toBe(
+    "unsaved\n",
+  );
+
+  expect(await git(join(dir, "origin"), "branch", "--show-current")).toBe(
+    "pipoca/s1",
+  );
+
+  expect(await git(join(dir, "second"), "branch", "--show-current")).toBe(
+    "pipoca/s1",
+  );
+});
+
 test("fails several repositories only once every checkout has finished", async () => {
   const dir = join(root, "workspaces", "s1");
 

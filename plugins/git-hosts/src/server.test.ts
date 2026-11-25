@@ -665,6 +665,55 @@ test("sends no login for a host after the person disconnects it", async () => {
   expect((await t.session({ owner: person("pedro") })).gitLogins()).toEqual([]);
 });
 
+test("adds a repository to a Session Pi asked for, once the person says yes and the turn ends", async () => {
+  await using run = await start();
+  const { t } = run;
+
+  await connected(t);
+
+  const session = await t.session({
+    owner: person("pedro"),
+    workspace: {
+      kind: "clone",
+      repository: `https://${host}/acme/dotfiles.git`,
+    },
+  });
+
+  const docs = `https://${host}/acme/docs.git`;
+  const on = { session, answer: "allow" } as const;
+
+  expect(
+    await t.tool(
+      "git_hosts_add_repository",
+      { repository: docs },
+      { session, answer: "deny" },
+    ),
+  ).toEqual({ text: "The person said no.", isError: true });
+
+  await session.report([{ type: "status", status: "running" }]);
+
+  expect(
+    await t.tool("git_hosts_add_repository", { repository: docs }, on),
+  ).toMatchObject({ isError: false, endsTurn: true });
+
+  expect(
+    await t.tool("git_hosts_add_repository", { repository: docs }, on),
+  ).toMatchObject({
+    text: expect.stringContaining("repository_taken") as unknown,
+  });
+
+  await session.report([{ type: "status", status: "idle" }]);
+  await session.online(false);
+  await session.online(true);
+
+  expect(session.delivered().at(-1)).toMatchObject({
+    text: `Added ${docs} to the workspace, at ./docs. The repository the workspace held moved next to it, to ./dotfiles.`,
+    turn: true,
+  });
+
+  expect(session.gitLogins()).toEqual([{ host, token: goodToken }]);
+});
+
 test("refuses a token the host doesn't accept, saying so", async () => {
   await using run = await start();
   const { t } = run;

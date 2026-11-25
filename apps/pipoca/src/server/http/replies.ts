@@ -14,6 +14,11 @@ const rejections = {
   stale_generation: [409, "The Session has moved on since this was sent."],
   offline: [409, "The Session's runner is offline."],
   archived: [409, "The Session is archived."],
+  fixed_workspace: [
+    409,
+    "Only a Session in cloned repositories, or in no folder, takes in another repository.",
+  ],
+  repository_taken: [409, "The Session already has a repository of that name."],
   not_kept: [409, "The Session has no kept workspace to remove."],
   unknown_environment: [400, "There is no such Environment."],
   unreachable_host: [

@@ -66,6 +66,20 @@ export function sessionsFor(
     unarchive: (id) => {
       settle(sessions.unarchive(ownedHere(id)), "unarchived");
     },
+    addRepository: (id, repository) => {
+      const added = sessions.addRepository(
+        id,
+        repository,
+        `plugin:${plugin}`,
+        plugin,
+      );
+
+      if (!added.ok) {
+        throw new Error(`repository not added: ${added.reason}`);
+      }
+
+      return added.value;
+    },
     sees: (id, person) =>
       canSee({ id: person, admin: false }, sessions.owned(id)),
     steers: (id, person) =>

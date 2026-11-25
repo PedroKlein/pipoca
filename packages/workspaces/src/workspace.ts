@@ -66,6 +66,8 @@ export async function prepareWorkspace(
   const { dir, folders } = options;
   const { branch } = workspace;
 
+  await adoptClone(dir, workspace, log);
+
   const repositories = workspace.repositories.map((checkout) => ({
     ...checkout,
     path: checkoutPath(dir, checkout.repository),
@@ -107,6 +109,36 @@ export async function prepareWorkspace(
   );
 
   return { cwd: dir, checkouts };
+}
+
+// A clone that became the first of a repositories workspace's checkouts,
+// when a repository was added to its Session (ADR 0086), moves into its own
+// folder so the others go next to it. A move cut short finishes next time.
+async function adoptClone(
+  dir: string,
+  workspace: Extract<Workspace, { kind: "repositories" }>,
+  log: Log,
+): Promise<void> {
+  const [first] = workspace.repositories;
+  const moving = `${dir}.moving`;
+
+  if (first === undefined) {
+    return;
+  }
+
+  if (await exists(join(dir, ".git"))) {
+    await rename(dir, moving);
+  }
+
+  if (!(await exists(moving))) {
+    return;
+  }
+
+  const path = checkoutPath(dir, first.repository);
+
+  await mkdir(dir, { recursive: true });
+  await rename(moving, path);
+  log("clone moved next to the added repositories", { path });
 }
 
 async function dropWorkspace(
@@ -349,6 +381,8 @@ export async function removeWorkspace(
 
   const { dir, force, folders = [] } = options;
   const { branch } = workspace;
+
+  await adoptClone(dir, workspace, log);
 
   let remotes: Promise<ReadonlyMap<string, string>> | undefined;
 

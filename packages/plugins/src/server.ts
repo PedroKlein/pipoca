@@ -395,6 +395,10 @@ export interface Sessions {
   ) => readonly Session[];
   readonly archive: (id: string) => void;
   readonly unarchive: (id: string) => void;
+  // Clones a repository into the Session's workspace: it restarts once its
+  // turn ends, with its chat, and Pi then hears of it as a new turn (ADR
+  // 0086). Throws, saying why, when the workspace can't take it.
+  readonly addRepository: (id: string, repository: string) => Session;
   readonly sees: (id: string, person: string) => boolean;
   // Whether the person may act in it, such as by sending it a message.
   readonly steers: (id: string, person: string) => boolean;

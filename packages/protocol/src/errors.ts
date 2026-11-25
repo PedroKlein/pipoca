@@ -39,6 +39,8 @@ export const errorCodes = [
   "offline",
   "archived",
   "not_kept",
+  "fixed_workspace",
+  "repository_taken",
   "unknown_environment",
   "unreachable_host",
   "no_folders",

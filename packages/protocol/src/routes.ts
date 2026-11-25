@@ -95,7 +95,12 @@ import {
   work,
   workPoll,
 } from "./runner";
-import { forkedSession, session, type Session } from "./session";
+import {
+  forkedSession,
+  repositoryAddition,
+  session,
+  type Session,
+} from "./session";
 import { strings, textMap } from "./wire";
 
 const any = Type.Unknown();
@@ -1085,6 +1090,14 @@ export const routes = {
     method: "POST",
     path: "/api/sessions/:id/restart",
     auth: "person",
+    response: session,
+  },
+  // Clones a repository into a running Session's workspace (ADR 0086).
+  "sessions.repositories.create": {
+    method: "POST",
+    path: "/api/sessions/:id/repositories",
+    auth: "person",
+    body: repositoryAddition,
     response: session,
   },
   // Removes a workspace the runner kept, even when it would lose work.

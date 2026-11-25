@@ -54,7 +54,7 @@ import { questionReplies } from "./questions";
 import { setupRoutes } from "./setup";
 import { technicalUserRoutes } from "./technical-user-routes";
 import { isApp } from "./technical-users";
-import { type HostSearch, repositoriesTool } from "./tool";
+import { addRepositoryTool, type HostSearch, repositoriesTool } from "./tool";
 
 // GitHub sends at most 25 MB, but the events taken from a webhook are small.
 const maxHookBytes = 5 * 1024 * 1024;
@@ -276,6 +276,12 @@ export const server = defineServer(gitHosts, (context) => {
         owner === "team"
           ? teamSearch(query, only)
           : search(session.startedBy ?? "", query, only),
+    }),
+  );
+
+  context.tools.define(
+    addRepositoryTool((sessionId, repository) => {
+      context.sessions.addRepository(sessionId, repository);
     }),
   );
 
