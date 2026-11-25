@@ -21,6 +21,7 @@ Claude Code does more and asks for less. Its new-session composer has repository
 
 - The home screen stays the assistant ([ADR 0035](0035-meta-sessions.md)). New session opens a composer in place of the dialog: the prompt, then chips for where, start point, Environment and model with reasoning. Enter starts the Session.
 - The where chip is a searchable picker of recent folders and repositories, the checkouts the Environment's machines list, and a pasted repository URL. The workspace kind follows from the pick: a folder gets a worktree, a URL gets a clone, and two or more picks make a several-repositories workspace. "Share the folder" is a toggle inside the picker for a folder workspace.
+  - Amended 2026-11-25: picking nothing is allowed. The chip reads "No folder" and the Session works in an empty folder of its own, a several-repositories workspace with none.
 - The Environment chip and a Profile chip show only when there is more than one to choose from. Every chip starts from the choice made last time in this browser.
 - The model chip is the same picker the Session header uses, with reasoning in it. No model is typed by hand.
 

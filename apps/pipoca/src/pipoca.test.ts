@@ -5,6 +5,7 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  readdir,
   realpath,
   rm,
   stat,
@@ -3600,6 +3601,19 @@ test("checks several repositories out in one workspace and shows each one's chan
 
   expect(kept.workspaceRemoval).toBe("kept");
   expect((await stat(join(dir, "tools", "draft.txt"))).isFile()).toBe(true);
+});
+
+test("starts a Session with no folder or repository in an empty folder of its own", async () => {
+  const session = await createSession("laptop", {
+    kind: "repositories",
+    repositories: [],
+  });
+
+  await follow(session.id, status("idle"));
+
+  expect(await readdir(join(root, "laptop", "workspaces", session.id))).toEqual(
+    [],
+  );
 });
 
 test("rejects repositories that would share a folder", async () => {

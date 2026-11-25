@@ -1419,6 +1419,32 @@ test("starts a session with the task from the New session form", async () => {
     .waitFor();
 }, 30_000);
 
+test("starts a session in an empty folder when the New session form picks none", async () => {
+  faux.setResponses([fauxAssistantMessage([fauxText("blank slate")])]);
+  await page.goto(server.url.href);
+
+  await page.evaluate(() => {
+    localStorage.removeItem("pipoca.new-session");
+  });
+
+  await page.getByRole("button", { name: "New session" }).click();
+  const form = page.locator("form#create");
+
+  await form
+    .getByRole("button", { name: "Folder or repository" })
+    .filter({ hasText: "No folder" })
+    .waitFor();
+
+  const task = form.getByLabel("What should Pi do?");
+
+  await task.fill("Sketch an idea");
+  await task.press("Control+Enter");
+
+  await page
+    .locator('#chat li[data-role="assistant"]', { hasText: "blank slate" })
+    .waitFor();
+}, 30_000);
+
 test("keeps a setup step on home until it's done, and opens it from there", async () => {
   let phase: "none" | "no models" = "none";
 

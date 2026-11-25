@@ -200,7 +200,7 @@ export const workspace = Type.Union([
 export type Workspace = Wire<typeof workspace>;
 
 const distinctCheckouts = Type.Refine(
-  Type.Array(repositoryCheckout, { minItems: 1 }),
+  Type.Array(repositoryCheckout),
   (checkouts) => {
     const names = checkouts.map((c) => checkoutName(c.repository));
 
@@ -229,7 +229,7 @@ export const workspaceRequest = Type.Union(
   ],
   {
     description:
-      "A folder or worktree on a runner's machine (path), a clone of one repository, or several repositories side by side",
+      "A folder or worktree on a runner's machine (path), a clone of one repository, or several repositories side by side (none for an empty folder)",
   },
 );
 
