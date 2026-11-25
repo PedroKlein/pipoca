@@ -361,12 +361,6 @@ export function NewSessionForm({
       return;
     }
 
-    if (choices.where.length === 0) {
-      setError("Pick a folder or repository to work in.");
-
-      return;
-    }
-
     if (choices.where.length > 1 && !choices.where.every(isRepository)) {
       setError("Several repositories need their URLs, not folders.");
 
@@ -495,7 +489,7 @@ export function NewSessionForm({
           }}
         >
           {choices.where.length === 0 ? (
-            <span className="text-fg-dim">Pick a folder or repository</span>
+            <span className="text-fg-dim">No folder</span>
           ) : (
             choices.where.map(lastSegment).join(", ")
           )}
