@@ -496,7 +496,7 @@ export function SessionSection({
 }: {
   readonly name: string;
   // Where it sits, lowest first: Files 10, Changes 20, Subagents 30,
-  // Votes 40, About 90.
+  // Votes 40, Repositories 80, About 90.
   readonly order: number;
   readonly label: string;
   readonly icon: IconName;

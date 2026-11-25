@@ -55,6 +55,10 @@ A Session that couldn't start, such as when a package of its Profile didn't inst
 
 **Restart**, in a Session's menu, starts the same Session again on its machine, with its workspace and chat. Its new start gets what the server holds now, such as your Profile, the Environment's variables and fresh git logins. A turn Pi is on stops, so the menu asks first while one runs.
 
+## Add a repository
+
+The **Repositories** section of a Session's panel lists the repositories it works in. **Add repository** clones another one next to them, on the Session's branch, with the same picker as New session ([ADR 0086](../adr/0086-add-repositories-to-a-running-session.md)). The Session restarts with its chat to clone it, once Pi finishes the turn it is on, and its git logins then reach the new repository too. A Session that was a single clone gets a folder per repository: the first one moves into a folder named after it. Pi can ask for one itself with `git_hosts_add_repository`, which asks you first. A Session in a folder or worktree on your machine can't take in another repository.
+
 ## Come back later
 
 To come back to something later, such as CI that is still running, Pi schedules a wake-up with `schedule_wakeup` (the `routines` plugin, [ADR 0059](../adr/0059-routines-and-wake-ups.md)) instead of sleeping. At that time the Session gets Pi's message as a new turn, shown as **Woke up** with its reason. A wake-up is 1 minute to 30 days ahead, a Session has at most 10 pending and 48 a day, and archiving the Session cancels them. Pending wake-ups are listed above the composer, where you can cancel one.

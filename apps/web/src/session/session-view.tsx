@@ -24,6 +24,7 @@ import { Composer, type Replying } from "./composer/composer";
 import { prefillComposer } from "./composer/prefill";
 import { emptyFeed, type Feed, feedReader, followEvents } from "./feed";
 import { AboutSection, Header } from "./header";
+import { RepositoriesSection } from "./repositories";
 import { MoveDialog } from "./move-team";
 import { usePluginSections } from "./plugin-parts";
 import { PresenceLine, usePresence, useTyping } from "./presence";
@@ -186,6 +187,7 @@ export function SessionView({
             >
               <FilesMenu />
               {pluginSections}
+              <RepositoriesSection session={session} archived={archived} />
               <AboutSection feed={feed} environments={environments} />
               <Header
                 primary={primary}

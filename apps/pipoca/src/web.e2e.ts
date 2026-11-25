@@ -4029,6 +4029,51 @@ test("restarts a session from its menu as a new attempt", async () => {
   await page.locator("#status", { hasText: "idle" }).waitFor();
 });
 
+test("adds a repository to a session from its panel", async () => {
+  const response = await fetch(new URL("/api/sessions", server.url), {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie },
+    body: JSON.stringify({
+      workspace: {
+        kind: "clone",
+        repository: "https://git.example.com/team/handbook.git",
+      },
+    }),
+  });
+
+  const session = (await response.json()) as Session;
+
+  await page.goto(new URL(`/#${session.id}`, server.url).href);
+  await page.getByRole("button", { name: /^Repositories, 1/ }).click();
+
+  const panel = page.getByRole("complementary", { name: "Session" });
+
+  await panel.getByText("handbook", { exact: true }).waitFor();
+  await panel.getByRole("button", { name: "Add repository" }).click();
+
+  const search = page.getByRole("combobox", { name: "Add repository" });
+
+  await search.fill("https://git.example.com/team/docs.git");
+  await search.press("Enter");
+  await search.press("Escape");
+
+  await panel.getByText("docs", { exact: true }).waitFor();
+
+  const stored = (await (
+    await fetch(new URL(`/api/sessions/${session.id}`, server.url), {
+      headers: { cookie },
+    })
+  ).json()) as Session;
+
+  expect(stored.workspace).toMatchObject({
+    kind: "repositories",
+    repositories: [
+      { repository: "https://git.example.com/team/handbook.git" },
+      { repository: "https://git.example.com/team/docs.git" },
+    ],
+  });
+});
+
 test("archives a session, shows it only with archived sessions and unarchives it", async () => {
   await page.goto(server.url.href);
 

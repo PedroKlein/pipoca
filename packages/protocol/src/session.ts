@@ -105,6 +105,10 @@ function holdsCredentials(repository: string): boolean {
   );
 }
 
+// A repository a Session's workspace takes in while it runs, next to the
+// ones it has.
+export const repositoryAddition = Type.Object({ repository: repositoryUrl });
+
 const repositoryCheckout = Type.Object({
   repository: repositoryUrl,
   startPoint: Type.Optional(startPoint),

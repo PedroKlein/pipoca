@@ -1809,6 +1809,84 @@ test("runs a session in a fresh clone on the server's own provider", async () =>
   expect(output).toContain(`branch=${branch}`);
 });
 
+test("clones a repository added to a running session next to its first, keeping its chat", async () => {
+  await server.close();
+  server = startServer("cloud");
+  const repository = await gitRepository();
+  const docs = join(root, "docs.git");
+  await promisify(execFile)("git", ["clone", "--bare", repository, docs]);
+  const session = await createSession("cloud", { kind: "clone", repository });
+  const branch = `pipoca/${session.id.slice(-8)}`;
+  await follow(session.id, status("idle"));
+
+  const added = (await (
+    await server.api(`/api/sessions/${session.id}/repositories`, {
+      body: { repository: docs },
+    })
+  ).json()) as Session;
+
+  expect(added.workspace).toEqual({
+    kind: "repositories",
+    branch,
+    repositories: [{ repository }, { repository: docs }],
+  });
+
+  await follow(session.id, (events) =>
+    events.some(
+      (e) =>
+        e.type === "session" &&
+        e.session.generation === 2 &&
+        e.session.status === "idle",
+    ),
+  );
+
+  const terminal = await openTerminal(session.id);
+
+  terminal.socket.send(
+    encoder.encode(
+      "echo found=$(ls | tr '\\n' ,) branch=$(git -C docs branch --show-current) sum=$((40+2))\n",
+    ),
+  );
+
+  const output = await terminal.output("sum=42");
+
+  expect(output).toContain("found=docs,origin,");
+  expect(output).toContain(`branch=${branch}`);
+
+  const again = await server.api(`/api/sessions/${session.id}/repositories`, {
+    body: { repository: docs },
+  });
+
+  expect(again.status).toBe(409);
+
+  faux.setResponses([
+    (context) =>
+      fauxAssistantMessage([
+        fauxText(
+          JSON.stringify(context.messages).includes(
+            `Added ${docs} to the workspace, at ./docs.`,
+          )
+            ? "knows about docs"
+            : "unaware",
+        ),
+      ]),
+  ]);
+
+  await server.api(`/api/sessions/${session.id}/commands`, {
+    body: { type: "message", text: "where is it?" },
+  });
+
+  const replay = await follow(session.id, (events) =>
+    roles(events).includes("assistant"),
+  );
+
+  expect(
+    replay.some(
+      (e) => e.type === "entry" && e.entry.includes("knows about docs"),
+    ),
+  ).toBe(true);
+});
+
 test("fails a fork of a clone session whose branch isn't pushed", async () => {
   await server.close();
   server = startServer("cloud");

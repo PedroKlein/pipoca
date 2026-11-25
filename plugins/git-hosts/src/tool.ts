@@ -124,3 +124,43 @@ function listing(found: readonly HostSearch[], query: string): string {
       : []),
   ].join("\n");
 }
+
+const additionParams = Type.Object({
+  repository: Type.String({
+    description:
+      "The repository's clone URL, as git_hosts_repositories gives it",
+  }),
+});
+
+// Lets an agent bring another repository into its own Session, after the
+// person says yes, the way they would from the Session's panel (ADR 0086).
+export function addRepositoryTool(
+  add: (sessionId: string, repository: string) => void,
+): ToolDef<typeof additionParams> {
+  return {
+    name: "git_hosts_add_repository",
+    description:
+      "Clone another repository into this Session's workspace, next to the ones it has, on this Session's branch. The user is asked first. When this turn ends the Session restarts with the same chat so git and gh can reach it, and you continue in a new turn that says where it is. Find its URL with git_hosts_repositories first.",
+    params: additionParams,
+    when: {
+      owner: "any",
+      available: ({ workspace }) =>
+        workspace.kind === "clone" || workspace.kind === "repositories",
+    },
+    exposure: "direct",
+    asks: ({ repository }) =>
+      `Add ${repository} to this Session? It restarts with the same chat once this turn ends.`,
+    run: ({ repository }, { session }) => {
+      try {
+        add(session.id, repository.trim());
+      } catch (error) {
+        return `Couldn't add ${repository}: ${error instanceof Error ? error.message : String(error)}`;
+      }
+
+      return {
+        text: `Adding ${repository}. End your turn now: the Session restarts with this chat, clones it, and you continue in a new turn that says where it is.`,
+        endsTurn: true,
+      };
+    },
+  };
+}

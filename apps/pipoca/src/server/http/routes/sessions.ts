@@ -290,6 +290,21 @@ export function sessionRoutes({
 
       return restarted;
     },
+    "sessions.repositories.create": ({
+      params: { id },
+      body: { repository },
+      caller,
+    }) => {
+      reached(id, caller, canSteer);
+
+      const added = ok(
+        sessions.addRepository(id, repository, `user:${caller.id}`),
+      );
+
+      log("repository added to session", { sessionId: id, repository });
+
+      return added;
+    },
     "sessions.workspace.remove": ({ params: { id }, caller }) => {
       reached(id, caller, canManage);
 

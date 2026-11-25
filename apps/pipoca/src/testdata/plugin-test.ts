@@ -847,9 +847,14 @@ export async function pluginTest(
         throw new Error("not a tool result");
       }
 
-      const { text, isError, details } = answered.result;
+      const { text, isError, details, endsTurn } = answered.result;
 
-      return { text, isError, ...(details !== undefined && { details }) };
+      return {
+        text,
+        isError,
+        ...(details !== undefined && { details }),
+        ...(endsTurn === true && { endsTurn }),
+      };
     },
     emit: (event) => {
       events.publish(event);

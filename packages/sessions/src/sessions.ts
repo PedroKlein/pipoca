@@ -35,6 +35,7 @@ import {
   type Work,
   type Workspace,
   type WorkspaceRequest,
+  checkoutName,
 } from "@pipoca/protocol";
 import {
   contentFiles,
@@ -202,6 +203,8 @@ export type Rejection =
   | "offline"
   | "archived"
   | "not_kept"
+  | "fixed_workspace"
+  | "repository_taken"
   | "unknown_environment"
   | "unreachable_host"
   | "no_folders"
@@ -302,6 +305,10 @@ export class Sessions {
   >();
   readonly #requestIds = new Map<string, Set<string>>();
   readonly #held = new Map<string, Command[]>();
+  // A restart that waits for the Session's turn to end, such as after a
+  // repository was added. A server restart forgets it, and the Session
+  // clones the repository at its next start.
+  readonly #restartAfterTurn = new Map<string, () => void>();
   readonly #outbox: Outbox;
   readonly #hostedGeneration = new Map<string, number>();
   readonly #surfaces = new Map<
@@ -992,10 +999,71 @@ export class Sessions {
 
     const queued: StoredSession = { ...session, status: "queued", error: null };
 
+    // What is sent from here on waits for the new attempt.
+    this.#hosts.get(id)?.end();
+    this.#hosts.delete(id);
+    this.#hostedGeneration.delete(id);
     this.#update(queued);
     this.#environments.wake(session.provider);
 
     return { ok: true, value: this.#view(queued) };
+  }
+
+  // Adds a repository to a Session's workspace and restarts it once its turn
+  // ends, so its runner clones it in and its git logins reach it. Pi hears of
+  // it when the Session starts again, as a new turn when a plugin's tool
+  // added it for Pi.
+  addRepository(
+    id: string,
+    repository: string,
+    actor: Actor,
+    plugin?: string,
+  ): Result<Session> {
+    const session = this.#store.get(id);
+    if (!session) {
+      return { ok: false, reason: "not_found" };
+    }
+
+    if (session.archivedAt !== null) {
+      return { ok: false, reason: "archived" };
+    }
+
+    const added = withRepository(session.workspace, repository);
+    if (!added.ok) {
+      return added;
+    }
+
+    const updated: StoredSession = { ...session, workspace: added.value };
+
+    this.#update(updated);
+
+    const restart = (): void => {
+      this.restart(id);
+
+      const text = addedText(session.workspace, repository);
+
+      this.#outbox.enqueue(
+        id,
+        plugin === undefined
+          ? { kind: "context", text, actor }
+          : {
+              kind: "notice",
+              text,
+              notice: { kind: "repository-added", data: { repository } },
+              turn: true,
+              plugin,
+              actor,
+            },
+      );
+    };
+
+    if (session.status === "running") {
+      this.#restartAfterTurn.set(id, restart);
+    } else {
+      restart();
+    }
+
+    return { ok: true, value: this.#view(this.#store.get(id) ?? updated) };
   }
 
   forceRemoval(id: string): Result<Session> {
@@ -1299,6 +1367,13 @@ export class Sessions {
       }
 
       this.#emit(id, { type: "live", event });
+    }
+
+    const restart = this.#restartAfterTurn.get(id);
+
+    if (restart !== undefined && session.status !== "running") {
+      this.#restartAfterTurn.delete(id);
+      restart();
     }
 
     return { ok: true, value: undefined };
@@ -2309,4 +2384,63 @@ function freshWorkspace(workspace: Workspace): WorkspaceRequest | undefined {
     case "worktree":
       return undefined;
   }
+}
+
+// A workspace with the repository next to its others: a clone becomes the
+// first of its repositories, in a folder of its own, and an empty one (no
+// folder) gets its first.
+function withRepository(
+  workspace: Workspace,
+  repository: string,
+): Result<Workspace> {
+  const name = checkoutName(repository);
+
+  if (workspace.kind === "folder" || workspace.kind === "worktree") {
+    return { ok: false, reason: "fixed_workspace" };
+  }
+
+  const { branch } = workspace;
+
+  const repositories =
+    workspace.kind === "clone"
+      ? [
+          {
+            repository: workspace.repository,
+            ...(workspace.startPoint !== undefined && {
+              startPoint: workspace.startPoint,
+            }),
+            ...(workspace.forked !== undefined && { forked: workspace.forked }),
+            ...(workspace.restorePoint !== undefined && {
+              restorePoint: workspace.restorePoint,
+            }),
+            ...(workspace.branchConfig !== undefined && {
+              branchConfig: workspace.branchConfig,
+            }),
+          },
+        ]
+      : workspace.repositories;
+
+  if (
+    name === undefined ||
+    repositories.some((each) => checkoutName(each.repository) === name)
+  ) {
+    return { ok: false, reason: "repository_taken" };
+  }
+
+  return {
+    ok: true,
+    value: {
+      kind: "repositories",
+      branch,
+      repositories: [...repositories, { repository }],
+    },
+  };
+}
+
+function addedText(before: Workspace, repository: string): string {
+  const added = `Added ${repository} to the workspace, at ./${checkoutName(repository) ?? ""}.`;
+
+  return before.kind === "clone"
+    ? `${added} The repository the workspace held moved next to it, to ./${checkoutName(before.repository) ?? ""}.`
+    : added;
 }
